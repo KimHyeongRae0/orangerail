@@ -46,17 +46,30 @@ for g in check-no-llm.sh check-templates.sh check-references.sh; do
   fi
 done
 
-# ---- AC-1: verify.sh passes with the empty-workspace banner ----
+# ---- AC-1: verify.sh passes; the empty-workspace banner appears IFF no package
+# exists yet. ONT-002 activates the pnpm workspace (first packages/*/package.json),
+# which by design ends empty-workspace mode and runs the Node steps for real — so
+# this check keys on workspace state to stay correct across that transition.
 VOUT="$(./scripts/verify.sh 2>&1)"; VRC=$?
 if [[ $VRC -eq 0 ]]; then
   pass "verify.sh exits 0"
 else
   fail "verify.sh exit $VRC (expected 0)"
 fi
-if printf '%s' "$VOUT" | grep -q 'EMPTY-WORKSPACE MODE'; then
-  pass "verify.sh prints the empty-workspace warning banner"
+WORKSPACE_ACTIVE=0
+for p in packages/*/package.json; do [[ -f "$p" ]] && { WORKSPACE_ACTIVE=1; break; }; done
+if [[ "$WORKSPACE_ACTIVE" -eq 1 ]]; then
+  if printf '%s' "$VOUT" | grep -q 'EMPTY-WORKSPACE MODE'; then
+    fail "verify.sh still prints the empty-workspace banner despite an active workspace"
+  else
+    pass "verify.sh runs the Node steps live (no empty-workspace banner — workspace active)"
+  fi
 else
-  fail "verify.sh output lacks the empty-workspace warning banner"
+  if printf '%s' "$VOUT" | grep -q 'EMPTY-WORKSPACE MODE'; then
+    pass "verify.sh prints the empty-workspace warning banner"
+  else
+    fail "verify.sh output lacks the empty-workspace warning banner"
+  fi
 fi
 
 # ---- AC-2: gate self-test passes ----
