@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a defect in orangerail
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report. Keep each field short and specific.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: orangerail version (or commit SHA) where you saw this.
+      placeholder: 0.0.1
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Minimal steps or a snippet. A failing test is ideal.
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Node version, package manager.
+      placeholder: macOS 15, Node 20, pnpm 9
+    validations:
+      required: false

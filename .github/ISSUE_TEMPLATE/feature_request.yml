@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a capability or change for orangerail
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Propose one focused change. Keep each field short and specific.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The concrete problem this would solve.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The capability or API you want, ideally with a small example.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - core
+        - cli
+        - mcp
+        - studio
+        - docs-gen
+        - other
+    validations:
+      required: true

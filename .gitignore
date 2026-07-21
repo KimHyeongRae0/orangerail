@@ -1,0 +1,4 @@
+.docs/scratch/
+.docs/state/
+node_modules/
+dist/
