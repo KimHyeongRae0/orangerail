@@ -1,0 +1,417 @@
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  type CallToolResult,
+} from '@modelcontextprotocol/sdk/types.js';
+
+import {
+  createEngine,
+  resolveCaller,
+  type ExecuteResult,
+  type Identity,
+  type ObjectDefinition,
+  type RedactAudit,
+  type Registry,
+  type ResolveIdentity,
+  type RuntimeAction,
+  type StageResult,
+  type Store,
+} from 'orangerail-core';
+
+import { validateToolName } from './names';
+import { deriveInputSchema, type JsonSchema } from './schema';
+
+/** Runtime preset controlling which tools are exposed and the engine mode (§3.6). */
+export type McpPreset = 'readonly' | 'sandbox' | 'approval-for-writes';
+
+/** Arguments to {@link createMcpServer}. */
+export interface CreateMcpServerArgs {
+  registry: Registry;
+  store: Store;
+  resolveIdentity?: ResolveIdentity;
+  preset?: McpPreset;
+  redactAudit?: RedactAudit;
+}
+
+type ToolDef =
+  | {
+      kind: 'get';
+      name: string;
+      description: string;
+      inputSchema: JsonSchema;
+      object: ObjectDefinition;
+    }
+  | {
+      kind: 'list';
+      name: string;
+      description: string;
+      inputSchema: JsonSchema;
+      object: ObjectDefinition;
+    }
+  | {
+      kind: 'action';
+      name: string;
+      description: string;
+      inputSchema: JsonSchema;
+      action: RuntimeAction;
+    }
+  | { kind: 'check'; name: string; description: string; inputSchema: JsonSchema };
+
+/** Every tool handler returns an MCP `CallToolResult` (content + structured). */
+type ToolResult = CallToolResult;
+
+const text = ({ value }: { value: string }): { type: 'text'; text: string }[] => [
+  { type: 'text', text: value },
+];
+
+const ok = ({
+  message,
+  structured,
+}: {
+  message: string;
+  structured: Record<string, unknown>;
+}): ToolResult => ({ content: text({ value: message }), structuredContent: structured });
+
+const err = ({
+  status,
+  message,
+  extra,
+}: {
+  status: string;
+  message: string;
+  extra?: Record<string, unknown>;
+}): ToolResult => ({
+  content: text({ value: message }),
+  isError: true,
+  structuredContent: { status, ...(extra ?? {}) },
+});
+
+/** Build the tool table; validates names and rejects collisions at build time. */
+const buildTools = ({ registry, preset }: { registry: Registry; preset: McpPreset }): ToolDef[] => {
+  const tools: ToolDef[] = [];
+  const seen = new Set<string>();
+
+  const add = ({ tool }: { tool: ToolDef }): void => {
+    validateToolName({ name: tool.name });
+
+    if (seen.has(tool.name)) {
+      throw new Error(`duplicate MCP tool name: "${tool.name}"`);
+    }
+
+    seen.add(tool.name);
+    tools.push(tool);
+  };
+
+  for (const object of registry.listObjects()) {
+    if (!object.resolve) {
+      continue;
+    }
+
+    add({
+      tool: {
+        kind: 'get',
+        name: `${object.name}_get`,
+        description: `Fetch a single ${object.name} by id.`,
+        inputSchema: {
+          type: 'object',
+          properties: { id: { type: 'string' } },
+          required: ['id'],
+          additionalProperties: false,
+        },
+        object,
+      },
+    });
+
+    if (object.resolve.list) {
+      add({
+        tool: {
+          kind: 'list',
+          name: `${object.name}_list`,
+          description: `List ${object.name} records.`,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              filter: { type: 'object' },
+              cursor: { type: 'string' },
+              limit: { type: 'number' },
+            },
+            additionalProperties: false,
+          },
+          object,
+        },
+      });
+    }
+  }
+
+  if (preset !== 'readonly') {
+    for (const action of registry.listActions()) {
+      const governed = action.policy?.approval === 'required';
+
+      add({
+        tool: {
+          kind: 'action',
+          name: action.name,
+          description: governed
+            ? `Stage the "${action.name}" action for human approval.`
+            : `Run the "${action.name}" action.`,
+          inputSchema: deriveInputSchema({ schema: action.input }),
+          action,
+        },
+      });
+    }
+
+    add({
+      tool: {
+        kind: 'check',
+        name: 'check_approval',
+        description:
+          'Check a staged approval by id; when approved, completes execution and returns the result.',
+        inputSchema: {
+          type: 'object',
+          properties: { approvalId: { type: 'string' } },
+          required: ['approvalId'],
+          additionalProperties: false,
+        },
+      },
+    });
+  }
+
+  return tools;
+};
+
+const mapStage = ({ result }: { result: StageResult }): ToolResult => {
+  switch (result.status) {
+    case 'approval_pending':
+      return ok({
+        message: `Action staged for human approval. Poll check_approval with approvalId "${result.approvalId}" once a human decides.`,
+        structured: { status: 'approval_pending', approvalId: result.approvalId },
+      });
+    case 'executed':
+      return ok({
+        message: JSON.stringify(result.result),
+        structured: { status: 'executed', result: result.result },
+      });
+    case 'dry_run':
+      return ok({
+        message: 'Dry-run recorded (sandbox preset) — no execution occurred.',
+        structured: { status: 'dry_run' },
+      });
+    case 'not_implemented':
+      return err({ status: 'not_implemented', message: 'This action is not implemented.' });
+    case 'denied':
+      return err({ status: 'denied', message: 'Staging denied: anonymous caller (deny-first).' });
+    case 'not_found':
+      return err({ status: 'not_found', message: 'Action not found.' });
+    case 'invalid_input':
+      return err({
+        status: 'invalid_input',
+        message: 'Input failed schema validation.',
+        extra: { issues: result.issues },
+      });
+    case 'rejected_where':
+      return err({ status: 'rejected_where', message: 'Precondition (where) not satisfied.' });
+    case 'resolve_error':
+      return err({ status: 'resolve_error', message: result.error });
+    case 'condition_changed':
+      return err({ status: 'condition_changed', message: 'Target changed since staging.' });
+    case 'invalidated':
+      return err({
+        status: 'invalidated',
+        message: `Invalidated (${result.reason}).`,
+        extra: { reason: result.reason },
+      });
+    case 'audit_blocked':
+      return err({ status: 'audit_blocked', message: result.error });
+    case 'failed':
+      return err({ status: 'failed', message: result.error });
+    case 'consume_failed':
+      return err({ status: 'consume_failed', message: `Consume failed (${result.reason}).` });
+    default:
+      return err({ status: 'error', message: 'Unexpected stage result.' });
+  }
+};
+
+const mapExecute = ({ result }: { result: ExecuteResult }): ToolResult => {
+  switch (result.status) {
+    case 'executed':
+      return ok({
+        message: JSON.stringify(result.result),
+        structured: { status: 'executed', result: result.result },
+      });
+    case 'consume_failed':
+      return result.reason === 'already_consumed'
+        ? ok({ message: 'Already executed (consumed).', structured: { status: 'consumed' } })
+        : err({ status: 'consume_failed', message: `Consume failed (${result.reason}).` });
+    case 'invalidated':
+      return err({
+        status: 'invalidated',
+        message: `Invalidated (${result.reason}).`,
+        extra: { reason: result.reason },
+      });
+    case 'condition_changed':
+      return err({ status: 'condition_changed', message: 'Target changed since approval.' });
+    case 'resolve_error':
+      return err({ status: 'resolve_error', message: result.error });
+    case 'audit_blocked':
+      return err({ status: 'audit_blocked', message: result.error });
+    case 'failed':
+      return err({ status: 'failed', message: result.error });
+    default:
+      return err({ status: 'error', message: 'Unexpected execute result.' });
+  }
+};
+
+/**
+ * Generate a governed MCP server from an ontology registry (AC-2, §3.2).
+ *
+ * Uses the low-level `Server` with explicit `tools/list` + `tools/call`
+ * handlers (NOT `McpServer.registerTool`, NOT experimental tasks): input
+ * validation stays in exactly one place — the engine — so there is no
+ * double-parse drift. Read objects with `resolve` become `<name>_get` /
+ * `<name>_list` tools (`authenticated` objects deny anonymous callers); each
+ * action becomes a tool that stages through the engine; `check_approval` is the
+ * re-check surface that runs `engine.execute` IN THIS PROCESS once approved.
+ *
+ * Presets: `readonly` (no action tools, no check_approval), `sandbox` (engine
+ * dry-run mode), `approval-for-writes` (default; actions as declared).
+ */
+export const createMcpServer = ({
+  registry,
+  store,
+  resolveIdentity,
+  preset = 'approval-for-writes',
+  redactAudit,
+}: CreateMcpServerArgs): { server: Server; serve: () => Promise<void> } => {
+  const engine = createEngine({
+    registry,
+    store,
+    mode: preset === 'sandbox' ? 'dry_run' : 'live',
+    ...(redactAudit ? { redactAudit } : {}),
+  });
+
+  const idConfig = {
+    transport: 'stdio' as const,
+    allowDevMode: true,
+    ...(resolveIdentity ? { resolveIdentity } : {}),
+  };
+
+  const tools = buildTools({ registry, preset });
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+
+  const server = new Server(
+    { name: 'orangerail', version: '0.0.0' },
+    { capabilities: { tools: {} } },
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    })),
+  }));
+
+  const handleGet = async ({
+    object,
+    args,
+    caller,
+  }: {
+    object: ObjectDefinition;
+    args: Record<string, unknown>;
+    caller: Identity | null;
+  }): Promise<ToolResult> => {
+    if (object.readAccess === 'authenticated' && caller === null) {
+      return err({ status: 'denied', message: 'Authentication required to read this object.' });
+    }
+
+    const id = String(args['id'] ?? '');
+    const result = await object.resolve?.get({ id });
+
+    if (result === null || result === undefined) {
+      return err({ status: 'not_found', message: `No ${object.name} with id "${id}".` });
+    }
+
+    return ok({ message: JSON.stringify(result), structured: { status: 'ok', object: result } });
+  };
+
+  const handleList = async ({
+    object,
+    args,
+    caller,
+  }: {
+    object: ObjectDefinition;
+    args: Record<string, unknown>;
+    caller: Identity | null;
+  }): Promise<ToolResult> => {
+    if (object.readAccess === 'authenticated' && caller === null) {
+      return err({ status: 'denied', message: 'Authentication required to list this object.' });
+    }
+
+    const listArgs = {
+      ...(args['filter'] !== undefined
+        ? { filter: args['filter'] as Record<string, unknown> }
+        : {}),
+      ...(args['cursor'] !== undefined ? { cursor: String(args['cursor']) } : {}),
+      ...(args['limit'] !== undefined ? { limit: Number(args['limit']) } : {}),
+    };
+    const result = await object.resolve?.list?.(listArgs);
+
+    return ok({
+      message: JSON.stringify(result ?? { items: [] }),
+      structured: { status: 'ok', ...(result ?? { items: [] }) },
+    });
+  };
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const tool = byName.get(request.params.name);
+    if (!tool) {
+      return err({ status: 'unknown_tool', message: `Unknown tool: ${request.params.name}` });
+    }
+
+    const args = (request.params.arguments ?? {}) as Record<string, unknown>;
+    const caller = await resolveCaller({ config: idConfig });
+
+    if (tool.kind === 'get') {
+      return handleGet({ object: tool.object, args, caller });
+    }
+    if (tool.kind === 'list') {
+      return handleList({ object: tool.object, args, caller });
+    }
+    if (tool.kind === 'action') {
+      return mapStage({
+        result: await engine.stage({ actionName: tool.action.name, input: args, caller }),
+      });
+    }
+
+    // check_approval
+    const approvalId = String(args['approvalId'] ?? '');
+    const record = await store.getApproval({ id: approvalId });
+
+    if (!record) {
+      return err({ status: 'not_found', message: `No approval with id "${approvalId}".` });
+    }
+    if (record.status === 'pending') {
+      return ok({ message: 'Still pending human approval.', structured: { status: 'pending' } });
+    }
+    if (record.status === 'rejected') {
+      return ok({
+        message: 'Approval was rejected; a new staging is required.',
+        structured: { status: 'rejected' },
+      });
+    }
+    if (record.status === 'consumed') {
+      return ok({ message: 'Already executed (consumed).', structured: { status: 'consumed' } });
+    }
+
+    return mapExecute({ result: await engine.execute({ approvalId }) });
+  });
+
+  const serve = async (): Promise<void> => {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+  };
+
+  return { server, serve };
+};

@@ -1,0 +1,28 @@
+{
+  "name": "orangerail",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "orangerail cli (npm bin `orangerail`): approvals list/show/approve/reject, audit verify, store unlock, mcp server launcher",
+  "bin": {
+    "orangerail": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsup"
+  },
+  "dependencies": {
+    "orangerail-core": "workspace:*",
+    "orangerail-mcp": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "zod": "^3.23.0"
+  }
+}

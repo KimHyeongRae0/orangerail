@@ -35,7 +35,10 @@ const readAll = async ({ store }: { store: Store }): Promise<AuditRecord[]> => {
  *   mismatch means the record was tampered with;
  * - every `execution_started` must have a matching `succeeded`/`failed` for the
  *   same approval — a gap means an incomplete execution (side effect without a
- *   terminal record). An empty store verifies.
+ *   terminal record);
+ * - every `consumed` approval must have an `execution_started` record — a gap
+ *   means a crash between `consumeApproval` and the audit append (§3.2 third
+ *   check, AC-5). An empty store verifies.
  */
 export const verifyAudit = async ({ store }: { store: Store }): Promise<AuditVerifyResult> => {
   const records = await readAll({ store });
@@ -76,6 +79,34 @@ export const verifyAudit = async ({ store }: { store: Store }): Promise<AuditVer
   for (const approvalId of started) {
     if (!finished.has(approvalId)) {
       issues.push(`incomplete execution for approval ${approvalId}: started but never finished`);
+    }
+  }
+
+  // A consumed approval is accounted-for once execute has appended ANY of its
+  // post-consume outcomes (execution_started, or a pre-execute abort:
+  // invalidated / condition_changed / resolve_error). A consumed approval with
+  // none of these is a crash between consumeApproval and that append (§3.2).
+  const accounted = new Set<string>();
+  for (const record of records) {
+    if (record.approvalId === undefined) {
+      continue;
+    }
+    if (
+      record.phase === 'execution_started' ||
+      record.phase === 'invalidated' ||
+      record.phase === 'condition_changed' ||
+      record.phase === 'resolve_error'
+    ) {
+      accounted.add(record.approvalId);
+    }
+  }
+
+  const approvals = await store.listApprovals();
+  for (const approval of approvals) {
+    if (approval.status === 'consumed' && !accounted.has(approval.id)) {
+      issues.push(
+        `orphaned consumed approval ${approval.id}: consumed but no post-consume audit record`,
+      );
     }
   }
 

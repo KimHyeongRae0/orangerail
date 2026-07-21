@@ -1,8 +1,19 @@
+import { isNotImplemented } from '../define/action';
 import { authorizeApprover } from '../identity/contract';
 import { evaluateWhere } from '../policy/where';
 import type { Registry } from '../registry';
 import type { ApprovalRecord, AuditInput, AuditPhase, Store } from '../store/contract';
 import type { Identity, RuntimeAction } from '../types';
+
+/** Engine execution mode (§3.6). `dry_run` powers the sandbox preset. */
+export type EngineMode = 'live' | 'dry_run';
+
+/**
+ * Audit-only input masking hook (§3.9). Applied to `input` on audit records
+ * ONLY — approval records persist verbatim (approve-what-you-execute). Never
+ * called against the payload the engine actually executes.
+ */
+export type RedactAudit = (args: { actionName: string; input: unknown }) => unknown;
 
 /** Result of {@link Engine.execute} (also folded into {@link StageResult} for auto actions). */
 export type ExecuteResult =
@@ -21,6 +32,8 @@ export type StageResult =
   | { status: 'not_found' }
   | { status: 'invalid_input'; issues: unknown }
   | { status: 'rejected_where' }
+  | { status: 'dry_run' }
+  | { status: 'not_implemented' }
   | ExecuteResult;
 
 /** Result of {@link Engine.approve}. */
@@ -49,7 +62,17 @@ type WhereCheck = { kind: 'pass' } | { kind: 'fail' } | { kind: 'resolve_error';
  * exposes stage / approve / reject / execute. The execute wrapper owns the six
  * ordered steps and the fail-closed audit invariant — it is never bypassed.
  */
-export const createEngine = ({ registry, store }: { registry: Registry; store: Store }) => {
+export const createEngine = ({
+  registry,
+  store,
+  mode = 'live',
+  redactAudit,
+}: {
+  registry: Registry;
+  store: Store;
+  mode?: EngineMode;
+  redactAudit?: RedactAudit;
+}) => {
   const mkAudit = ({
     phase,
     actionName,
@@ -70,18 +93,25 @@ export const createEngine = ({ registry, store }: { registry: Registry; store: S
     result?: unknown;
     error?: string | undefined;
     devMode?: boolean | undefined;
-  }): AuditInput => ({
-    phase,
-    actionName,
-    timestamp: new Date().toISOString(),
-    ...(approvalId !== undefined ? { approvalId } : {}),
-    ...(requestedBy !== undefined ? { requestedBy } : {}),
-    ...(approver !== undefined ? { approver } : {}),
-    ...(input !== undefined ? { input } : {}),
-    ...(result !== undefined ? { result } : {}),
-    ...(error !== undefined ? { error } : {}),
-    ...(devMode !== undefined ? { devMode } : {}),
-  });
+  }): AuditInput => {
+    // Redaction applies to audit-record input ONLY (§3.9) — never to the
+    // approval record, which the engine re-parses and executes verbatim.
+    const auditInput =
+      input !== undefined && redactAudit ? redactAudit({ actionName, input }) : input;
+
+    return {
+      phase,
+      actionName,
+      timestamp: new Date().toISOString(),
+      ...(approvalId !== undefined ? { approvalId } : {}),
+      ...(requestedBy !== undefined ? { requestedBy } : {}),
+      ...(approver !== undefined ? { approver } : {}),
+      ...(auditInput !== undefined ? { input: auditInput } : {}),
+      ...(result !== undefined ? { result } : {}),
+      ...(error !== undefined ? { error } : {}),
+      ...(devMode !== undefined ? { devMode } : {}),
+    };
+  };
 
   const fetchTarget = async ({
     action,
@@ -238,6 +268,41 @@ export const createEngine = ({ registry, store }: { registry: Registry; store: S
       return { status: 'rejected_where' };
     }
 
+    // notImplemented stub (§3.7): rejected at staging, before any approval
+    // record exists — routing a stub through approval would burn approver
+    // attention on an action that can never run. Audited, then actionable
+    // feedback to the agent.
+    if (isNotImplemented({ execute: action.execute })) {
+      await store.appendAudit({
+        record: mkAudit({
+          phase: 'not_implemented',
+          actionName,
+          requestedBy: caller.subject,
+          input: parsedInput,
+          devMode: caller.devMode,
+        }),
+      });
+
+      return { status: 'not_implemented' };
+    }
+
+    // Sandbox dry-run (§3.6): identical path through auth/input/where, then a
+    // terminal `dry_run` audit record instead of createApproval/execute — the
+    // real approval flow is exercised by the approval-for-writes preset.
+    if (mode === 'dry_run') {
+      await store.appendAudit({
+        record: mkAudit({
+          phase: 'dry_run',
+          actionName,
+          requestedBy: caller.subject,
+          input: parsedInput,
+          devMode: caller.devMode,
+        }),
+      });
+
+      return { status: 'dry_run' };
+    }
+
     // Auto action (no approval gate): run through the same audited wrapper.
     if (action.policy?.approval !== 'required') {
       return runExecute({
@@ -259,6 +324,7 @@ export const createEngine = ({ registry, store }: { registry: Registry; store: S
         input: parsedInput,
         signatureHash: action.signatureHash,
         requestedBy: caller.subject,
+        requestedByRoles: [...caller.roles],
         devMode: caller.devMode === true,
       },
     });
@@ -370,9 +436,12 @@ export const createEngine = ({ registry, store }: { registry: Registry; store: S
     const record = consume.record;
     const action = registry.getAction({ name: record.actionName });
 
+    // Reconstruct the SAME identity that staged (§3.8): persisted roles, not
+    // an empty set — a functional `where` reading `identity.roles` evaluates
+    // identically at staging and re-eval (closes the ONT-002 drift).
     const executeIdentity: Identity = {
       subject: record.requestedBy,
-      roles: [],
+      roles: [...record.requestedByRoles],
       devMode: record.devMode,
     };
 

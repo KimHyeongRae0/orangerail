@@ -170,6 +170,7 @@ describe('lifecycle — signature invalidation (AC-6)', () => {
         input: { productId: 'p1', amount: 1 },
         signatureHash: 'STALE-HASH',
         requestedBy: 'agent-1',
+        requestedByRoles: [],
         devMode: false,
       },
     });
@@ -188,6 +189,7 @@ describe('lifecycle — signature invalidation (AC-6)', () => {
         input: {},
         signatureHash: 'whatever',
         requestedBy: 'agent-1',
+        requestedByRoles: [],
         devMode: false,
       },
     });
@@ -211,6 +213,7 @@ describe('lifecycle — signature invalidation (AC-6)', () => {
         input: { productId: 'p1', amount: 'not-a-number' },
         signatureHash: action.signatureHash,
         requestedBy: 'agent-1',
+        requestedByRoles: [],
         devMode: false,
       },
     });

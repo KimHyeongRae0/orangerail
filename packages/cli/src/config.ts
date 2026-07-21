@@ -1,0 +1,59 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import type { RedactAudit, Registry, ResolveIdentity, Store } from 'orangerail-core';
+import type { McpPreset } from 'orangerail-mcp';
+
+/**
+ * The shape a user's `orangerail.config.mjs` must default-export. `registry` and
+ * `store` are required; the rest are optional hooks (§3.4).
+ */
+export interface OrangerailConfig {
+  registry: Registry;
+  store: Store;
+  resolveIdentity?: ResolveIdentity;
+  preset?: McpPreset;
+  redactAudit?: RedactAudit;
+}
+
+const DEFAULT_CONFIG_NAMES = ['orangerail.config.mjs', 'orangerail.config.js'];
+
+/**
+ * Load the ontology config via plain dynamic `import()` (§3.4 — no loader
+ * dependency). `--config <path>` wins; otherwise the first default name in the
+ * cwd is used. TypeScript configs work through the user's own TS-capable
+ * runtime (tsx / node --experimental-strip-types), documented, not bundled.
+ *
+ * NOTE: loading a config is arbitrary code execution — the same trust level as
+ * an npm script. This is inherent to a local-first tool (no network exposure;
+ * v0 is stdio only).
+ */
+export const loadConfig = async ({
+  configPath,
+}: {
+  configPath?: string | undefined;
+}): Promise<OrangerailConfig> => {
+  const chosen =
+    configPath ?? DEFAULT_CONFIG_NAMES.find((name) => existsSync(resolve(process.cwd(), name)));
+
+  if (chosen === undefined) {
+    throw new Error(
+      'no orangerail config found — pass --config <path> or add orangerail.config.mjs to the working directory',
+    );
+  }
+
+  const absolute = resolve(process.cwd(), chosen);
+  if (!existsSync(absolute)) {
+    throw new Error(`config not found: ${absolute}`);
+  }
+
+  const module: unknown = await import(pathToFileURL(absolute).href);
+  const config = (module as { default?: OrangerailConfig }).default;
+
+  if (!config || !config.registry || !config.store) {
+    throw new Error(`config ${absolute} must default-export { registry, store }`);
+  }
+
+  return config;
+};

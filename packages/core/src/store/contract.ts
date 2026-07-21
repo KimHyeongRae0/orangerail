@@ -11,6 +11,13 @@ export interface ApprovalRecord {
   signatureHash: string;
   status: ApprovalStatus;
   requestedBy: string;
+  /**
+   * The staging caller's roles, persisted so execute-time re-evaluation
+   * reconstructs the SAME identity that staged (§3.8 — closes the ONT-002
+   * `roles: []` drift). A functional `where` reading `identity.roles` now
+   * evaluates identically at staging and re-eval.
+   */
+  requestedByRoles: string[];
   devMode: boolean;
   createdAt: string;
   decidedBy?: string;
@@ -23,6 +30,7 @@ export interface CreateApprovalInput {
   input: unknown;
   signatureHash: string;
   requestedBy: string;
+  requestedByRoles: string[];
   devMode: boolean;
 }
 
@@ -37,7 +45,11 @@ export type AuditPhase =
   | 'invalidated'
   | 'execution_started'
   | 'succeeded'
-  | 'failed';
+  | 'failed'
+  /** Sandbox dry-run terminal record (§3.6) — the would-be input, never executed. */
+  | 'dry_run'
+  /** A `notImplemented` stub rejected at staging before any approval (§3.7). */
+  | 'not_implemented';
 
 /**
  * A hash-chained audit record. `prevHash`/`hash`/`seq` are owned and computed
@@ -97,6 +109,12 @@ export interface Store {
   }) => Promise<ResolveApprovalResult>;
   consumeApproval: (args: { id: string }) => Promise<ConsumeApprovalResult>;
   listPending: () => Promise<ApprovalRecord[]>;
+  /**
+   * Every approval record regardless of status. Feeds `verifyAudit`'s
+   * orphaned-consumed cross-check (§3.2): a `consumed` approval with no
+   * `execution_started` audit record is a crash between consume and the append.
+   */
+  listApprovals: () => Promise<ApprovalRecord[]>;
   appendAudit: (args: { record: AuditInput }) => Promise<AuditRecord>;
   readAudit: (args: { cursor?: string; limit?: number }) => Promise<{
     items: AuditRecord[];

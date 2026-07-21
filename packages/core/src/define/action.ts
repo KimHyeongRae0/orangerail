@@ -20,6 +20,32 @@ export interface DefineActionInput<
   execute: (args: { input: z.infer<Input>; identity: Identity }) => Promise<unknown> | unknown;
 }
 
+/**
+ * Marker tagging an `execute` function as a not-yet-implemented stub (§3.7).
+ * A globally-registered symbol so the tag survives module-instance boundaries
+ * (a scanner in another package can produce the same marked function).
+ */
+const NOT_IMPLEMENTED = Symbol.for('orangerail.notImplemented');
+
+/**
+ * A placeholder `execute` for actions declared but not yet wired to a backend
+ * (§5.1). `defineAction` still requires `execute`; scanners (ONT-006) emit
+ * `execute: notImplemented`. The engine rejects it at staging BEFORE creating
+ * an approval record and audits phase `not_implemented`; if it ever runs
+ * directly it throws (fail-closed).
+ */
+export const notImplemented = Object.assign(
+  async (): Promise<never> => {
+    throw new Error('action is not implemented (notImplemented stub)');
+  },
+  { [NOT_IMPLEMENTED]: true as const },
+);
+
+/** Whether an action's `execute` is the {@link notImplemented} stub (§3.7). */
+export const isNotImplemented = ({ execute }: { execute: unknown }): boolean =>
+  typeof execute === 'function' &&
+  (execute as unknown as Record<symbol, unknown>)[NOT_IMPLEMENTED] === true;
+
 /** `Product` -> `productId`. */
 const defaultTargetIdFrom = ({ name }: { name: string }): string =>
   `${name.charAt(0).toLowerCase()}${name.slice(1)}Id`;

@@ -39,6 +39,7 @@ export const createMemoryStore = (): Store => {
       signatureHash: record.signatureHash,
       status: 'pending',
       requestedBy: record.requestedBy,
+      requestedByRoles: [...record.requestedByRoles],
       devMode: record.devMode,
       createdAt: now(),
     };
@@ -104,6 +105,9 @@ export const createMemoryStore = (): Store => {
       .filter((r) => r.status === 'pending')
       .map((record) => clone({ record }));
 
+  const listApprovals = async (): Promise<ApprovalRecord[]> =>
+    [...approvals.values()].map((record) => clone({ record }));
+
   const appendAudit = async ({ record }: { record: AuditInput }): Promise<AuditRecord> => {
     const head = audit[audit.length - 1];
     const prevHash = head ? head.hash : GENESIS_HASH;
@@ -138,6 +142,7 @@ export const createMemoryStore = (): Store => {
     resolveApproval,
     consumeApproval,
     listPending,
+    listApprovals,
     appendAudit,
     readAudit,
   };

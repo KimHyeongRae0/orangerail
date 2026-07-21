@@ -26,8 +26,13 @@ export type { Registry } from './registry';
 export type { DefineObjectInput } from './define/object';
 export type { DefineLinkInput } from './define/link';
 export type { DefineActionInput } from './define/action';
+export { isNotImplemented, notImplemented } from './define/action';
 
 export { createMemoryStore } from './store/memory';
+export { createFileStore, isFileStore } from './store/file';
+export type { FileStore } from './store/file';
+export { acquireLock, isLockOwner, releaseLock, unlockStore } from './store/file-lock';
+export type { LockOwner, UnlockResult } from './store/file-lock';
 export type {
   ApprovalRecord,
   ApprovalStatus,
@@ -44,7 +49,9 @@ export { createEngine } from './lifecycle/engine';
 export type {
   ApproveResult,
   Engine,
+  EngineMode,
   ExecuteResult,
+  RedactAudit,
   RejectResult,
   StageResult,
 } from './lifecycle/engine';
