@@ -78,4 +78,41 @@ describe('scanOpenApiJson', () => {
   it('exposes the actionable YAML convert-to-JSON hint text', () => {
     expect(YAML_HINT).toMatch(/convert it to JSON/i);
   });
+
+  it('warns once, aggregated, for $ref parameters instead of dropping them silently', () => {
+    // Real-world shape: GitHub's spec shares owner/repo as component $refs on
+    // nearly every operation — those entries have no inline `name`.
+    const doc = JSON.stringify({
+      openapi: '3.0.3',
+      paths: {
+        '/repos/{owner}/{repo}/topics': {
+          put: {
+            operationId: 'replaceTopics',
+            parameters: [
+              { $ref: '#/components/parameters/owner' },
+              { $ref: '#/components/parameters/repo' },
+            ],
+          },
+        },
+        '/orgs/{org}/rules': {
+          post: {
+            operationId: 'createRule',
+            parameters: [
+              { $ref: '#/components/parameters/org' },
+              { name: 'org', in: 'path', required: true, schema: { type: 'string' } },
+            ],
+          },
+        },
+      },
+    });
+
+    const scanned = scanOpenApiJson({ source: doc });
+    const refWarnings = scanned.warnings.filter((w) => w.includes('$ref parameter'));
+
+    expect(refWarnings).toHaveLength(1);
+    expect(refWarnings[0]).toContain('3 $ref parameter(s) across 2 operation(s)');
+    // Inline parameters on the same operation still land in the input.
+    const createRule = scanned.actions.find((a) => a.name === 'createRule');
+    expect(createRule?.input.map((f) => f.name)).toEqual(['org']);
+  });
 });

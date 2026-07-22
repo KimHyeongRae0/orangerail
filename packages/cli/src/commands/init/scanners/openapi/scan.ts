@@ -103,11 +103,25 @@ const mapProperty = ({
   };
 };
 
-const collectInput = ({ operation }: { operation: OpenApiOperation }): IrActionField[] => {
+const collectInput = ({
+  operation,
+  onRefParam,
+}: {
+  operation: OpenApiOperation;
+  onRefParam: () => void;
+}): IrActionField[] => {
   const fields: IrActionField[] = [];
 
   for (const param of operation.parameters ?? []) {
-    if (param.name === undefined || param.in !== 'path') {
+    if (param.name === undefined) {
+      // A `{"$ref": "#/components/parameters/…"}` entry — component
+      // resolution is not in v0, and dropping a field silently would break
+      // the skip-with-warning principle, so the caller aggregates a count.
+      onRefParam();
+      continue;
+    }
+
+    if (param.in !== 'path') {
       continue;
     }
 
@@ -147,6 +161,8 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
   }
 
   const paths = doc.paths ?? {};
+  let refParamCount = 0;
+  const refParamOps = new Set<string>();
 
   for (const path of Object.keys(paths).sort()) {
     const methods = paths[path] ?? {};
@@ -178,12 +194,24 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
         method: method.toUpperCase(),
         path,
         write: true,
-        input: collectInput({ operation }),
+        input: collectInput({
+          operation,
+          onRefParam: () => {
+            refParamCount += 1;
+            refParamOps.add(`${method.toUpperCase()} ${path}`);
+          },
+        }),
         ...(operation.summary === undefined ? {} : { description: operation.summary }),
       };
 
       scanned.actions.push(action);
     }
+  }
+
+  if (refParamCount > 0) {
+    scanned.warnings.push(
+      `openapi: skipped ${refParamCount} $ref parameter(s) across ${refParamOps.size} operation(s) — component parameter resolution is not in v0; add the missing fields to the generated inputs by hand if the actions need them`,
+    );
   }
 
   return scanned;
