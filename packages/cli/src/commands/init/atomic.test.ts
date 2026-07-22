@@ -4,7 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { specifiersResolvable } from './atomic';
+import { existsSync } from 'node:fs';
+
+import { smokeLoadStaged, specifiersResolvable } from './atomic';
 
 describe('specifiersResolvable (D9 degrade branch)', () => {
   const tempDirs: string[] = [];
@@ -53,5 +55,30 @@ describe('specifiersResolvable (D9 degrade branch)', () => {
     }
 
     expect(specifiersResolvable({ cwd: repoDir })).toBe(true);
+  });
+});
+
+describe('smokeLoadStaged', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves the repo byte-identical on a failed smoke load (no empty .orangerail)', async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'ont-006-smoke-'));
+    tempDirs.push(repoDir);
+
+    const files = [
+      { path: 'orangerail.config.mjs', content: 'export default { notAConfig: true };\n' },
+    ];
+
+    await expect(smokeLoadStaged({ files, cwd: repoDir })).rejects.toThrow(
+      /usable \{ registry, store \}/,
+    );
+
+    expect(existsSync(join(repoDir, '.orangerail'))).toBe(false);
   });
 });

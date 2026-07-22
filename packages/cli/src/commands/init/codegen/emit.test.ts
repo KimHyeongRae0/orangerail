@@ -85,6 +85,26 @@ describe('emitActionFile', () => {
     expect(content).not.toContain('*/ end');
     expect(content.split('\n').filter((l) => l.includes('*/')).length).toBe(1); // only the JSDoc close
   });
+
+  it('emits a legal JS binding when the MCP-safe name contains hyphens', () => {
+    // Real-world case: GitHub-style operationIds like
+    // `actions/create-workflow-dispatch` sanitize to a hyphenated MCP name,
+    // which is charset-legal for tools but not a valid JS identifier.
+    const dispatch: IrAction = {
+      ...coupon,
+      name: 'actions_create-workflow-dispatch',
+      rawName: 'actions/create-workflow-dispatch',
+    };
+
+    const { content, filename } = emitActionFile({ action: dispatch });
+    const exported = content.match(/export const (\S+) =/)?.[1];
+
+    expect(exported).toBe('actions_create_workflow_dispatch');
+    expect(exported).toMatch(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
+    // The registry/MCP tool name and the filename keep the hyphenated form.
+    expect(content).toContain('name: "actions_create-workflow-dispatch"');
+    expect(filename).toBe('actions_create-workflow-dispatch.mjs');
+  });
 });
 
 describe('buildFileSet', () => {

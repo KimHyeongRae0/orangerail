@@ -1,6 +1,6 @@
 import type { IrAction } from '../ir';
 import { ownershipLine } from './emit-object';
-import { escapeBlockComment, escapeStringLiteral } from './escape';
+import { escapeBlockComment, escapeStringLiteral, sanitizeIdentifier } from './escape';
 import { actionFieldExpr } from './zod';
 
 /**
@@ -56,13 +56,18 @@ export const emitActionFile = ({
 }: {
   action: IrAction;
 }): { filename: string; content: string } => {
+  // The MCP-safe registry name may contain hyphens (e.g. GitHub-style
+  // `actions/create-workflow-dispatch` operationIds), which are not legal in
+  // a JS binding — the export identifier needs its own sanitization pass.
+  const binding = sanitizeIdentifier({ value: action.name });
+
   const body = [
     "import { z } from 'zod';",
     "import { notImplemented } from 'orangerail-core';",
     '',
     "import { registry } from './_registry.mjs';",
     '',
-    `export const ${action.name} = registry.defineAction({`,
+    `export const ${binding} = registry.defineAction({`,
     `  name: ${escapeStringLiteral({ value: action.name })},`,
     `  input: ${renderInput({ action })},`,
     "  policy: { approval: 'required' },",

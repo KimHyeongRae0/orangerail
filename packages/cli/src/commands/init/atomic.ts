@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -102,5 +102,14 @@ export const smokeLoadStaged = async ({
     }
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });
+
+    // A failed smoke load must leave the repo byte-identical — the `.orangerail`
+    // parent created for staging is removed too when it ended up empty
+    // (rmdirSync refuses non-empty dirs, so a real `.orangerail` is never touched).
+    try {
+      rmdirSync(dirname(stagingDir));
+    } catch {
+      /* non-empty or absent — leave it */
+    }
   }
 };
