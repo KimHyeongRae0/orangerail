@@ -1,0 +1,11 @@
+{
+  "name": "ont-009-mastra-harness",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ONT-009 validation harness: a real @mastra/mcp client that connects to a generated orangerail MCP server over stdio and drives the governed-write loop. Lives outside packages/ so Mastra's transitive AI-SDK dependency never enters NOLLM-01 scope.",
+  "dependencies": {
+    "@mastra/core": "1.51.0",
+    "@mastra/mcp": "1.14.0"
+  }
+}
