@@ -8,12 +8,14 @@ import {
 import { auditVerify } from './commands/audit';
 import { runDocs } from './commands/docs';
 import { runMcp } from './commands/mcp';
+import { DEFAULT_STUDIO_PORT, runStudio } from './commands/studio';
 import { storeUnlock } from './commands/store';
 
 const USAGE = `orangerail — governed ontology runtime CLI
 
 Usage:
   orangerail mcp [--config <path>]                 launch the MCP server over stdio
+  orangerail studio [--config <path>] [--port <n>] [--no-open]  serve the map-mode studio locally
   orangerail docs [--config <path>] [--out <dir>]  generate the agent-facing domain doc
   orangerail approvals list [--config <path>]      list pending approvals
   orangerail approvals show <id> [--config <path>] show one approval
@@ -28,10 +30,18 @@ const parseArgs = ({
   argv,
 }: {
   argv: string[];
-}): { positional: string[]; configPath?: string; outPath?: string } => {
+}): {
+  positional: string[];
+  configPath?: string;
+  outPath?: string;
+  port?: number;
+  open: boolean;
+} => {
   const positional: string[] = [];
   let configPath: string | undefined;
   let outPath: string | undefined;
+  let port: number | undefined;
+  let open = true;
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
@@ -42,6 +52,11 @@ const parseArgs = ({
     } else if (token === '--out') {
       outPath = argv[i + 1];
       i += 1;
+    } else if (token === '--port') {
+      port = Number(argv[i + 1]);
+      i += 1;
+    } else if (token === '--no-open') {
+      open = false;
     } else if (token !== undefined) {
       positional.push(token);
     }
@@ -49,8 +64,10 @@ const parseArgs = ({
 
   return {
     positional,
+    open,
     ...(configPath === undefined ? {} : { configPath }),
     ...(outPath === undefined ? {} : { outPath }),
+    ...(port === undefined ? {} : { port }),
   };
 };
 
@@ -68,7 +85,9 @@ const requireId = ({ id }: { id: string | undefined }): string => {
 };
 
 const run = async (): Promise<number> => {
-  const { positional, configPath, outPath } = parseArgs({ argv: process.argv.slice(2) });
+  const { positional, configPath, outPath, port, open } = parseArgs({
+    argv: process.argv.slice(2),
+  });
   const [command, sub, arg] = positional;
 
   if (command === undefined || command === 'help' || command === '--help') {
@@ -81,6 +100,10 @@ const run = async (): Promise<number> => {
   if (command === 'mcp') {
     await runMcp({ config });
     return 0;
+  }
+
+  if (command === 'studio') {
+    return runStudio({ config, configPath, port: port ?? DEFAULT_STUDIO_PORT, open });
   }
 
   if (command === 'docs') {
@@ -123,10 +146,13 @@ const run = async (): Promise<number> => {
   return fail({ message: `unknown command: ${command}\n\n${USAGE}` });
 };
 
+const LONG_RUNNING = new Set(['mcp', 'studio']);
+
 run()
   .then((code) => {
-    // `mcp` keeps the event loop alive via stdio; other commands exit here.
-    if (code !== 0 || process.argv[2] !== 'mcp') {
+    // `mcp` (stdio) and `studio` (http server) keep the event loop alive; every
+    // other command exits here.
+    if (code !== 0 || !LONG_RUNNING.has(process.argv[2] ?? '')) {
       process.exit(code);
     }
   })

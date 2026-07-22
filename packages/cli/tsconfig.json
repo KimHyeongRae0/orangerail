@@ -10,7 +10,8 @@
     "paths": {
       "orangerail-core": ["../core/src/index.ts"],
       "orangerail-docs-gen": ["../docs-gen/src/index.ts"],
-      "orangerail-mcp": ["../mcp/src/index.ts"]
+      "orangerail-mcp": ["../mcp/src/index.ts"],
+      "orangerail-studio/snapshot": ["../studio/src/snapshot/index.ts"]
     }
   },
   "include": ["src", "test"]

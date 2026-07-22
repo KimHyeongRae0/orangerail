@@ -1,0 +1,28 @@
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  background: var(--canvas-background);
+  font-family: var(--ui-font);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-5);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.hint {
+  margin: 0;
+  max-width: 420px;
+  font-size: var(--font-size-3);
+  color: var(--overlay-60);
+  line-height: 1.5;
+}

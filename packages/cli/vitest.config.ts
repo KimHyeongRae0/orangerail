@@ -12,6 +12,9 @@ export default defineConfig({
       'orangerail-core': fileURLToPath(new URL('../core/src/index.ts', import.meta.url)),
       'orangerail-docs-gen': fileURLToPath(new URL('../docs-gen/src/index.ts', import.meta.url)),
       'orangerail-mcp': fileURLToPath(new URL('../mcp/src/index.ts', import.meta.url)),
+      'orangerail-studio/snapshot': fileURLToPath(
+        new URL('../studio/src/snapshot/index.ts', import.meta.url),
+      ),
     },
   },
 });

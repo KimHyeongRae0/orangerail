@@ -1,0 +1,116 @@
+/**
+ * orangerail studio design tokens — re-implemented from the measured Liam ERD
+ * clone spec (.docs/scratch/ref-ONT-005-liam-erd.md). Values are the tool's
+ * dark theme, copied from live getComputedStyle measurements cross-checked
+ * against Liam's source CSS variables. The one flagged discrepancy (resting
+ * edge stroke) resolves to the source token #5f6366 (plan section 3.3).
+ * Dark-only, exactly like Liam's public viewer — no light theme, no minimap.
+ *
+ * The Inter font is bundled locally (woff2 + OFL.txt alongside) so the app
+ * loads no remote resources at runtime (AC-9). Field types use a monospace
+ * stack. Nothing here references a CDN or external host.
+ */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/inter-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/inter-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/inter-600.woff2') format('woff2');
+}
+
+:root {
+  /* Canvas + grid */
+  --canvas-background: #141414;
+  --dot-grid: #393b3c;
+
+  /* Node card */
+  --node-background: #141616;
+  --node-muted-background: #232526;
+  --node-border: #5f6366;
+  /* Subtle white overlay for column-row hover (clone spec references
+     `--pane-background-hover` by name only; this is our palette-consistent
+     value). */
+  --pane-background-hover: rgba(255, 255, 255, 0.05);
+  --overlay-20: rgba(255, 255, 255, 0.2);
+  --overlay-60: rgba(255, 255, 255, 0.6);
+  --overlay-70: rgba(255, 255, 255, 0.7);
+  --foreground: #ffffff;
+  --border-radius-md: 6px;
+
+  /* Accent (single channel, used for border/glow/edge/icons/markers alike) */
+  --primary-accent: #1ded83;
+  --primary-overlay-10: rgba(29, 237, 131, 0.1);
+  --primary-overlay-15: rgba(29, 237, 131, 0.15);
+
+  /* Edges */
+  --edge-resting: #5f6366;
+  --edge-highlighted: #1ded83;
+
+  /* Shadows */
+  --shadow-resting: 0px 0px 20px 0px rgba(0, 0, 0, 0.4);
+  --shadow-highlighted: 0px 0px 20px 0px rgba(29, 237, 131, 0.4);
+
+  /* Action pill (Stately grammar in the Liam palette) */
+  --pill-background: #1f2222;
+  --pill-chip-background: #191b1b;
+  --pill-border: rgba(255, 255, 255, 0.14);
+
+  /* Motion */
+  --timing-function: ease-out;
+  --transition-duration: 300ms;
+
+  /* Type scale */
+  --font-size-1: 10px;
+  --font-size-3: 12px;
+  --font-size-5: 14px;
+  --code-font: ui-monospace, 'IBM Plex Mono', 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  --ui-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  background: var(--canvas-background);
+  color: var(--foreground);
+  font-family: var(--ui-font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Flow-particle motion. Implemented as a CSS motion-path animation
+ * (offset-path / offset-distance) rather than SVG <animateMotion>: the SMIL
+ * element, when reconciled by React inside React Flow's edge svg, drives a
+ * continuous edge-remount loop that freezes the particles and storms hover
+ * events while a cursor rests on a card. A pure-CSS compositor animation has no
+ * such interaction with React reconciliation.
+ */
+@keyframes edge-flow-travel {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}

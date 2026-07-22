@@ -29,11 +29,13 @@ const DEFAULT_CONFIG_NAMES = ['orangerail.config.mjs', 'orangerail.config.js'];
  * an npm script. This is inherent to a local-first tool (no network exposure;
  * v0 is stdio only).
  */
-export const loadConfig = async ({
-  configPath,
-}: {
-  configPath?: string | undefined;
-}): Promise<OrangerailConfig> => {
+/**
+ * Resolve the absolute path of the config file `loadConfig` would import, with
+ * the same diagnostics (`--config` wins; otherwise the first default name in
+ * the cwd). Extracted so long-running commands (`studio`) can watch the exact
+ * file being loaded without re-deriving the resolution rule.
+ */
+export const resolveConfigPath = ({ configPath }: { configPath?: string | undefined }): string => {
   const chosen =
     configPath ?? DEFAULT_CONFIG_NAMES.find((name) => existsSync(resolve(process.cwd(), name)));
 
@@ -47,6 +49,16 @@ export const loadConfig = async ({
   if (!existsSync(absolute)) {
     throw new Error(`config not found: ${absolute}`);
   }
+
+  return absolute;
+};
+
+export const loadConfig = async ({
+  configPath,
+}: {
+  configPath?: string | undefined;
+}): Promise<OrangerailConfig> => {
+  const absolute = resolveConfigPath({ configPath });
 
   const module: unknown = await import(pathToFileURL(absolute).href);
   const config = (module as { default?: OrangerailConfig }).default;

@@ -1,0 +1,115 @@
+.card {
+  background: var(--node-background);
+  border: 1px solid var(--overlay-20);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-resting);
+  min-width: 172px;
+  width: max-content;
+  max-width: 320px;
+  overflow: hidden;
+  font-family: var(--ui-font);
+  transition:
+    border-color var(--transition-duration) var(--timing-function),
+    box-shadow var(--transition-duration) var(--timing-function),
+    opacity var(--transition-duration) var(--timing-function);
+}
+
+.card[data-highlighted='true'] {
+  border-color: var(--primary-accent);
+  box-shadow: var(--shadow-highlighted);
+}
+
+.card[data-active='true'] {
+  border: 2px solid var(--primary-accent);
+  box-shadow: var(--shadow-highlighted);
+}
+
+.card[data-dim='true'] {
+  opacity: 0.35;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--node-muted-background);
+}
+
+.headerIcon {
+  color: var(--overlay-60);
+  display: flex;
+  flex: none;
+}
+
+.name {
+  font-size: var(--font-size-5);
+  font-weight: 500;
+  color: var(--overlay-60);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--node-border);
+}
+
+.row:hover {
+  background: var(--pane-background-hover);
+}
+
+.rowIcon {
+  color: var(--overlay-70);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rowIcon[data-accent='true'] {
+  color: var(--primary-accent);
+}
+
+.fieldName {
+  font-size: var(--font-size-3);
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fieldType {
+  font-family: var(--code-font);
+  font-size: var(--font-size-1);
+  color: var(--overlay-70);
+  text-align: right;
+  opacity: 0;
+  transition: opacity var(--transition-duration) var(--timing-function);
+}
+
+.card[data-erd='highlighted'] .fieldType {
+  opacity: 1;
+}
+
+.handle {
+  opacity: 0;
+  pointer-events: none;
+  min-width: 1px;
+  min-height: 1px;
+  width: 1px;
+  height: 1px;
+  border: none;
+  background: transparent;
+}

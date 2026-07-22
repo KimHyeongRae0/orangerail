@@ -1,0 +1,68 @@
+.toolbar {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--node-muted-background);
+  border: 1px solid var(--overlay-20);
+  border-radius: 10px;
+  box-shadow: var(--shadow-resting);
+  font-family: var(--ui-font);
+  font-size: var(--font-size-3);
+  color: var(--foreground);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--overlay-70);
+  font-size: var(--font-size-3);
+  cursor: pointer;
+}
+
+.button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--foreground);
+}
+
+.level {
+  min-width: 46px;
+  text-align: center;
+  color: var(--overlay-70);
+  font-variant-numeric: tabular-nums;
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--overlay-20);
+  margin: 0 2px;
+}
+
+.label {
+  color: var(--overlay-60);
+  margin-left: 4px;
+}
+
+.select {
+  background: var(--node-background);
+  color: var(--foreground);
+  border: 1px solid var(--overlay-20);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-family: var(--ui-font);
+  font-size: var(--font-size-3);
+  cursor: pointer;
+}

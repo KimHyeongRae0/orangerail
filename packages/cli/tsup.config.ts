@@ -9,5 +9,12 @@ export default defineConfig({
   target: 'es2022',
   // A CLI bin: keep the node shebang, resolve workspace deps at runtime.
   banner: { js: '#!/usr/bin/env node' },
-  external: ['orangerail-core', 'orangerail-docs-gen', 'orangerail-mcp', '@modelcontextprotocol/sdk'],
+  external: [
+    'orangerail-core',
+    'orangerail-docs-gen',
+    'orangerail-mcp',
+    'orangerail-studio',
+    'orangerail-studio/snapshot',
+    '@modelcontextprotocol/sdk',
+  ],
 });
