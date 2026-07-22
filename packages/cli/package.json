@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "orangerail-core": "workspace:*",
+    "orangerail-docs-gen": "workspace:*",
     "orangerail-mcp": "workspace:*"
   },
   "devDependencies": {

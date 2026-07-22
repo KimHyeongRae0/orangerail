@@ -6,6 +6,7 @@ import {
   approvalsShow,
 } from './commands/approvals';
 import { auditVerify } from './commands/audit';
+import { runDocs } from './commands/docs';
 import { runMcp } from './commands/mcp';
 import { storeUnlock } from './commands/store';
 
@@ -13,6 +14,7 @@ const USAGE = `orangerail — governed ontology runtime CLI
 
 Usage:
   orangerail mcp [--config <path>]                 launch the MCP server over stdio
+  orangerail docs [--config <path>] [--out <dir>]  generate the agent-facing domain doc
   orangerail approvals list [--config <path>]      list pending approvals
   orangerail approvals show <id> [--config <path>] show one approval
   orangerail approvals approve <id> [--config …]   approve a staged action
@@ -22,9 +24,14 @@ Usage:
 `;
 
 /** Hand-rolled arg parsing (§3.4 — no commander, zero runtime deps). */
-const parseArgs = ({ argv }: { argv: string[] }): { positional: string[]; configPath?: string } => {
+const parseArgs = ({
+  argv,
+}: {
+  argv: string[];
+}): { positional: string[]; configPath?: string; outPath?: string } => {
   const positional: string[] = [];
   let configPath: string | undefined;
+  let outPath: string | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
@@ -32,12 +39,19 @@ const parseArgs = ({ argv }: { argv: string[] }): { positional: string[]; config
     if (token === '--config') {
       configPath = argv[i + 1];
       i += 1;
+    } else if (token === '--out') {
+      outPath = argv[i + 1];
+      i += 1;
     } else if (token !== undefined) {
       positional.push(token);
     }
   }
 
-  return configPath === undefined ? { positional } : { positional, configPath };
+  return {
+    positional,
+    ...(configPath === undefined ? {} : { configPath }),
+    ...(outPath === undefined ? {} : { outPath }),
+  };
 };
 
 const fail = ({ message }: { message: string }): number => {
@@ -54,7 +68,7 @@ const requireId = ({ id }: { id: string | undefined }): string => {
 };
 
 const run = async (): Promise<number> => {
-  const { positional, configPath } = parseArgs({ argv: process.argv.slice(2) });
+  const { positional, configPath, outPath } = parseArgs({ argv: process.argv.slice(2) });
   const [command, sub, arg] = positional;
 
   if (command === undefined || command === 'help' || command === '--help') {
@@ -67,6 +81,10 @@ const run = async (): Promise<number> => {
   if (command === 'mcp') {
     await runMcp({ config });
     return 0;
+  }
+
+  if (command === 'docs') {
+    return runDocs({ config, outDir: outPath });
   }
 
   if (command === 'approvals') {

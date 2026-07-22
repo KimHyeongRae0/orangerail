@@ -11,7 +11,7 @@
 #       pr:    the HEAD commit title (already "ONT-###: <summary> (#N)")
 #   - assignee is ALWAYS the authenticated user (resolved at runtime)
 #   - labels are derived deterministically:
-#       area  = first word of the ticket slug, if it is a known area
+#       area  = the known area the ticket slug starts with, longest match
 #               (harness core cli mcp studio docs-gen)
 #       type  = from the branch prefix: feat->enhancement, fix->bug,
 #               docs->documentation, chore->chore
@@ -66,12 +66,19 @@ else
 fi
 
 # ---- derived labels ----
-SLUG_FIRST=$(basename "$TICKET_FILE" | sed "s/^${TICKET_ID}_//; s/\.md$//" | cut -d- -f1)
+# Area = the known area the ticket slug starts with. Prefix matching (not a
+# first-hyphen-token cut) so hyphenated areas like docs-gen are reachable;
+# longest match wins so docs-gen never collapses to a shorter area.
+SLUG=$(basename "$TICKET_FILE" | sed "s/^${TICKET_ID}_//; s/\.md$//")
 AREA_LABELS="harness core cli mcp studio docs-gen"
 LABELS=()
+AREA_MATCH=""
 for a in $AREA_LABELS; do
-  [[ "$SLUG_FIRST" == "$a" ]] && LABELS+=("$a")
+  if [[ "$SLUG" == "$a" || "$SLUG" == "$a"-* ]]; then
+    [[ ${#a} -gt ${#AREA_MATCH} ]] && AREA_MATCH="$a"
+  fi
 done
+[[ -n "$AREA_MATCH" ]] && LABELS+=("$AREA_MATCH")
 
 BRANCH=$(git branch --show-current)
 case "${BRANCH%%/*}" in
@@ -80,7 +87,7 @@ case "${BRANCH%%/*}" in
   docs)  LABELS+=("documentation") ;;
   chore) LABELS+=("chore") ;;
 esac
-[[ ${#LABELS[@]} -gt 0 ]] || fail "no label derivable (slug area '"$SLUG_FIRST"' unknown and branch '"$BRANCH"' has no typed prefix)"
+[[ ${#LABELS[@]} -gt 0 ]] || fail "no label derivable (slug '"$SLUG"' starts with no known area and branch '"$BRANCH"' has no typed prefix)"
 
 # ---- ensure labels exist (idempotent), assignee = authenticated user ----
 ASSIGNEE=$(gh api user --jq .login)

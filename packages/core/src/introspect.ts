@@ -92,3 +92,29 @@ const sortValue = ({ value }: { value: unknown }): unknown => {
 /** Deterministic JSON with recursively sorted object keys (hash-stable). */
 export const canonicalJson = ({ value }: { value: unknown }): string =>
   JSON.stringify(sortValue({ value }));
+
+/**
+ * Whether a field-level zod node is optional from the caller's perspective —
+ * `true` iff the node accepts `undefined`, probed via the public
+ * `safeParse(undefined).success` (stable across zod v3 and v4, no `_def`
+ * spelunking). A `.default()` field reports optional on purpose: the caller may
+ * omit it (§3.8). Non-zod nodes are treated as required; an async refinement
+ * makes `safeParse` throw synchronously, which is likewise treated as required
+ * (fail-closed — a `?` marker is only ever added when provably optional).
+ */
+export const isOptionalField = ({ node }: { node: unknown }): boolean => {
+  if (typeof node !== 'object' || node === null) {
+    return false;
+  }
+
+  const candidate = node as { safeParse?: (value: unknown) => { success?: unknown } };
+  if (typeof candidate.safeParse !== 'function') {
+    return false;
+  }
+
+  try {
+    return candidate.safeParse(undefined).success === true;
+  } catch {
+    return false;
+  }
+};

@@ -10,6 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'orangerail-core': fileURLToPath(new URL('../core/src/index.ts', import.meta.url)),
+      'orangerail-docs-gen': fileURLToPath(new URL('../docs-gen/src/index.ts', import.meta.url)),
       'orangerail-mcp': fileURLToPath(new URL('../mcp/src/index.ts', import.meta.url)),
     },
   },

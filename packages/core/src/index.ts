@@ -66,4 +66,11 @@ export type { IdentityConfig, ResolveIdentity, ResolveIdentityContext } from './
 export { evaluateWhere, isSerializableWhere } from './policy/where';
 
 export { computeSignatureHash } from './signature';
-export { canonicalJson, inputShape, shapeKeys, typeNameOf } from './introspect';
+export {
+  canonicalJson,
+  getShape,
+  inputShape,
+  isOptionalField,
+  shapeKeys,
+  typeNameOf,
+} from './introspect';
