@@ -1,0 +1,66 @@
+// ONT-006 e2e fixture — exercises the supported Prisma subset (models, enums,
+// relations, optionality, lists, @id/@unique/@default/@map/@@map), one
+// unsupported construct (Unsupported(...) field -> skip-with-warning path),
+// and hostile strings that must be escaped by codegen (quotes, backticks,
+// comment terminators inside @map/@default string literals).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A product listed in the shop catalog.
+model Product {
+  id        String        @id @default(cuid())
+  title     String
+  price     Float
+  status    ProductStatus @default(DRAFT)
+  createdAt DateTime      @default(now())
+  items     OrderItem[]
+}
+
+model Customer {
+  id     String  @id @default(cuid())
+  email  String  @unique
+  name   String?
+  orders Order[]
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  customerId String
+  items      OrderItem[]
+  total      Float
+  placedAt   DateTime    @default(now())
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  order     Order   @relation(fields: [orderId], references: [id])
+  orderId   String
+  product   Product @relation(fields: [productId], references: [id])
+  productId String
+  quantity  Int
+}
+
+/// Hostile fixture: mapped names and default strings containing quotes,
+/// backticks, and comment terminators — codegen must render these inert.
+model AuditNote {
+  id     String @id @default(cuid())
+  body   String @default("she said \"hi\" — `tick` */ end")
+  legacy String @map("weird \"column\" */ name")
+  area   Unsupported("polygon")?
+
+  @@map("audit */ `notes`")
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}

@@ -1,0 +1,94 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Shop backend API (ONT-006 e2e fixture)",
+    "version": "1.0.0",
+    "description": "Exercises the OpenAPI scanner: GET operations (skipped with an info line), write operations (become approval-required actions), a missing operationId (name derived from method+path), and hostile operationId/summary strings that codegen must escape."
+  },
+  "paths": {
+    "/products": {
+      "get": {
+        "operationId": "listProducts",
+        "summary": "List products",
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/orders": {
+      "post": {
+        "operationId": "placeOrder",
+        "summary": "Place an order",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["productId", "quantity"],
+                "properties": {
+                  "productId": { "type": "string" },
+                  "quantity": { "type": "integer", "minimum": 1 },
+                  "note": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "created" } }
+      }
+    },
+    "/refunds": {
+      "post": {
+        "operationId": "issueRefund",
+        "summary": "Issue a refund for an order",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["orderId", "amount"],
+                "properties": {
+                  "orderId": { "type": "string" },
+                  "amount": { "type": "number" },
+                  "reason": { "type": "string", "enum": ["damaged", "late", "other"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "created" } }
+      }
+    },
+    "/products/{id}": {
+      "delete": {
+        "summary": "Archive a product (no operationId — scanner derives the name)",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "204": { "description": "archived" } }
+      }
+    },
+    "/coupons": {
+      "post": {
+        "operationId": "grant'); import(`fs`); /* coupon",
+        "summary": "Hostile operationId + summary: \"quotes\" `backticks` */ terminator",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["customerId"],
+                "properties": {
+                  "customerId": { "type": "string" },
+                  "percent": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "created" } }
+      }
+    }
+  }
+}

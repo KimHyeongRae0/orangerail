@@ -1,0 +1,59 @@
+import type { McpPreset } from 'orangerail-mcp';
+
+import type { ScannedSource } from '../ir';
+import { emitActionFile } from './emit-action';
+import { emitConfigFile, emitRegistryFile } from './emit-config';
+import { deriveLinks, emitLinksFile } from './emit-links';
+import { emitObjectFile } from './emit-object';
+
+/** A single generated file, path relative to the target repo root. */
+export interface GeneratedFile {
+  path: string;
+  content: string;
+}
+
+export { deriveLinks } from './emit-links';
+export { emitObjectFile } from './emit-object';
+
+/**
+ * Assemble the full byte-deterministic file set from a merged scanned source
+ * (plan D5/D9). Ordering is stable — objects and actions sorted by name, the
+ * shared registry and links under `ontology/` with underscore-prefixed names —
+ * and nothing carries a timestamp, so the same inputs render the same bytes
+ * twice (AC-9).
+ */
+export const buildFileSet = ({
+  source,
+  preset,
+}: {
+  source: ScannedSource;
+  preset: McpPreset;
+}): GeneratedFile[] => {
+  const files: GeneratedFile[] = [];
+
+  const config = emitConfigFile({ preset });
+  files.push({ path: config.filename, content: config.content });
+
+  const registry = emitRegistryFile();
+  files.push({ path: `ontology/${registry.filename}`, content: registry.content });
+
+  const links = deriveLinks({ objects: source.objects });
+  const linksFile = emitLinksFile({ links });
+  if (linksFile !== undefined) {
+    files.push({ path: `ontology/${linksFile.filename}`, content: linksFile.content });
+  }
+
+  const objects = [...source.objects].sort((a, b) => a.name.localeCompare(b.name));
+  for (const object of objects) {
+    const file = emitObjectFile({ object });
+    files.push({ path: `ontology/${file.filename}`, content: file.content });
+  }
+
+  const actions = [...source.actions].sort((a, b) => a.name.localeCompare(b.name));
+  for (const action of actions) {
+    const file = emitActionFile({ action });
+    files.push({ path: `ontology/${file.filename}`, content: file.content });
+  }
+
+  return files;
+};

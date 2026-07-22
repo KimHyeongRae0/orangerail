@@ -1,0 +1,76 @@
+// ONT-006 e2e fixture — the DRIFTED variant the sync phase swaps in over
+// prisma/schema.prisma in the scratch run directory. Deltas vs the original:
+//   1. NEW model `Review` (sync must propose a new file, created only via
+//      --accept-new, touching nothing else),
+//   2. Product.price Float -> Decimal + Product.title now optional (schema
+//      drift warnings),
+//   3. Customer.name removed (field-removed drift warning).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A product listed in the shop catalog.
+model Product {
+  id        String        @id @default(cuid())
+  title     String?
+  price     Decimal
+  status    ProductStatus @default(DRAFT)
+  createdAt DateTime      @default(now())
+  items     OrderItem[]
+  reviews   Review[]
+}
+
+model Customer {
+  id     String  @id @default(cuid())
+  email  String  @unique
+  orders Order[]
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  customerId String
+  items      OrderItem[]
+  total      Float
+  placedAt   DateTime    @default(now())
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  order     Order   @relation(fields: [orderId], references: [id])
+  orderId   String
+  product   Product @relation(fields: [productId], references: [id])
+  productId String
+  quantity  Int
+}
+
+model Review {
+  id        String  @id @default(cuid())
+  product   Product @relation(fields: [productId], references: [id])
+  productId String
+  rating    Int
+  comment   String?
+}
+
+/// Hostile fixture: mapped names and default strings containing quotes,
+/// backticks, and comment terminators — codegen must render these inert.
+model AuditNote {
+  id     String @id @default(cuid())
+  body   String @default("she said \"hi\" — `tick` */ end")
+  legacy String @map("weird \"column\" */ name")
+  area   Unsupported("polygon")?
+
+  @@map("audit */ `notes`")
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}

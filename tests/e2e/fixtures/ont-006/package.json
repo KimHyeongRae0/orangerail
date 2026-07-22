@@ -1,0 +1,7 @@
+{
+  "name": "ont-006-fixture-shop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture repo for orangerail init: a shop backend with a Prisma schema and an OpenAPI spec (hostile names included). Copied into a scratch run directory by the e2e; bare imports in generated code resolve via the monorepo-root node_modules walk-up."
+}
