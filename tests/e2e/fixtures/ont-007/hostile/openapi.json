@@ -1,0 +1,105 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Component-resolution hostile fixture (ONT-007 e2e)",
+    "version": "1.0.0",
+    "description": "Plants every genuinely unresolvable reference the scanner must keep honest about: a pure schema->schema cycle, a missing component target, an external/URL pointer, a missing $ref parameter, and a oneOf composed body. Resolution must never crash: init exits 0, the aggregated warning names the unresolvables (missing / external / cycle), the oneOf raises a composition warning, and the union body still surfaces every branch field as optional."
+  },
+  "paths": {
+    "/cycles": {
+      "post": {
+        "operationId": "createCycle",
+        "summary": "Body references a schema caught in an A->B->A cycle",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChainA" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/missing": {
+      "post": {
+        "operationId": "createMissing",
+        "summary": "Body references a component that does not exist",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Nope" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/externals": {
+      "post": {
+        "operationId": "createExternal",
+        "summary": "Body references an external / URL pointer (out of v0 scope)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "https://example.com/ext.json#/Thing" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/unions": {
+      "post": {
+        "operationId": "createUnion",
+        "summary": "Composed body: oneOf of two branch schemas",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  { "$ref": "#/components/schemas/BranchA" },
+                  { "$ref": "#/components/schemas/BranchB" }
+                ]
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/refparams/{id}": {
+      "put": {
+        "operationId": "updateRefParam",
+        "summary": "A $ref parameter whose component target is missing, plus an inline path param",
+        "parameters": [
+          { "$ref": "#/components/parameters/Gone" },
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChainA": { "$ref": "#/components/schemas/ChainB" },
+      "ChainB": { "$ref": "#/components/schemas/ChainA" },
+      "BranchA": {
+        "type": "object",
+        "required": ["emailField"],
+        "properties": {
+          "emailField": { "type": "string" }
+        }
+      },
+      "BranchB": {
+        "type": "object",
+        "properties": {
+          "phoneField": { "type": "string" }
+        }
+      }
+    }
+  }
+}

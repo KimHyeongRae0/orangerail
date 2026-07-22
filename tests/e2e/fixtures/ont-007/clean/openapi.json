@@ -1,0 +1,170 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Component-resolution clean fixture (ONT-007 e2e)",
+    "version": "1.0.0",
+    "description": "A fully locally-resolvable OpenAPI document. Every write operation references shared components ($ref parameters GitHub-style, $ref / nested / allOf request bodies cal.com/NestJS-style). After component resolution the generated action inputs must contain every referenced field and the document must produce ZERO openapi $ref / unresolvable / composition warnings."
+  },
+  "paths": {
+    "/repos/{owner}/{repo}/topics": {
+      "put": {
+        "operationId": "replaceTopics",
+        "summary": "Replace all repository topics",
+        "parameters": [
+          { "$ref": "#/components/parameters/owner" },
+          { "$ref": "#/components/parameters/repo" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["names"],
+                "properties": {
+                  "names": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/bookings/{uid}/cancel": {
+      "post": {
+        "operationId": "cancelBooking",
+        "summary": "Cancel a booking",
+        "parameters": [
+          { "name": "uid", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CancelBookingInput" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/bookings/{uid}/reschedule": {
+      "post": {
+        "operationId": "rescheduleBooking",
+        "summary": "Reschedule a booking",
+        "parameters": [
+          { "name": "uid", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RescheduleBookingInput" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/bookings/{uid}": {
+      "patch": {
+        "operationId": "updateBooking",
+        "summary": "Update a booking",
+        "parameters": [
+          { "name": "uid", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  { "$ref": "#/components/schemas/BaseUpdate" },
+                  { "$ref": "#/components/schemas/ExtraUpdate" }
+                ]
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/priorities": {
+      "post": {
+        "operationId": "setPriority",
+        "summary": "Set a priority",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PriorityInput" }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/bookings": {
+      "get": {
+        "operationId": "listBookings",
+        "summary": "List bookings",
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "owner": {
+        "name": "owner",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "repo": {
+        "name": "repo",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      }
+    },
+    "schemas": {
+      "CancelBookingInput": {
+        "type": "object",
+        "required": ["cancellationReason"],
+        "properties": {
+          "cancellationReason": { "type": "string" },
+          "allRemainingBookings": { "type": "boolean" }
+        }
+      },
+      "SeatId": { "type": "integer" },
+      "RescheduleBookingInput": {
+        "type": "object",
+        "required": ["reason"],
+        "properties": {
+          "reason": { "type": "string" },
+          "seatId": { "$ref": "#/components/schemas/SeatId" }
+        }
+      },
+      "BaseUpdate": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" }
+        }
+      },
+      "ExtraUpdate": {
+        "type": "object",
+        "properties": {
+          "note": { "type": "string" }
+        }
+      },
+      "PriorityInput": {
+        "type": "object",
+        "properties": {
+          "priority": { "enum": ["low", "high", "emergency'); import(`fs`); /*"] }
+        }
+      }
+    }
+  }
+}

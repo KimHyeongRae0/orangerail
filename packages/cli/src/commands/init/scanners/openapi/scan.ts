@@ -5,6 +5,8 @@ import type { IrAction, IrActionField, IrScalar, ScannedSource } from '../../ir'
 import { emptySource } from '../../ir';
 import { sanitizeMcpName } from '../../codegen/escape';
 import type { Scanner } from '../types';
+import type { ResolveReason } from './resolve';
+import { refOf, resolveLocalRef } from './resolve';
 
 /**
  * OpenAPI 3.x JSON scanner (plan D4). v0 accepts a JSON document only: a YAML
@@ -34,19 +36,37 @@ interface JsonProperty {
   enum?: unknown[];
 }
 
+/** A request-body schema, possibly a `$ref` or a composed (`allOf`/`oneOf`/`anyOf`) node. */
 interface JsonBodySchema {
   type?: string;
   required?: string[];
-  properties?: Record<string, JsonProperty>;
+  properties?: Record<string, unknown>;
+  $ref?: string;
+  allOf?: unknown[];
+  oneOf?: unknown[];
+  anyOf?: unknown[];
+}
+
+interface OpenApiParameter {
+  name?: string;
+  in?: string;
+  required?: boolean;
+  schema?: JsonProperty;
 }
 
 interface OpenApiOperation {
   operationId?: string;
   summary?: string;
-  parameters?: { name?: string; in?: string; required?: boolean; schema?: JsonProperty }[];
+  parameters?: unknown[];
   requestBody?: {
     content?: Record<string, { schema?: JsonBodySchema }>;
   };
+}
+
+/** Callback surface a scan uses to aggregate honest resolution diagnostics. */
+interface ResolutionSink {
+  onUnresolvable: ({ reason }: { reason: ResolveReason }) => void;
+  onComposition: () => void;
 }
 
 /** Whether a `*.json` file is an OpenAPI 3.x document (top-level `openapi`). */
@@ -103,21 +123,223 @@ const mapProperty = ({
   };
 };
 
-const collectInput = ({
-  operation,
-  onRefParam,
+/**
+ * Resolve a schema node that may be a local `{ $ref }` into a concrete schema.
+ * Returns `undefined` (after reporting the reason) when the reference is
+ * unresolvable, so callers skip the field/body rather than crash.
+ */
+const resolveSchemaNode = ({
+  doc,
+  node,
+  sink,
 }: {
+  doc: unknown;
+  node: unknown;
+  sink: ResolutionSink;
+}): JsonBodySchema | undefined => {
+  const ref = refOf({ value: node });
+  if (ref === undefined) {
+    return node as JsonBodySchema;
+  }
+
+  const result = resolveLocalRef({ doc, ref });
+
+  if (!result.ok) {
+    sink.onUnresolvable({ reason: result.reason });
+    return undefined;
+  }
+
+  return result.value as JsonBodySchema;
+};
+
+/**
+ * Map a resolved object schema's `properties` into action input fields,
+ * resolving any property-level `$ref` before mapping. `forceOptional` makes
+ * every field optional (used for `oneOf`/`anyOf` union bodies, where no single
+ * branch's requirements bind). A property whose `$ref` is unresolvable is kept
+ * as an untyped field — present, never silently dropped — and counted.
+ */
+const mapObjectProperties = ({
+  doc,
+  schema,
+  sink,
+  forceOptional = false,
+}: {
+  doc: unknown;
+  schema: JsonBodySchema;
+  sink: ResolutionSink;
+  forceOptional?: boolean;
+}): IrActionField[] => {
+  const fields: IrActionField[] = [];
+  const requiredSet = new Set(schema.required ?? []);
+
+  for (const [name, rawProperty] of Object.entries(schema.properties ?? {})) {
+    const required = !forceOptional && requiredSet.has(name);
+    const ref = refOf({ value: rawProperty });
+
+    if (ref !== undefined) {
+      const result = resolveLocalRef({ doc, ref });
+
+      if (!result.ok) {
+        sink.onUnresolvable({ reason: result.reason });
+        fields.push(mapProperty({ name, property: {}, required }));
+        continue;
+      }
+
+      fields.push(mapProperty({ name, property: result.value as JsonProperty, required }));
+      continue;
+    }
+
+    fields.push(mapProperty({ name, property: rawProperty as JsonProperty, required }));
+  }
+
+  return fields;
+};
+
+/** Merge `allOf` branches: union of branch properties + union of required (branch order). */
+const mergeAllOf = ({
+  doc,
+  branches,
+  sink,
+}: {
+  doc: unknown;
+  branches: unknown[];
+  sink: ResolutionSink;
+}): IrActionField[] => {
+  const fields: IrActionField[] = [];
+  const seen = new Set<string>();
+
+  for (const branch of branches) {
+    const resolved = resolveSchemaNode({ doc, node: branch, sink });
+
+    if (resolved === undefined) {
+      continue;
+    }
+
+    for (const field of mapObjectProperties({ doc, schema: resolved, sink })) {
+      if (seen.has(field.name)) {
+        continue;
+      }
+
+      seen.add(field.name);
+      fields.push(field);
+    }
+  }
+
+  return fields;
+};
+
+/**
+ * Map a `oneOf`/`anyOf` union body. A single branch behaves as the plain
+ * branch schema (no composition warning); a genuine union surfaces every
+ * branch field as OPTIONAL and raises one per-document composition warning
+ * (the IR cannot express typed unions — plan §4).
+ */
+const mergeUnion = ({
+  doc,
+  branches,
+  sink,
+}: {
+  doc: unknown;
+  branches: unknown[];
+  sink: ResolutionSink;
+}): IrActionField[] => {
+  const [only] = branches;
+
+  if (branches.length <= 1) {
+    if (only === undefined) {
+      return [];
+    }
+
+    const resolved = resolveSchemaNode({ doc, node: only, sink });
+
+    return resolved === undefined ? [] : mapObjectProperties({ doc, schema: resolved, sink });
+  }
+
+  sink.onComposition();
+
+  const fields: IrActionField[] = [];
+  const seen = new Set<string>();
+
+  for (const branch of branches) {
+    const resolved = resolveSchemaNode({ doc, node: branch, sink });
+
+    if (resolved === undefined) {
+      continue;
+    }
+
+    for (const field of mapObjectProperties({ doc, schema: resolved, sink, forceOptional: true })) {
+      if (seen.has(field.name)) {
+        continue;
+      }
+
+      seen.add(field.name);
+      fields.push(field);
+    }
+  }
+
+  return fields;
+};
+
+/** Resolve a request body (top-level `$ref`, composition, or inline) into input fields. */
+const collectBodyFields = ({
+  doc,
+  schema,
+  sink,
+}: {
+  doc: unknown;
+  schema: JsonBodySchema;
+  sink: ResolutionSink;
+}): IrActionField[] => {
+  const resolved = resolveSchemaNode({ doc, node: schema, sink });
+
+  if (resolved === undefined) {
+    return [];
+  }
+
+  if (Array.isArray(resolved.allOf)) {
+    return mergeAllOf({ doc, branches: resolved.allOf, sink });
+  }
+
+  const union = resolved.oneOf ?? resolved.anyOf;
+  if (Array.isArray(union)) {
+    return mergeUnion({ doc, branches: union, sink });
+  }
+
+  return mapObjectProperties({ doc, schema: resolved, sink });
+};
+
+const collectInput = ({
+  doc,
+  operation,
+  sink,
+}: {
+  doc: unknown;
   operation: OpenApiOperation;
-  onRefParam: () => void;
+  sink: ResolutionSink;
 }): IrActionField[] => {
   const fields: IrActionField[] = [];
 
-  for (const param of operation.parameters ?? []) {
+  for (const rawParam of operation.parameters ?? []) {
+    let param: OpenApiParameter;
+    const ref = refOf({ value: rawParam });
+
+    if (ref !== undefined) {
+      const result = resolveLocalRef({ doc, ref });
+
+      if (!result.ok) {
+        // A `{"$ref": …}` parameter whose target is unresolvable is dropped
+        // and counted — the skip-with-warning principle keeps it honest.
+        sink.onUnresolvable({ reason: result.reason });
+        continue;
+      }
+
+      param = result.value as OpenApiParameter;
+    } else {
+      param = rawParam as OpenApiParameter;
+    }
+
     if (param.name === undefined) {
-      // A `{"$ref": "#/components/parameters/…"}` entry — component
-      // resolution is not in v0, and dropping a field silently would break
-      // the skip-with-warning principle, so the caller aggregates a count.
-      onRefParam();
       continue;
     }
 
@@ -136,11 +358,7 @@ const collectInput = ({
 
   const jsonBody = operation.requestBody?.content?.['application/json']?.schema;
   if (jsonBody !== undefined) {
-    const requiredSet = new Set(jsonBody.required ?? []);
-
-    for (const [name, property] of Object.entries(jsonBody.properties ?? {})) {
-      fields.push(mapProperty({ name, property, required: requiredSet.has(name) }));
-    }
+    fields.push(...collectBodyFields({ doc, schema: jsonBody, sink }));
   }
 
   return fields;
@@ -161,8 +379,23 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
   }
 
   const paths = doc.paths ?? {};
-  let refParamCount = 0;
-  const refParamOps = new Set<string>();
+
+  const unresolvable: Record<ResolveReason, number> = {
+    external: 0,
+    missing: 0,
+    cycle: 0,
+    depth: 0,
+  };
+  let compositionOps = 0;
+
+  const sink: ResolutionSink = {
+    onUnresolvable: ({ reason }) => {
+      unresolvable[reason] += 1;
+    },
+    onComposition: () => {
+      compositionOps += 1;
+    },
+  };
 
   for (const path of Object.keys(paths).sort()) {
     const methods = paths[path] ?? {};
@@ -194,13 +427,7 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
         method: method.toUpperCase(),
         path,
         write: true,
-        input: collectInput({
-          operation,
-          onRefParam: () => {
-            refParamCount += 1;
-            refParamOps.add(`${method.toUpperCase()} ${path}`);
-          },
-        }),
+        input: collectInput({ doc, operation, sink }),
         ...(operation.summary === undefined ? {} : { description: operation.summary }),
       };
 
@@ -208,9 +435,23 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
     }
   }
 
-  if (refParamCount > 0) {
+  const reasons: ResolveReason[] = ['external', 'missing', 'cycle', 'depth'];
+  const unresolvableTotal = reasons.reduce((sum, reason) => sum + unresolvable[reason], 0);
+
+  if (unresolvableTotal > 0) {
+    const breakdown = reasons
+      .filter((reason) => unresolvable[reason] > 0)
+      .map((reason) => `${reason}: ${unresolvable[reason]}`)
+      .join(', ');
+
     scanned.warnings.push(
-      `openapi: skipped ${refParamCount} $ref parameter(s) across ${refParamOps.size} operation(s) — component parameter resolution is not in v0; add the missing fields to the generated inputs by hand if the actions need them`,
+      `openapi: skipped ${unresolvableTotal} unresolvable $ref(s) (${breakdown}) — local #/ component references only; add the missing fields to the generated inputs by hand if the actions need them`,
+    );
+  }
+
+  if (compositionOps > 0) {
+    scanned.warnings.push(
+      `openapi: ${compositionOps} composed request body(ies) (oneOf/anyOf) surfaced as an all-optional union — the IR cannot express typed unions; review the generated inputs`,
     );
   }
 
