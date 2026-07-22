@@ -1,0 +1,18 @@
+// ONT-008 both-fixture — the ROOT schema. Detection lists root candidates
+// FIRST, so RootWidget is scanned ahead of the nested schema's model. Its
+// presence must NOT suppress the nested schema (all hits are scanned).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A model declared only in the ROOT schema.
+model RootWidget {
+  id    String @id @default(cuid())
+  label String
+}

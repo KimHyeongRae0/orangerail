@@ -1,0 +1,7 @@
+{
+  "name": "ont-008-fixture-root",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture for the AC-5 byte-identity regression: a Ghostfolio/ONT-006-shaped repo whose Prisma schema sits at the conventional root prisma/schema.prisma. The nested-detection additions must change NOTHING here — two fresh inits must produce byte-identical output."
+}

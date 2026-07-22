@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { IrAction, IrObject, ScannedSource } from '../ir';
 import { emptySource } from '../ir';
 import { buildFileSet } from './index';
-import { emitObjectFile } from './emit-object';
+import { buildResolveDiagnostic, emitObjectFile, wrapResolveError } from './emit-object';
 import { emitActionFile } from './emit-action';
 
 const product: IrObject = {
@@ -71,6 +71,55 @@ describe('emitObjectFile', () => {
     // user-owned: ownership line present, do-not-edit ABSENT (AC-6)
     expect(content).toMatch(/orangerail sync/);
     expect(content).not.toMatch(/do[ -]?not[ -]?edit/i);
+  });
+
+  it('wraps the resolve in an actionable no-client diagnostic (AC-3 / I4)', () => {
+    const { content } = emitObjectFile({ object: product });
+
+    // The resolve body is guarded and rethrows through the diagnostic wrapper.
+    expect(content).toContain('} catch (error) {');
+    expect(content).toContain('throw wrapPrismaError(error);');
+
+    // The wrapper branches on both module-resolution error codes and, when
+    // matched, throws a diagnostic naming the object + the exact fix commands.
+    expect(content).toContain('ERR_MODULE_NOT_FOUND');
+    expect(content).toContain('MODULE_NOT_FOUND');
+    expect(content).toContain('object \\"Product\\"');
+    expect(content).toContain('@prisma/client');
+    expect(content).toContain('npx prisma generate');
+    expect(content).toContain('DATABASE_URL');
+    expect(content).toContain('Original error');
+  });
+});
+
+describe('wrapResolveError (I4 — resolve-time diagnostic logic)', () => {
+  it('rethrows a module-resolution failure as the actionable diagnostic with the original detail', () => {
+    const raw = Object.assign(new Error("Cannot find module '.prisma/client/default'"), {
+      code: 'ERR_MODULE_NOT_FOUND',
+    });
+
+    const wrapped = wrapResolveError({ objectName: 'Post', error: raw }) as Error;
+
+    expect(wrapped).toBeInstanceOf(Error);
+    expect(wrapped).not.toBe(raw);
+    for (const needle of ['Post', '@prisma/client', 'prisma generate', 'DATABASE_URL']) {
+      expect(wrapped.message).toContain(needle);
+    }
+    // The raw module error is preserved as a detail, not the headline.
+    expect(wrapped.message).toContain("Cannot find module '.prisma/client/default'");
+  });
+
+  it('also matches the CJS MODULE_NOT_FOUND code', () => {
+    const raw = Object.assign(new Error('nope'), { code: 'MODULE_NOT_FOUND' });
+    const wrapped = wrapResolveError({ objectName: 'Post', error: raw }) as Error;
+
+    expect(wrapped.message).toContain(buildResolveDiagnostic({ objectName: 'Post' }));
+  });
+
+  it('rethrows a non-module error untouched (never masks a real runtime failure)', () => {
+    const raw = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+
+    expect(wrapResolveError({ objectName: 'Post', error: raw })).toBe(raw);
   });
 });
 

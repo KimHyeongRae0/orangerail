@@ -60,6 +60,44 @@ describe('mapPrismaToIr', () => {
     expect(source.warnings.some((w) => /Unsupported/.test(w) && /Geo\.area/.test(w))).toBe(true);
   });
 
+  it('emits one aggregated warning naming every skipped view', () => {
+    const source = scan({
+      source: `
+        model Post { id String @id\n title String }
+        view UserStats { id Int @id\n postCount Int }
+        view PostStats { id Int @id\n views Int }
+      `,
+    });
+
+    const viewWarnings = source.warnings.filter((w) => /view/i.test(w));
+    expect(viewWarnings).toHaveLength(1);
+    expect(viewWarnings[0]).toContain('UserStats');
+    expect(viewWarnings[0]).toContain('PostStats');
+    expect(viewWarnings[0]).toMatch(/not scanned/i);
+
+    // The model alongside the views still maps.
+    expect(source.objects.map((o) => o.name)).toEqual(['Post']);
+  });
+
+  it('emits zero view warnings when the schema declares no views', () => {
+    const source = scan({
+      source: `model Post { id String @id\n title String }`,
+    });
+
+    expect(source.warnings.filter((w) => /view/i.test(w))).toHaveLength(0);
+  });
+
+  it('warns for a views-only schema and generates no objects', () => {
+    const source = scan({
+      source: `view UserStats { id Int @id\n postCount Int }`,
+    });
+
+    expect(source.objects).toHaveLength(0);
+    const viewWarnings = source.warnings.filter((w) => /view/i.test(w));
+    expect(viewWarnings).toHaveLength(1);
+    expect(viewWarnings[0]).toContain('UserStats');
+  });
+
   it('maps Float to float and Decimal to decimal (distinct for drift)', () => {
     const source = scan({
       source: `model M { id String @id\n a Float\n b Decimal }`,

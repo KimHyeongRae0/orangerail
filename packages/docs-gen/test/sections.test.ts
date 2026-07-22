@@ -176,6 +176,25 @@ describe('renderAgentGuide — preset + registry degradation (AC-4 / §3.5)', ()
     expect(out).toContain('`discount_product`, `publish_product`');
   });
 
+  it('documents the not-implemented stub path: rejected before staging, audited, no approval (AC-4 / I5)', () => {
+    const out = renderAgentGuide({
+      registry: buildFixtureRegistry(),
+      preset: 'approval-for-writes',
+    });
+
+    expect(out).toMatch(/not.implemented/i);
+    expect(out).toMatch(/before staging|rejected before/i);
+    expect(out).toContain('`not_implemented`');
+    expect(out).toContain('no approval is ever created');
+  });
+
+  it('omits the stub-path sentence under readonly and sandbox presets', () => {
+    for (const preset of ['readonly', 'sandbox'] as const) {
+      const out = renderAgentGuide({ registry: buildFixtureRegistry(), preset });
+      expect(out).not.toContain('rejected *before staging*');
+    }
+  });
+
   it('readonly preset renders a read-only guide', () => {
     const out = renderAgentGuide({ registry: buildFixtureRegistry(), preset: 'readonly' });
     expect(out).toContain('read-only');

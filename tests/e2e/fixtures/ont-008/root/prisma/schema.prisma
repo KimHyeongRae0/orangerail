@@ -1,0 +1,33 @@
+// ONT-008 root-only fixture — ONT-006-shaped: the Prisma schema sits at the
+// conventional root location (prisma/schema.prisma). Root-only repos must be
+// wholly unaffected by the nested-detection change (AC-5 byte-identity).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A product listed in the shop catalog.
+model Product {
+  id        String        @id @default(cuid())
+  title     String
+  price     Float
+  status    ProductStatus @default(DRAFT)
+  createdAt DateTime      @default(now())
+}
+
+model Customer {
+  id    String  @id @default(cuid())
+  email String  @unique
+  name  String?
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}

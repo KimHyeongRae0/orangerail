@@ -331,6 +331,8 @@ export const renderAgentGuide = ({
     '- if rejected, the approval is dead — a fresh call must stage a new approval.',
     '',
     `The actions requiring approval are: ${names}. Actions not listed here execute immediately when called.`,
+    '',
+    'One exception precedes staging entirely: an action whose `execute` is not implemented (a stub) is rejected *before staging* with a `not_implemented` error — the rejection is audited and no approval is ever created, so you will never receive an `approvalId` for it. Treat a `not_implemented` result as "this action does not exist yet", not as a pending decision.',
   );
 
   return lines.join('\n');

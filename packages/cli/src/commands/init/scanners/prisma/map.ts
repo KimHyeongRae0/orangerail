@@ -163,5 +163,14 @@ export const mapPrismaToIr = ({ parsed }: { parsed: ParsedSchema }): ScannedSour
   const enums: IrEnum[] = parsed.enums.map((e) => ({ name: e.name, values: [...e.values] }));
   source.enums.push(...enums);
 
+  if (parsed.views.length > 0) {
+    // One aggregated skip-with-warning line: views are read models, a natural
+    // future object source, but not scanned in v0 — the skip stays visible
+    // (never silent) so the user knows those read models were dropped.
+    source.warnings.push(
+      `prisma: skipping ${parsed.views.length} view block(s) (${parsed.views.join(', ')}) — Prisma views are not scanned in v0`,
+    );
+  }
+
   return source;
 };

@@ -65,6 +65,45 @@ describe('parsePrismaSchema', () => {
     expect(fields).toEqual(['id', 'body', 'legacy']);
   });
 
+  it('records view block names in declared order without parsing their bodies', () => {
+    const parsed = parsePrismaSchema({
+      source: `
+        view UserStats {
+          id        Int @id
+          postCount Int
+        }
+        view PostStats {
+          id    Int @id
+          views Int
+        }
+      `,
+    });
+
+    expect(parsed.views).toEqual(['UserStats', 'PostStats']);
+    // Views are read models, not scanned into objects in v0.
+    expect(parsed.models).toHaveLength(0);
+  });
+
+  it('keeps hostile strings/braces inside a view body inert and still parses later models', () => {
+    const parsed = parsePrismaSchema({
+      source: `
+        view UserStats {
+          id    Int    @id
+          label String @map("stats */ \`drop\` \\"table\\" { }")
+        }
+        model Post {
+          id    String @id @default(cuid())
+          title String
+        }
+      `,
+    });
+
+    expect(parsed.views).toEqual(['UserStats']);
+    // A model declared after a view still parses (the view body never leaked).
+    expect(parsed.models.map((m) => m.name)).toEqual(['Post']);
+    expect(parsed.models[0]?.fields.map((f) => f.name)).toEqual(['id', 'title']);
+  });
+
   it('strips // comments but not string content with slashes', () => {
     const parsed = parsePrismaSchema({
       source: `

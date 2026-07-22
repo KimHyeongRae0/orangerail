@@ -1,0 +1,7 @@
+{
+  "name": "ont-008-fixture-both",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture proving the both-root-and-nested precedence rule (ticket §4 / plan I1): a root prisma/schema.prisma AND a packages/db/prisma/schema.prisma each hold a DIFFERENT model. Detection must scan ALL hits (root first), so objects from both schemas are generated — never a silent arbitrary pick."
+}

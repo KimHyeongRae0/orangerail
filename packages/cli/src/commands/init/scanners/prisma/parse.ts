@@ -42,6 +42,8 @@ export interface RawEnum {
 export interface ParsedSchema {
   models: RawModel[];
   enums: RawEnum[];
+  /** Names of declared `view` blocks, in source order (bodies never parsed). */
+  views: string[];
 }
 
 /**
@@ -114,7 +116,7 @@ interface Block {
  */
 const extractBlocks = ({ source }: { source: string }): Block[] => {
   const blocks: Block[] = [];
-  const headerRe = /(model|enum|generator|datasource|type)\s+([A-Za-z_][\w]*)\s*\{/g;
+  const headerRe = /(model|view|enum|generator|datasource|type)\s+([A-Za-z_][\w]*)\s*\{/g;
 
   let match: RegExpExecArray | null = headerRe.exec(source);
 
@@ -241,14 +243,20 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
 
   const models: RawModel[] = [];
   const enums: RawEnum[] = [];
+  const views: string[] = [];
 
   for (const block of blocks) {
     if (block.keyword === 'model') {
       models.push({ name: block.name, fields: parseModelBody({ body: block.body }) });
     } else if (block.keyword === 'enum') {
       enums.push({ name: block.name, values: parseEnumBody({ body: block.body }) });
+    } else if (block.keyword === 'view') {
+      // View bodies are never parsed (read models are not scanned in v0); the
+      // brace matcher has already consumed the body, so a hostile string inside
+      // it stays inert. Only the name is recorded, to drive a skip warning.
+      views.push(block.name);
     }
   }
 
-  return { models, enums };
+  return { models, enums, views };
 };

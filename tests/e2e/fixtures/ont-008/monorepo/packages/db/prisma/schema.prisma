@@ -1,0 +1,41 @@
+// ONT-008 monorepo fixture — the schema deliberately lives under
+// packages/db/prisma/ (NOT at the repo root), reproducing the cal.com layout.
+// Root-only detection (today) never finds it; nested detection (AC-1) must.
+//
+// The file also carries one `view` block (a read model) to prove the
+// skip-with-warning path (AC-2): views are not scanned in v0, but the skip must
+// be VISIBLE, not silent. The view body includes a hostile string inside a
+// @map(...) to prove view bodies stay inert (never parsed, never crash codegen).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A registered user of the app.
+model User {
+  id    String @id @default(cuid())
+  email String @unique
+  name  String?
+  posts Post[]
+}
+
+/// A post authored by a user.
+model Post {
+  id       String @id @default(cuid())
+  title    String
+  author   User   @relation(fields: [authorId], references: [id])
+  authorId String
+}
+
+/// A read-model view — NOT scanned in v0 (skip-with-warning, AC-2). The hostile
+/// @map string must stay inert (view bodies are never parsed further).
+view UserStats {
+  id        Int    @id
+  postCount Int
+  label     String @map("stats */ `drop` \"table\"")
+}

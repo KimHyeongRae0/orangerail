@@ -1,0 +1,7 @@
+{
+  "name": "ont-008-fixture-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture for orangerail init at a monorepo ROOT: the Prisma schema lives at packages/db/prisma/schema.prisma (NO root schema), so today's root-only detection reports nothing. A root openapi.json contributes one governed (approval-required) write action so the generated AGENTS.md carries the governed-actions section. Copied into a scratch run directory by the e2e; bare imports in generated code resolve via the monorepo-root node_modules walk-up."
+}

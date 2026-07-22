@@ -1,0 +1,31 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ONT-008 monorepo fixture API",
+    "version": "1.0.0",
+    "description": "One write operation so the generated ontology carries a governed (approval-required) action whose execute is the not-implemented stub. This makes the generated AGENTS.md render the governed-actions 'How to act' section (AC-4 stub-path wording target). Reads come from the nested Prisma schema, not from here."
+  },
+  "paths": {
+    "/posts": {
+      "post": {
+        "operationId": "createPost",
+        "summary": "Create a post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  }
+}

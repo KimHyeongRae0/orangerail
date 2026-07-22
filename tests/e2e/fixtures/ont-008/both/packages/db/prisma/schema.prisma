@@ -1,0 +1,18 @@
+// ONT-008 both-fixture — the NESTED schema. Holds a DIFFERENT model from the
+// root schema. Nested detection (AC-1) must scan this in ADDITION to the root
+// one, so NestedGadget is generated alongside RootWidget.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A model declared only in the NESTED schema.
+model NestedGadget {
+  id   String @id @default(cuid())
+  size Int
+}
