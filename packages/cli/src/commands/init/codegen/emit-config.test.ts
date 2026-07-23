@@ -11,6 +11,9 @@ describe('emitConfigFile', () => {
     expect(content).toContain("name.endsWith('.mjs')");
     expect(content).toContain("createFileStore({ dir: join(here, '.orangerail', 'store') })");
     expect(content).toContain('preset: "approval-for-writes"');
+    // Local scaffold opts in to dev mode (ONT-014 secure default): with no
+    // adapter the server would otherwise deny every caller.
+    expect(content).toContain('allowDevMode: true');
     // config never lands the store under the byte-compared generated dir
     expect(content).not.toContain("'.orangerail', 'generated'");
   });

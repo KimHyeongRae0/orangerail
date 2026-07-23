@@ -175,6 +175,13 @@ const renderConfig = ({
     'export default {',
     '  registry,',
     '  store,',
+    '  // Local-operator dev mode: with no `resolveIdentity` adapter the MCP',
+    '  // server denies every caller by default (secure by default). This scaffold',
+    '  // is a local single-user project, so it opts in to the all-roles',
+    '  // `local-dev` identity to make the flow work out of the box. Before',
+    '  // exposing this server to anyone else, add a `resolveIdentity` adapter (it',
+    '  // takes precedence and this flag is ignored) and remove this line.',
+    '  allowDevMode: true,',
     '};',
     '',
   );

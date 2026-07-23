@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import { verifyAudit } from '../src/audit/verify';
 import { createEngine } from '../src/lifecycle/engine';
+import { createRegistry } from '../src/registry';
 import { createMemoryStore } from '../src/store/memory';
 import {
   agent,
+  agent2,
   buildCouponFixture,
   buildNoRolesFixture,
   csManager,
@@ -131,7 +134,62 @@ describe('lifecycle — approval authorization (§4.6)', () => {
       throw new Error('staging failed');
     }
 
-    const approved = await engine.approve({ approvalId: staged.approvalId, approver: agent });
+    // A DISTINCT authenticated subject approves (agent staged; agent2 approves)
+    // — the invariant under test is role authorization, not who approves, and
+    // separation of duty (§3.4) forbids agent approving its own staging.
+    const approved = await engine.approve({ approvalId: staged.approvalId, approver: agent2 });
+    expect(approved.status).toBe('approved');
+  });
+});
+
+describe('lifecycle — separation of duty (§3.4, AC-5)', () => {
+  it('rejects a non-dev self-approval without consuming the CAS', async () => {
+    const fixture = buildNoRolesFixture();
+
+    const staged = await fixture.engine.stage({
+      actionName: 'noteAction',
+      input: { note: 'hi' },
+      caller: agent,
+    });
+    if (staged.status !== 'approval_pending') {
+      throw new Error('staging failed');
+    }
+
+    // agent staged; agent (same subject, non-dev) tries to approve its own.
+    const selfApprove = await fixture.engine.approve({
+      approvalId: staged.approvalId,
+      approver: agent,
+    });
+    expect(selfApprove.status).toBe('rejected_self');
+
+    // The CAS was not consumed — the approval is still pending.
+    const still = await fixture.store.getApproval({ id: staged.approvalId });
+    expect(still?.status).toBe('pending');
+
+    // A distinct authenticated subject may still approve it.
+    const distinct = await fixture.engine.approve({
+      approvalId: staged.approvalId,
+      approver: agent2,
+    });
+    expect(distinct.status).toBe('approved');
+  });
+
+  it('allows a dev-mode operator to approve its own staging (config-gated exception)', async () => {
+    const fixture = buildNoRolesFixture();
+
+    const staged = await fixture.engine.stage({
+      actionName: 'noteAction',
+      input: { note: 'dev' },
+      caller: devIdentity,
+    });
+    if (staged.status !== 'approval_pending') {
+      throw new Error('staging failed');
+    }
+
+    const approved = await fixture.engine.approve({
+      approvalId: staged.approvalId,
+      approver: devIdentity,
+    });
     expect(approved.status).toBe('approved');
   });
 });
@@ -254,6 +312,64 @@ describe('lifecycle — fail-closed audit (AC-7)', () => {
     const result = await engine.execute({ approvalId: staged.approvalId });
     expect(result.status).toBe('audit_blocked');
     expect(executeSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('lifecycle — fail-closed throwing where (§3.6, AC-6)', () => {
+  it('maps a throwing functional where at execute-time to resolve_error with an audit record and no orphan', async () => {
+    const registry = createRegistry();
+    let boom = false;
+    const thing = registry.defineObject({
+      name: 'thing',
+      schema: z.object({ id: z.string() }),
+      resolve: { get: async ({ id }) => ({ id }) },
+    });
+    registry.defineAction({
+      name: 'risky',
+      target: thing,
+      targetIdFrom: 'id',
+      input: z.object({ id: z.string(), note: z.string() }),
+      policy: {
+        approval: 'required',
+        where: () => {
+          if (boom) {
+            throw new Error('where predicate exploded');
+          }
+          return true;
+        },
+      },
+      execute: async ({ input }) => ({ done: input.note }),
+    });
+    const store = createMemoryStore();
+    const engine = createEngine({ registry, store });
+
+    const staged = await engine.stage({
+      actionName: 'risky',
+      input: { id: 't1', note: 'x' },
+      caller: agent,
+    });
+    if (staged.status !== 'approval_pending') {
+      throw new Error(`stage failed: ${staged.status}`);
+    }
+
+    await engine.approve({ approvalId: staged.approvalId, approver: agent2 });
+
+    // The predicate starts throwing between stage and execute.
+    boom = true;
+
+    const executed = await engine.execute({ approvalId: staged.approvalId });
+    expect(executed.status).toBe('resolve_error');
+
+    const consumed = await store.getApproval({ id: staged.approvalId });
+    expect(consumed?.status).toBe('consumed');
+
+    const audit = await store.readAudit({});
+    expect(audit.items.some((r) => r.phase === 'resolve_error')).toBe(true);
+
+    // The consumed approval is accounted-for by the resolve_error record — it is
+    // NOT reported as an orphan, and the chain verifies clean.
+    const verdict = await verifyAudit({ store });
+    expect(verdict.ok).toBe(true);
   });
 });
 

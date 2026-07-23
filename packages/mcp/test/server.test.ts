@@ -50,15 +50,23 @@ const buildRegistry = () => {
 const connect = async ({
   preset,
   resolveIdentity,
+  allowDevMode = true,
 }: {
   preset?: McpPreset;
   resolveIdentity?: ResolveIdentity;
+  allowDevMode?: boolean;
 } = {}): Promise<{ client: Client; store: Store }> => {
   const registry = buildRegistry();
   const store = createMemoryStore();
+  // Default the helper to the explicit dev opt-in (ONT-014 AC-4): the MCP
+  // server now defaults allowDevMode to false, so these tests — which exercise
+  // staging/reads without an adapter — must opt in, exactly as a local operator
+  // would in their config. The deny-first invariant is covered by its own test
+  // (explicit `resolveIdentity: () => null`) and the secure-default block below.
   const { server } = createMcpServer({
     registry,
     store,
+    allowDevMode,
     ...(preset ? { preset } : {}),
     ...(resolveIdentity ? { resolveIdentity } : {}),
   });
@@ -211,6 +219,47 @@ describe('mcp — check_approval mapping incl. consumed re-poll (§3.2, AC-2)', 
 
     const repoll = await call({ client, name: 'check_approval', args: { approvalId } });
     expect(repoll.structuredContent?.status).toBe('consumed');
+  });
+});
+
+describe('mcp — secure identity default (§3.3, AC-4)', () => {
+  it('denies staging a governed action with no adapter and no dev opt-in', async () => {
+    const { client } = await connect({ allowDevMode: false });
+    const res = await call({
+      client,
+      name: 'publish_document',
+      args: { documentId: 'd1', note: 'ship' },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent?.status).toBe('denied');
+  });
+
+  it('denies an authenticated read with no adapter and no dev opt-in', async () => {
+    const { client } = await connect({ allowDevMode: false });
+    const res = await call({ client, name: 'document_get', args: { id: 'd1' } });
+
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent?.status).toBe('denied');
+  });
+
+  it('denies check_approval for an anonymous caller (no adapter, no opt-in)', async () => {
+    const { client } = await connect({ allowDevMode: false });
+    const res = await call({ client, name: 'check_approval', args: { approvalId: 'whatever' } });
+
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent?.status).toBe('denied');
+  });
+
+  it('stages normally once dev mode is explicitly opted in', async () => {
+    const { client } = await connect({ allowDevMode: true });
+    const res = await call({
+      client,
+      name: 'publish_document',
+      args: { documentId: 'd1', note: 'ship' },
+    });
+
+    expect(res.structuredContent?.status).toBe('approval_pending');
   });
 });
 

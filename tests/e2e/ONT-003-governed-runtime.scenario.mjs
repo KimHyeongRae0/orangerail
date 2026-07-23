@@ -284,9 +284,11 @@ const main = async () => {
     message: 'viewer (wrong role) approve unexpectedly succeeded',
   });
 
+  // A DISTINCT editor-role subject approves (genuine separation of duty — the
+  // staging subject 'alice' may not self-approve under ONT-014 AC-5).
   const rightRole = runCli({
     args: ['approvals', 'approve', rbacApprovalId, '--config', rbacConfig],
-    env: { ...rbacEnv, ORANGERAIL_E2E_IDENTITY: 'editor' },
+    env: { ...rbacEnv, ORANGERAIL_E2E_IDENTITY: 'editor2' },
   });
   assert({ ok: rightRole.status === 0, message: `editor approve failed: ${rightRole.stderr}` });
 

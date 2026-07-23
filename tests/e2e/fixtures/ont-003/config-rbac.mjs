@@ -3,8 +3,10 @@
  * (DESIGN.md §4.5 static-adapter e2e cases).
  *
  * The identity is selected via ORANGERAIL_E2E_IDENTITY so the driver can run
- * the same commands as different subjects: 'editor' (approver role),
- * 'viewer' (wrong role), 'anon' (adapter returns null → deny-first).
+ * the same commands as different subjects: 'editor' (staging subject, editor
+ * role), 'editor2' (a DISTINCT editor-role approver for genuine separation of
+ * duty — ONT-014 AC-5), 'viewer' (wrong role), 'anon' (adapter returns null →
+ * deny-first).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,6 +23,7 @@ if (!storeDir || !dataDir) {
 
 const IDENTITIES = {
   editor: { subject: 'alice', roles: ['editor'] },
+  editor2: { subject: 'carol', roles: ['editor'] },
   viewer: { subject: 'bob', roles: ['viewer'] },
 };
 

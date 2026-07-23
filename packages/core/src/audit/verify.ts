@@ -60,25 +60,30 @@ export const verifyAudit = async ({ store }: { store: Store }): Promise<AuditVer
     prev = record.hash;
   }
 
+  // Key the started->terminal cross-check on `approvalId ?? correlationId`, so
+  // auto actions (no approvalId, §3.2 / AC-2) are paired via their correlation
+  // id and a truncated auto terminal is caught — closing the old
+  // "no approvalId -> skipped" gap.
   const started = new Set<string>();
   const finished = new Set<string>();
 
   for (const record of records) {
-    if (record.approvalId === undefined) {
+    const key = record.approvalId ?? record.correlationId;
+    if (key === undefined) {
       continue;
     }
 
     if (record.phase === 'execution_started') {
-      started.add(record.approvalId);
+      started.add(key);
     }
     if (record.phase === 'succeeded' || record.phase === 'failed') {
-      finished.add(record.approvalId);
+      finished.add(key);
     }
   }
 
-  for (const approvalId of started) {
-    if (!finished.has(approvalId)) {
-      issues.push(`incomplete execution for approval ${approvalId}: started but never finished`);
+  for (const key of started) {
+    if (!finished.has(key)) {
+      issues.push(`incomplete execution for ${key}: started but never finished`);
     }
   }
 
@@ -107,6 +112,33 @@ export const verifyAudit = async ({ store }: { store: Store }): Promise<AuditVer
       issues.push(
         `orphaned consumed approval ${approval.id}: consumed but no post-consume audit record`,
       );
+    }
+  }
+
+  // Anchored-head containment check (§3.1 / AC-1..AC-3). The internally
+  // consistent chain walk above cannot see a tail that was truncated wholesale;
+  // the persisted checkpoint records how long the chain SHOULD be. CONTAINMENT
+  // (not equality) so a chain one record ahead of the checkpoint — the single
+  // crash-between-append-and-head-write window — never false-positives, while
+  // any truncation (which only ever shortens the chain) is caught.
+  const head = await store.readAuditHead();
+
+  if (head === null) {
+    if (records.length > 0) {
+      issues.push(
+        `audit checkpoint missing: chain has ${records.length} record(s) but no anchored head`,
+      );
+    }
+  } else if (records.length < head.seq) {
+    issues.push(
+      `audit truncated: on-disk chain has ${records.length} record(s), shorter than anchored head seq ${head.seq}`,
+    );
+  } else {
+    const anchored = records.find((record) => record.seq === head.seq);
+    if (anchored === undefined) {
+      issues.push(`audit diverged from anchored head: no record at seq ${head.seq}`);
+    } else if (anchored.hash !== head.hash) {
+      issues.push(`audit diverged from anchored head at seq ${head.seq}: hash mismatch`);
     }
   }
 

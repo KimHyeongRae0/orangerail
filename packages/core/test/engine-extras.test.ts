@@ -8,6 +8,8 @@ import { createMemoryStore } from '../src/store/memory';
 import type { Identity } from '../src/types';
 
 const editor: Identity = { subject: 'alice', roles: ['editor'] };
+/** A distinct editor-role approver (separation of duty, §3.4). */
+const editor2: Identity = { subject: 'bob', roles: ['editor'] };
 
 /**
  * A fixture whose execute captures the identity it receives, so the test can
@@ -50,12 +52,46 @@ describe('engine — staged roles persist through execute (§3.8, AC-9)', () => 
     const record = await store.getApproval({ id: staged.approvalId });
     expect(record?.requestedByRoles).toEqual(['editor']);
 
-    await engine.approve({ approvalId: staged.approvalId, approver: editor });
+    // A DISTINCT same-role subject approves — the execute-time identity is
+    // reconstructed from the STAGER's persisted roles, so the approver's subject
+    // is irrelevant to this assertion (and self-approval is now forbidden, §3.4).
+    await engine.approve({ approvalId: staged.approvalId, approver: editor2 });
     const executed = await engine.execute({ approvalId: staged.approvalId });
 
     expect(executed.status).toBe('executed');
     // The ONT-002 `roles: []` drift is structurally impossible now.
     expect(seen.roles).toEqual(['editor']);
+  });
+});
+
+describe('engine — auto-action correlation id (§3.2, AC-2)', () => {
+  it('emits one correlationId on both execution_started and the terminal record', async () => {
+    const registry = createRegistry();
+    registry.defineAction({
+      name: 'auto_thing',
+      input: z.object({ v: z.string() }),
+      execute: async ({ input }) => ({ echoed: input.v }),
+    });
+    const store = createMemoryStore();
+    const engine = createEngine({ registry, store });
+
+    const result = await engine.stage({
+      actionName: 'auto_thing',
+      input: { v: 'x' },
+      caller: { subject: 'agent', roles: [] },
+    });
+    expect(result.status).toBe('executed');
+
+    const audit = await store.readAudit({});
+    const started = audit.items.find((r) => r.phase === 'execution_started');
+    const terminal = audit.items.find((r) => r.phase === 'succeeded');
+
+    expect(typeof started?.correlationId).toBe('string');
+    expect(started?.correlationId).not.toBe('');
+    // The auto path carries no approvalId, so the correlation id is what pairs
+    // started -> terminal in verifyAudit.
+    expect(started?.approvalId).toBeUndefined();
+    expect(terminal?.correlationId).toBe(started?.correlationId);
   });
 });
 

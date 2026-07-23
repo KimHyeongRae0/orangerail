@@ -33,6 +33,14 @@ export interface CreateMcpServerArgs {
   resolveIdentity?: ResolveIdentity;
   preset?: McpPreset;
   redactAudit?: RedactAudit;
+  /**
+   * Secure default (§3.3 / AC-4): with NO `resolveIdentity` adapter, dev mode is
+   * entered only when this is explicitly `true`. Defaults to `false`, so a
+   * no-adapter server treats every caller as unauthenticated (deny-first) rather
+   * than the all-roles `local-dev` identity. A typed arg, NOT an env flag — the
+   * zero-`process.env`-reads property is preserved.
+   */
+  allowDevMode?: boolean;
 }
 
 type ToolDef =
@@ -283,6 +291,7 @@ export const createMcpServer = ({
   resolveIdentity,
   preset = 'approval-for-writes',
   redactAudit,
+  allowDevMode = false,
 }: CreateMcpServerArgs): { server: Server; serve: () => Promise<void> } => {
   const engine = createEngine({
     registry,
@@ -293,7 +302,7 @@ export const createMcpServer = ({
 
   const idConfig = {
     transport: 'stdio' as const,
-    allowDevMode: true,
+    allowDevMode,
     ...(resolveIdentity ? { resolveIdentity } : {}),
   };
 
@@ -385,7 +394,14 @@ export const createMcpServer = ({
       });
     }
 
-    // check_approval
+    // check_approval — require a non-anonymous caller before touching the
+    // approval (§3.5 / AC-6). Under the secure default a no-adapter no-opt-in
+    // server yields caller === null here, so an anonymous connector can no
+    // longer trigger a governed completion by knowing an approvalId.
+    if (caller === null) {
+      return err({ status: 'denied', message: 'Authentication required to check an approval.' });
+    }
+
     const approvalId = String(args['approvalId'] ?? '');
     const record = await store.getApproval({ id: approvalId });
 

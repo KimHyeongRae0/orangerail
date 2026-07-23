@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { GENESIS_HASH, hashAuditRecord } from '../audit/chain';
 import type { Identity } from '../types';
 import type {
   ApprovalRecord,
+  AuditHead,
   AuditInput,
   AuditRecord,
   ConsumeApprovalResult,
@@ -97,6 +98,7 @@ const readJsonl = ({ path }: { path: string }): unknown[] => {
 export const createFileStore = ({ dir }: { dir: string }): FileStore => {
   const approvalsPath = join(dir, 'approvals.jsonl');
   const auditPath = join(dir, 'audit.jsonl');
+  const auditHeadPath = join(dir, 'audit.head.json');
 
   const foldApprovals = (): Map<string, ApprovalRecord> => {
     const events = readJsonl({ path: approvalsPath }) as ApprovalEvent[];
@@ -261,7 +263,35 @@ export const createFileStore = ({ dir }: { dir: string }): FileStore => {
         verify();
         appendFileSync(auditPath, `${JSON.stringify(full)}\n`);
 
+        // Advance the anchored-head checkpoint for the record just appended,
+        // inside the SAME lock hold so append + checkpoint are one atomic
+        // critical section (§3.1). Crash-atomic: write a temp then rename (an
+        // atomic replace on local filesystems), so a crash mid-write never
+        // leaves a torn head file.
+        const headRecord: AuditHead = { seq: full.seq, hash: full.hash, count: seq };
+        const tmpPath = `${auditHeadPath}.${randomUUID()}.tmp`;
+        writeFileSync(tmpPath, JSON.stringify(headRecord));
+        renameSync(tmpPath, auditHeadPath);
+
         return full;
+      },
+    });
+
+  const readAuditHead = async (): Promise<AuditHead | null> =>
+    withLock({
+      fn: async () => {
+        let raw: string;
+
+        try {
+          raw = readFileSync(auditHeadPath, 'utf8');
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+            return null;
+          }
+          throw err;
+        }
+
+        return JSON.parse(raw) as AuditHead;
       },
     });
 
@@ -294,6 +324,7 @@ export const createFileStore = ({ dir }: { dir: string }): FileStore => {
     listApprovals,
     appendAudit,
     readAudit,
+    readAuditHead,
     unlock: () => unlockStore({ dir }),
   };
 };

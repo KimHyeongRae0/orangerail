@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { isNotImplemented } from '../define/action';
 import { authorizeApprover } from '../identity/contract';
 import { evaluateWhere } from '../policy/where';
@@ -42,6 +44,8 @@ export type ApproveResult =
   | { status: 'denied'; reason: 'anonymous' }
   | { status: 'not_found' }
   | { status: 'rejected_role' }
+  /** Separation-of-duty (§3.4 / AC-5): the approver is the requester (non-dev). */
+  | { status: 'rejected_self' }
   | { status: 'already_resolved' };
 
 /** Result of {@link Engine.reject}. */
@@ -77,6 +81,7 @@ export const createEngine = ({
     phase,
     actionName,
     approvalId,
+    correlationId,
     requestedBy,
     approver,
     input,
@@ -87,6 +92,7 @@ export const createEngine = ({
     phase: AuditPhase;
     actionName: string;
     approvalId?: string | undefined;
+    correlationId?: string | undefined;
     requestedBy?: string | undefined;
     approver?: string | undefined;
     input?: unknown;
@@ -99,11 +105,14 @@ export const createEngine = ({
     const auditInput =
       input !== undefined && redactAudit ? redactAudit({ actionName, input }) : input;
 
+    // Every optional field is spread ONLY when present, so a record without a
+    // correlationId (every existing record) hashes exactly as before (§3.2).
     return {
       phase,
       actionName,
       timestamp: new Date().toISOString(),
       ...(approvalId !== undefined ? { approvalId } : {}),
+      ...(correlationId !== undefined ? { correlationId } : {}),
       ...(requestedBy !== undefined ? { requestedBy } : {}),
       ...(approver !== undefined ? { approver } : {}),
       ...(auditInput !== undefined ? { input: auditInput } : {}),
@@ -163,7 +172,19 @@ export const createEngine = ({
 
     const object = fetched.kind === 'ok' ? fetched.object : null;
 
-    return evaluateWhere({ where, object, input, identity }) ? { kind: 'pass' } : { kind: 'fail' };
+    // A functional `where` runs the user predicate verbatim (`where.ts`). Wrap
+    // it so a throw fails CLOSED to a `resolve_error` — the same audited path a
+    // failing `fetchTarget` already takes — instead of escaping uncaught after
+    // the approval was consumed (§3.6 / AC-6). `verifyAudit` counts
+    // `resolve_error` as an accounted post-consume record, so the consumed
+    // approval is not left an unexplained orphan.
+    try {
+      return evaluateWhere({ where, object, input, identity })
+        ? { kind: 'pass' }
+        : { kind: 'fail' };
+    } catch (err) {
+      return { kind: 'resolve_error', error: errorMessage({ err }) };
+    }
   };
 
   /**
@@ -191,8 +212,16 @@ export const createEngine = ({
       devMode?: boolean | undefined;
     };
   }): Promise<ExecuteResult> => {
+    // Auto actions carry no approvalId, so the started->terminal cross-check has
+    // nothing to key on. Mint a per-execute correlationId and thread it onto
+    // BOTH the execution_started and the terminal record so `verifyAudit` can
+    // pair them (§3.2 / AC-2). Approval-path executions keep their approvalId
+    // and no correlationId — their records hash exactly as before.
+    const correlated =
+      audit.approvalId === undefined ? { ...audit, correlationId: randomUUID() } : audit;
+
     try {
-      await store.appendAudit({ record: mkAudit({ ...audit, phase: 'execution_started' }) });
+      await store.appendAudit({ record: mkAudit({ ...correlated, phase: 'execution_started' }) });
     } catch (err) {
       return { status: 'audit_blocked', error: errorMessage({ err }) };
     }
@@ -200,14 +229,14 @@ export const createEngine = ({
     try {
       const result = await action.execute({ input, identity });
       await store
-        .appendAudit({ record: mkAudit({ ...audit, phase: 'succeeded', result }) })
+        .appendAudit({ record: mkAudit({ ...correlated, phase: 'succeeded', result }) })
         .catch(() => undefined);
 
       return { status: 'executed', result };
     } catch (err) {
       const error = errorMessage({ err });
       await store
-        .appendAudit({ record: mkAudit({ ...audit, phase: 'failed', error }) })
+        .appendAudit({ record: mkAudit({ ...correlated, phase: 'failed', error }) })
         .catch(() => undefined);
 
       return { status: 'failed', error };
@@ -357,6 +386,15 @@ export const createEngine = ({
     const existing = await store.getApproval({ id: approvalId });
     if (!existing) {
       return { status: 'not_found' };
+    }
+
+    // Separation of duty (§3.4 / AC-5): a real (non-dev) identity may not
+    // approve its own staging. Pre-CAS and non-consuming — like the wrong-role
+    // early return, the approval stays `pending`. Dev mode (itself an explicit
+    // opt-in, §3.3) is the config-gated exception: a local operator holding all
+    // roles implicitly may stage-and-approve.
+    if (approver.devMode !== true && approver.subject === existing.requestedBy) {
+      return { status: 'rejected_self' };
     }
 
     const action = registry.getAction({ name: existing.actionName });

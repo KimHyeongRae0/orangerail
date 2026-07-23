@@ -36,6 +36,7 @@ export type { LockOwner, UnlockResult } from './store/file-lock';
 export type {
   ApprovalRecord,
   ApprovalStatus,
+  AuditHead,
   AuditInput,
   AuditPhase,
   AuditRecord,

@@ -15,6 +15,7 @@ export const runMcp = async ({ config }: { config: OrangerailConfig }): Promise<
     ...(config.resolveIdentity ? { resolveIdentity: config.resolveIdentity } : {}),
     ...(config.preset ? { preset: config.preset } : {}),
     ...(config.redactAudit ? { redactAudit: config.redactAudit } : {}),
+    ...(config.allowDevMode ? { allowDevMode: config.allowDevMode } : {}),
   });
 
   await serve();

@@ -4,6 +4,7 @@ import { GENESIS_HASH, hashAuditRecord } from '../audit/chain';
 import type { Identity } from '../types';
 import type {
   ApprovalRecord,
+  AuditHead,
   AuditInput,
   AuditRecord,
   ConsumeApprovalResult,
@@ -26,6 +27,7 @@ const now = (): string => new Date().toISOString();
 export const createMemoryStore = (): Store => {
   const approvals = new Map<string, ApprovalRecord>();
   const audit: AuditRecord[] = [];
+  let auditHead: AuditHead | null = null;
 
   const createApproval = async ({
     record,
@@ -118,9 +120,14 @@ export const createMemoryStore = (): Store => {
     const full: AuditRecord = { ...base, hash };
 
     audit.push(full);
+    // Advance the anchored-head checkpoint to the record just appended (§3.1).
+    auditHead = { seq: full.seq, hash: full.hash, count: audit.length };
 
     return full;
   };
+
+  const readAuditHead = async (): Promise<AuditHead | null> =>
+    auditHead === null ? null : { ...auditHead };
 
   const readAudit = async ({
     cursor,
@@ -145,5 +152,6 @@ export const createMemoryStore = (): Store => {
     listApprovals,
     appendAudit,
     readAudit,
+    readAuditHead,
   };
 };

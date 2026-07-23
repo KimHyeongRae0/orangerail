@@ -56,4 +56,7 @@ registry.defineAction({
 export default {
   registry,
   store: createFileStore({ dir: storeDir }),
+  // ONT-014 AC-4 secure default: no resolveIdentity adapter, so the no-adapter
+  // embed loop opts in to dev mode explicitly to keep staging.
+  allowDevMode: true,
 };

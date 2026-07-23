@@ -9,6 +9,12 @@ import type { Identity } from '../src/types';
 /** Authenticated caller WITHOUT the approver role — may still stage (§4.5 step 0). */
 export const agent: Identity = { subject: 'agent-1', roles: ['viewer'] };
 
+/**
+ * A SECOND authenticated identity (distinct subject) — used where a test needs
+ * a non-dev approver that is not the requester (separation of duty, §3.4).
+ */
+export const agent2: Identity = { subject: 'agent-2', roles: ['viewer'] };
+
 /** An approver holding the required `cs-manager` role. */
 export const csManager: Identity = { subject: 'alice', roles: ['cs-manager'] };
 

@@ -55,4 +55,8 @@ registry.defineAction({
 export default {
   registry,
   store: createFileStore({ dir: storeDir }),
+  // ONT-014 AC-4 secure default: with no resolveIdentity adapter, the MCP
+  // server enters dev mode only on an explicit opt-in. This dev-mode fixture
+  // asks for it so the no-adapter lifecycle still stages.
+  allowDevMode: true,
 };

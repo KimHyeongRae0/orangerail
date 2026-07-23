@@ -60,6 +60,14 @@ export interface AuditRecord {
   phase: AuditPhase;
   actionName: string;
   approvalId?: string;
+  /**
+   * Correlates an auto-action's `execution_started` with its terminal record
+   * (§3.2 / AC-2). Set ONLY for auto actions (no `approvalId`); `verifyAudit`
+   * keys the started->terminal cross-check on `approvalId ?? correlationId`, so
+   * an auto execution truncated to a bare `execution_started` is still flagged.
+   * Additive + optional: records without it hash exactly as before.
+   */
+  correlationId?: string;
   requestedBy?: string;
   approver?: string;
   input?: unknown;
@@ -73,6 +81,21 @@ export interface AuditRecord {
 
 /** The engine-supplied portion of an audit record (chain fields excluded). */
 export type AuditInput = Omit<AuditRecord, 'seq' | 'prevHash' | 'hash'>;
+
+/**
+ * A monotonic high-water checkpoint of the last appended audit record (§3.1 /
+ * AC-1..AC-3). Persisted OUTSIDE the chain (a separate `audit.head.json` for the
+ * file store) so a naive tail-truncation of `audit.jsonl` alone is detectable.
+ * `verifyAudit` applies a CONTAINMENT rule: the on-disk chain must contain a
+ * record at `seq` whose `hash` matches, and be at least `seq` long — a shorter
+ * or diverged chain fails; a chain LONGER than the checkpoint (the single
+ * crash-between-append-and-head-write window) passes with no false positive.
+ */
+export interface AuditHead {
+  seq: number;
+  hash: string;
+  count: number;
+}
 
 /** Result of the {@link Store.resolveApproval} CAS. */
 export type ResolveApprovalResult =
@@ -120,4 +143,12 @@ export interface Store {
     items: AuditRecord[];
     nextCursor?: string;
   }>;
+  /**
+   * The persisted anchored-head checkpoint of the last appended audit record
+   * (§3.1), or `null` when no record has been appended (empty store). Written
+   * inside `appendAudit`'s critical section right after the chain append, so it
+   * cannot fork across concurrent writers; `verifyAudit` reads it to detect
+   * tail-truncation the internally-consistent chain walk cannot see.
+   */
+  readAuditHead: () => Promise<AuditHead | null>;
 }

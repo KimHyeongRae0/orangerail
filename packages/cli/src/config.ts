@@ -15,6 +15,14 @@ export interface OrangerailConfig {
   resolveIdentity?: ResolveIdentity;
   preset?: McpPreset;
   redactAudit?: RedactAudit;
+  /**
+   * Opt in to dev mode on the MCP server when there is no `resolveIdentity`
+   * adapter (§3.3 / AC-4). The server defaults to a secure `false`; a local
+   * operator sets this in `orangerail.config.mjs` to restore the `local-dev`
+   * all-roles identity for a no-adapter run. A typed config field, never an env
+   * flag (zero `process.env` reads preserved).
+   */
+  allowDevMode?: boolean;
 }
 
 const DEFAULT_CONFIG_NAMES = ['orangerail.config.mjs', 'orangerail.config.js'];

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -147,6 +147,50 @@ describe('file store — audit chain', () => {
       }),
     ).rejects.toThrow(/corrupt JSONL/);
     await expect(store.readAudit({})).rejects.toThrow(/corrupt JSONL/);
+  });
+});
+
+describe('file store — anchored-head checkpoint (§3.1, AC-1)', () => {
+  it('returns null before the first append then {seq,hash,count} matching the last record', async () => {
+    const dir = freshDir();
+    const store = createFileStore({ dir });
+
+    expect(await store.readAuditHead()).toBeNull();
+
+    const first = await store.appendAudit({
+      record: { phase: 'staged', actionName: 'a', timestamp: new Date().toISOString() },
+    });
+    expect(await store.readAuditHead()).toEqual({ seq: first.seq, hash: first.hash, count: 1 });
+    expect(existsSync(join(dir, 'audit.head.json'))).toBe(true);
+
+    const second = await store.appendAudit({
+      record: { phase: 'approved', actionName: 'a', timestamp: new Date().toISOString() },
+    });
+    expect(await store.readAuditHead()).toEqual({ seq: second.seq, hash: second.hash, count: 2 });
+  });
+
+  it('fails verify when audit.jsonl is tail-truncated but the head file is intact (file-level PoC)', async () => {
+    const dir = freshDir();
+    const store = createFileStore({ dir });
+
+    for (const phase of ['staged', 'approved', 'execution_started', 'succeeded'] as const) {
+      await store.appendAudit({
+        record: { phase, actionName: 'a', timestamp: new Date().toISOString() },
+      });
+    }
+    expect((await verifyAudit({ store })).ok).toBe(true);
+
+    // Drop the last two chain lines on disk, leaving audit.head.json intact.
+    const auditPath = join(dir, 'audit.jsonl');
+    const kept = readFileSync(auditPath, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() !== '')
+      .slice(0, -2);
+    writeFileSync(auditPath, `${kept.join('\n')}\n`);
+
+    const verdict = await verifyAudit({ store });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.issues.some((i) => i.includes('truncated'))).toBe(true);
   });
 });
 
