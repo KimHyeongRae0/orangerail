@@ -3,16 +3,25 @@ import type { ChangeEvent } from 'react';
 
 import { CategoryTabs } from './CategoryTabs';
 import { fitAll } from './fit';
-import type { Category } from './instanceModel';
+import type { Category, Relationship, ViewMode } from './instanceModel';
 import type { ShowMode, StudioEdge, StudioNode } from './model';
+import { ViewTabs } from './ViewTabs';
 import styles from './Toolbar.module.css';
+
+const RELATIONSHIPS: { relationship: Relationship; label: string }[] = [
+  { relationship: 'helps', label: 'helps' },
+  { relationship: 'works_on', label: 'works_on' },
+  { relationship: 'member_of', label: 'member_of' },
+];
 
 /**
  * The bottom-centre toolbar. It always hosts the source-category tabs (db /
  * human — plan section 3.2). The zoom / fit / tidy cluster is shared. The
  * remaining controls are category-scoped: the db view shows the show-mode
- * dropdown (All Fields / Name Only), the human view shows the `works_on` edge
- * toggle. No minimap (the reference has none).
+ * dropdown (All Fields / Name Only); the human view shows the view switcher
+ * (Network / Matrix / Ownership) plus, in the Network view, a single-select
+ * relationship control and an edge-weight-threshold stepper (plan section
+ * 3.1-3.2). No minimap (the reference has none).
  */
 export const Toolbar = ({
   category,
@@ -21,8 +30,13 @@ export const Toolbar = ({
   showMode,
   onShowMode,
   onTidy,
-  showWorksOn,
-  onToggleWorksOn,
+  viewMode,
+  onViewMode,
+  relationship,
+  onRelationship,
+  weightThreshold,
+  onWeightThresholdInc,
+  onWeightThresholdDec,
 }: {
   category: Category;
   availability: { db: boolean; human: boolean };
@@ -30,8 +44,13 @@ export const Toolbar = ({
   showMode: ShowMode;
   onShowMode: ({ mode }: { mode: ShowMode }) => void;
   onTidy: () => void;
-  showWorksOn: boolean;
-  onToggleWorksOn: () => void;
+  viewMode: ViewMode;
+  onViewMode: ({ view }: { view: ViewMode }) => void;
+  relationship: Relationship;
+  onRelationship: ({ relationship }: { relationship: Relationship }) => void;
+  weightThreshold: number;
+  onWeightThresholdInc: () => void;
+  onWeightThresholdDec: () => void;
 }) => {
   const rf = useReactFlow<StudioNode, StudioEdge>();
   const zoom = useStore((state) => state.transform[2]);
@@ -93,17 +112,62 @@ export const Toolbar = ({
       <span className={styles.divider} />
 
       {category === 'human' ? (
-        <button
-          type="button"
-          className={styles.button}
-          data-testid="toggle-works-on"
-          aria-label="Toggle works-on edges"
-          aria-pressed={showWorksOn}
-          data-active={showWorksOn}
-          onClick={onToggleWorksOn}
-        >
-          works_on {showWorksOn ? 'on' : 'off'}
-        </button>
+        <>
+          <ViewTabs viewMode={viewMode} onViewMode={onViewMode} />
+
+          {viewMode === 'network' ? (
+            <>
+              <span className={styles.divider} />
+
+              <div className={styles.segmented} role="tablist" data-testid="relationship-tabs">
+                {RELATIONSHIPS.map((item) => {
+                  const active = relationship === item.relationship;
+
+                  return (
+                    <button
+                      key={item.relationship}
+                      type="button"
+                      role="tab"
+                      className={styles.segment}
+                      data-testid={`relationship-tab-${item.relationship}`}
+                      data-active={active}
+                      aria-selected={active}
+                      onClick={() => onRelationship({ relationship: item.relationship })}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <span className={styles.divider} />
+
+              <div className={styles.stepper} data-testid="weight-threshold">
+                <button
+                  type="button"
+                  className={styles.button}
+                  data-testid="weight-threshold-dec"
+                  aria-label="Lower the edge-weight threshold"
+                  onClick={onWeightThresholdDec}
+                >
+                  −
+                </button>
+                <span className={styles.level} data-testid="weight-threshold-value">
+                  ≥ {weightThreshold}
+                </span>
+                <button
+                  type="button"
+                  className={styles.button}
+                  data-testid="weight-threshold-inc"
+                  aria-label="Raise the edge-weight threshold"
+                  onClick={onWeightThresholdInc}
+                >
+                  +
+                </button>
+              </div>
+            </>
+          ) : null}
+        </>
       ) : (
         <>
           <span className={styles.label}>show</span>

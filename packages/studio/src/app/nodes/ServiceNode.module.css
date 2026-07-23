@@ -19,6 +19,10 @@
   opacity: 0.85;
 }
 
+.place[data-dim='true'] {
+  opacity: 0.15;
+}
+
 .kind {
   text-transform: uppercase;
   letter-spacing: 0.08em;

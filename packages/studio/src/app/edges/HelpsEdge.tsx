@@ -30,11 +30,12 @@ export const HelpsEdge = ({
   });
 
   const width = edgeWidth({ weight: data?.weight ?? 1 });
+  const opacity = data?.dim === true ? 0.08 : 0.75;
 
   return (
     <BaseEdge
       path={path}
-      style={{ stroke: 'var(--primary-accent)', strokeWidth: width, opacity: 0.75 }}
+      style={{ stroke: 'var(--primary-accent)', strokeWidth: width, opacity }}
       markerEnd="url(#instance-arrow-helps)"
       interactionWidth={0}
     />

@@ -27,10 +27,19 @@ import { DetailPanel, PersonScorecard } from './DetailPanel';
 import { EmptyState, isEmptySnapshot } from './EmptyState';
 import { fitAll } from './fit';
 import { actionEdgeId, buildGraph } from './graph';
+import { HelpMatrix } from './HelpMatrixView';
+import { buildHelpMatrix } from './helpMatrix';
 import { computeHighlights, type Focus } from './highlight';
 import { buildInstanceGraph } from './instanceGraph';
 import { computeInstanceLayout } from './instanceLayout';
-import { type Category, type PersonNodeData } from './instanceModel';
+import {
+  type Category,
+  type PersonNodeData,
+  type Relationship,
+  type ViewMode,
+} from './instanceModel';
+import { buildOwnershipGraph } from './ownershipGraph';
+import { computeOwnershipLayout } from './ownershipLayout';
 import { computeLayout } from './layout';
 import {
   HOVER_ACTION_EVENT,
@@ -68,6 +77,12 @@ const initialShowMode = (): ShowMode =>
 const initialCategory = (): Category | null => {
   const value = new URLSearchParams(window.location.search).get('category');
   return value === 'db' || value === 'human' ? value : null;
+};
+
+/** The human view requested via `?view=`, defaulting to `'network'` (AC-1). */
+const initialViewMode = (): ViewMode => {
+  const value = new URLSearchParams(window.location.search).get('view');
+  return value === 'matrix' || value === 'ownership' ? value : 'network';
 };
 
 /** Value equality for a hover/selection focus (so redundant hovers no-op). */
@@ -119,11 +134,16 @@ const Studio = () => {
   const [humanPositions, setHumanPositions] = useState<Map<string, { x: number; y: number }>>(
     new Map(),
   );
+  const [ownershipPositions, setOwnershipPositions] = useState<
+    Map<string, { x: number; y: number }>
+  >(new Map());
   const [layoutTick, setLayoutTick] = useState(0);
   const [category, setCategory] = useState<Category>(initialCategory() ?? 'human');
   const [categoryPinned, setCategoryPinned] = useState(initialCategory() !== null);
   const [showMode, setShowMode] = useState<ShowMode>(initialShowMode());
-  const [showWorksOn, setShowWorksOn] = useState(true);
+  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode());
+  const [relationship, setRelationship] = useState<Relationship>('helps');
+  const [weightThreshold, setWeightThreshold] = useState(1);
   const [active, setActive] = useState<Focus>(null);
   const [activePerson, setActivePerson] = useState<string | null>(null);
   const [hover, setHover] = useState<Focus>(null);
@@ -166,9 +186,11 @@ const Studio = () => {
     try {
       const inst: InstanceSnapshot = await (await fetch('/api/instances')).json();
       const pos = await computeInstanceLayout({ snapshot: inst });
+      const ownPos = await computeOwnershipLayout({ snapshot: inst });
 
       setInstances(inst);
       setHumanPositions(pos);
+      setOwnershipPositions(ownPos);
     } catch {
       setInstances({
         employees: [],
@@ -241,10 +263,21 @@ const Studio = () => {
 
   const built = useMemo(() => {
     if (category === 'human' && instances) {
+      // The Matrix is a plain DOM overlay (not React Flow), so the shared canvas
+      // renders nothing in that view; the surface + provider stay mounted.
+      if (viewMode === 'matrix') {
+        return { nodes: [] as StudioNode[], edges: [] as StudioEdge[] };
+      }
+
+      if (viewMode === 'ownership') {
+        return buildOwnershipGraph({ snapshot: instances, positions: ownershipPositions });
+      }
+
       return buildInstanceGraph({
         snapshot: instances,
         positions: humanPositions,
-        showWorksOn,
+        relationship,
+        weightThreshold,
         activeAccountId: activePerson,
       });
     }
@@ -257,14 +290,24 @@ const Studio = () => {
   }, [
     category,
     instances,
+    viewMode,
     humanPositions,
-    showWorksOn,
+    ownershipPositions,
+    relationship,
+    weightThreshold,
     activePerson,
     snapshot,
     highlights,
     dbPositions,
     showMode,
   ]);
+
+  // The Matrix model (degree-ordered person x person help adjacency) — built
+  // only for the human category so a db-only config never computes it.
+  const helpMatrix = useMemo(
+    () => (category === 'human' && instances ? buildHelpMatrix({ snapshot: instances }) : null),
+    [category, instances],
+  );
 
   // Edge ids that carry flow particles: db link/action highlights only. The
   // human category has no particle overlay, so its list is empty.
@@ -303,7 +346,12 @@ const Studio = () => {
     setEdges(built.edges);
   }, [built.nodes, built.edges, setNodes, setEdges]);
 
-  const positions = category === 'human' ? humanPositions : dbPositions;
+  const positions =
+    category === 'human'
+      ? viewMode === 'ownership'
+        ? ownershipPositions
+        : humanPositions
+      : dbPositions;
 
   useEffect(() => {
     if (positions.size === 0) {
@@ -408,8 +456,32 @@ const Studio = () => {
     setLayoutTick((tick) => tick + 1);
   }, []);
 
-  const handleToggleWorksOn = useCallback(() => {
-    setShowWorksOn((prev) => !prev);
+  const handleViewMode = useCallback(({ view }: { view: ViewMode }) => {
+    setViewMode(view);
+    setActive(null);
+    setActivePerson(null);
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', view);
+    window.history.replaceState(null, '', url);
+
+    // Switching views replaces the surface content; re-fit by bumping the tick.
+    setLayoutTick((tick) => tick + 1);
+  }, []);
+
+  const handleRelationship = useCallback(
+    ({ relationship: next }: { relationship: Relationship }) => {
+      setRelationship(next);
+    },
+    [],
+  );
+
+  const handleWeightThresholdInc = useCallback(() => {
+    setWeightThreshold((prev) => prev + 1);
+  }, []);
+
+  const handleWeightThresholdDec = useCallback(() => {
+    setWeightThreshold((prev) => Math.max(1, prev - 1));
   }, []);
 
   const bothEmpty =
@@ -460,6 +532,10 @@ const Studio = () => {
         <ParticleOverlay activeEdgeIds={activeEdgeIds} />
       </ReactFlow>
 
+      {category === 'human' && viewMode === 'matrix' && helpMatrix ? (
+        <HelpMatrix model={helpMatrix} />
+      ) : null}
+
       <Toolbar
         category={category}
         availability={availability}
@@ -467,8 +543,13 @@ const Studio = () => {
         showMode={showMode}
         onShowMode={handleShowMode}
         onTidy={handleTidy}
-        showWorksOn={showWorksOn}
-        onToggleWorksOn={handleToggleWorksOn}
+        viewMode={viewMode}
+        onViewMode={handleViewMode}
+        relationship={relationship}
+        onRelationship={handleRelationship}
+        weightThreshold={weightThreshold}
+        onWeightThresholdInc={handleWeightThresholdInc}
+        onWeightThresholdDec={handleWeightThresholdDec}
       />
 
       {category === 'db' && active && snapshot ? (

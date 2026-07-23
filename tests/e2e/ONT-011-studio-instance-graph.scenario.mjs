@@ -46,8 +46,9 @@
  *   (the `helps` edges are rendered directed + weight-scaled).
  *
  * WORKS_ON TOGGLE
- *   [data-testid="toggle-works-on"] exists; toggling it changes the rendered
- *   .react-flow__edge count (the works_on edge set appears/disappears).
+ *   [data-testid="relationship-tab-works_on"] exists (ONT-017 replaced the
+ *   ONT-011 works_on boolean toggle with a single-select relationship control);
+ *   selecting it changes the rendered .react-flow__edge count.
  *
  * SCORECARD PANEL
  *   clicking a person node opens [data-testid="scorecard"]; its text contains
@@ -485,13 +486,16 @@ const main = async () => {
 
     ab({ args: ['screenshot', join(SHOT_DIR, 'human-overview.png')] });
 
-    // ---- Phase 4: works_on toggle changes the edge count ----
-    console.log('Phase 4: works_on toggle adds/removes edges');
+    // ---- Phase 4: the relationship select changes the edge set ----
+    // (ONT-017 superseded the ONT-011 works_on boolean toggle with a
+    // single-select relationship control; switching the active family changes
+    // the rendered edge count — the same observable behaviour, new contract.)
+    console.log('Phase 4: relationship select changes the edge set (helps -> works_on)');
     const edgesBefore = readHuman().edgeCount;
-    ab({ args: ['click', '[data-testid="toggle-works-on"]'] });
+    ab({ args: ['click', '[data-testid="relationship-tab-works_on"]'] });
 
     const edgesAfter = await waitFor({
-      label: 'the works_on toggle to change the rendered edge count',
+      label: 'the relationship switch to works_on to change the rendered edge count',
       fn: () => {
         const g = readHuman();
         return g.edgeCount !== edgesBefore ? g.edgeCount : undefined;
@@ -499,8 +503,11 @@ const main = async () => {
     });
     assert({
       ok: edgesAfter !== edgesBefore,
-      message: `toggling works-on must change the edge count (before ${edgesBefore}, after ${edgesAfter})`,
+      message: `switching the relationship must change the edge count (before ${edgesBefore}, after ${edgesAfter})`,
     });
+
+    // Restore helps so the remaining phases run against the default family.
+    ab({ args: ['click', '[data-testid="relationship-tab-helps"]'] });
 
     // ---- Phase 5: db tab is selectable without breaking the page ----
     console.log('Phase 5: db category tab selectable without breaking the page');

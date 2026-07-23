@@ -5,12 +5,28 @@ import type { InstanceEmployee, InstanceService, InstanceTeam } from '../snapsho
 /** The studio's two source categories: the ONT-005 type map / the instance graph. */
 export type Category = 'db' | 'human';
 
+/**
+ * The human category's three purpose-built views (plan section 3.1 / AC-1): the
+ * focus+context node-link Network, the person x person help Matrix, and the
+ * people <-> services Ownership bipartite.
+ */
+export type ViewMode = 'network' | 'matrix' | 'ownership';
+
+/**
+ * The single relationship family the Network view renders at a time (plan
+ * section 3.2c / AC-2): `helps` (person -> person), `works_on` (person ->
+ * service), or `member_of` (person -> team). Default is `helps`.
+ */
+export type Relationship = 'helps' | 'works_on' | 'member_of';
+
 /** Data carried by a person instance node. */
 export interface PersonNodeData extends Record<string, unknown> {
   employee: InstanceEmployee;
   /** Node radius in px, derived monotonically from `storyPointsTotal`. */
   radius: number;
   active: boolean;
+  /** True when a focus mode is active and this node is outside the ego set. */
+  dim?: boolean;
 }
 
 /** Data carried by a place instance node (a service or a team hub). */
@@ -20,17 +36,23 @@ export interface PlaceNodeData extends Record<string, unknown> {
   label: string;
   service?: InstanceService;
   team?: InstanceTeam;
+  /** True when a focus mode is active and this node is outside the ego set. */
+  dim?: boolean;
 }
 
 /** Data carried by a directed, weight-scaled `helps` edge. */
 export interface HelpsEdgeData extends Record<string, unknown> {
   weight: number;
+  /** True when a focus mode is active and this edge is outside the ego set. */
+  dim?: boolean;
 }
 
 /** Data carried by a `works_on` / `member_of` edge (person → place). */
 export interface WorksOnEdgeData extends Record<string, unknown> {
   weight: number;
   variant: 'worksOn' | 'memberOf';
+  /** True when a focus mode is active and this edge is outside the ego set. */
+  dim?: boolean;
 }
 
 export type PersonNode = Node<PersonNodeData, 'person'>;
@@ -51,14 +73,17 @@ export const serviceNodeId = ({ id }: { id: string }): string => `svc:${id}`;
 /** React Flow node id for a team instance. */
 export const teamNodeId = ({ id }: { id: string }): string => `team:${id}`;
 
-const RADIUS_MIN = 26;
-const RADIUS_MAX = 64;
+export const RADIUS_MIN = 18;
+export const RADIUS_MAX = 40;
 
 /**
- * Map a person's `storyPointsTotal` to a node radius (plan section 3.3):
+ * Map a person's `storyPointsTotal` to a node radius (plan section 3.2a):
  * monotonic (more points → larger) with min/max clamps so an isolated or
  * zero-point person is still a legible node and a very high total stays bounded.
- * Uses a square-root curve so the *area* tracks points without runaway growth.
+ * The cap is lowered from the ONT-011 64px to 40px so the largest circle can no
+ * longer swamp its neighbours (the first half of the collision-free invariant;
+ * the layout de-overlap pass is the second half). Uses a square-root curve so
+ * the *area* tracks points without runaway growth.
  */
 export const personRadius = ({ storyPointsTotal }: { storyPointsTotal: number }): number => {
   const points = Number.isFinite(storyPointsTotal) ? Math.max(0, storyPointsTotal) : 0;

@@ -12,7 +12,7 @@ import styles from './PersonNode.module.css';
  * click bubbles to React Flow's `onNodeClick`, which opens the scorecard.
  */
 export const PersonNode = ({ data }: NodeProps<PersonNodeType>) => {
-  const { employee, radius, active } = data;
+  const { employee, radius, active, dim } = data;
   const diameter = radius * 2;
 
   return (
@@ -22,6 +22,7 @@ export const PersonNode = ({ data }: NodeProps<PersonNodeType>) => {
       data-account-id={employee.accountId}
       data-active={active}
       data-inactive={!employee.active}
+      data-dim={dim === true}
       style={{ width: diameter, height: diameter }}
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />

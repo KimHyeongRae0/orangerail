@@ -25,6 +25,10 @@
   border-style: dashed;
 }
 
+.person[data-dim='true'] {
+  opacity: 0.15;
+}
+
 .label {
   display: -webkit-box;
   -webkit-line-clamp: 2;

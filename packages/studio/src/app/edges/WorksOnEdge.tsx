@@ -30,6 +30,8 @@ export const WorksOnEdge = ({
 
   const isMember = data?.variant === 'memberOf';
   const width = isMember ? 1 : edgeWidth({ weight: data?.weight ?? 1 });
+  const restingOpacity = isMember ? 0.4 : 0.7;
+  const opacity = data?.dim === true ? 0.08 : restingOpacity;
 
   return (
     <BaseEdge
@@ -37,7 +39,7 @@ export const WorksOnEdge = ({
       style={{
         stroke: 'var(--edge-resting)',
         strokeWidth: width,
-        opacity: isMember ? 0.4 : 0.7,
+        opacity,
         strokeDasharray: isMember ? '4 4' : undefined,
       }}
       markerEnd="url(#instance-arrow-place)"
