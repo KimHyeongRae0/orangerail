@@ -25,6 +25,8 @@ export interface InitFlags {
   studio?: boolean | undefined;
   open: boolean;
   port?: number | undefined;
+  fromJira?: string | undefined;
+  fromSlack?: string | undefined;
 }
 
 /** The fully-resolved survey answers codegen + completion flow consume. */

@@ -17,8 +17,10 @@ const USAGE = `orangerail — governed ontology runtime CLI
 
 Usage:
   orangerail init [--yes] [--preset <p>] [--sources <csv>] [--models <csv>]
+                [--from-jira <export.json>] [--from-slack <export.json>]
                 [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
                                                  scan a repo and assemble the ontology
+                                                 (--from-jira runs the org-artifact scanner instead)
   orangerail sync [--config <path>] [--accept-new] re-scan and report drift (exit 1 on drift)
   orangerail mcp [--config <path>]                 launch the MCP server over stdio
   orangerail studio [--config <path>] [--port <n>] [--no-open]  serve the map-mode studio locally
@@ -45,6 +47,8 @@ interface ParsedArgs {
   docs?: boolean;
   studio?: boolean;
   acceptNew: boolean;
+  fromJira?: string;
+  fromSlack?: string;
 }
 
 const splitCsv = ({ value }: { value: string | undefined }): string[] =>
@@ -67,11 +71,23 @@ const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
   let docs: boolean | undefined;
   let studio: boolean | undefined;
   let acceptNew = false;
+  let fromJira: string | undefined;
+  let fromSlack: string | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
 
-    if (token === '--config') {
+    if (token === '--from-jira') {
+      fromJira = argv[i + 1];
+      i += 1;
+    } else if (token?.startsWith('--from-jira=')) {
+      fromJira = token.slice('--from-jira='.length);
+    } else if (token === '--from-slack') {
+      fromSlack = argv[i + 1];
+      i += 1;
+    } else if (token?.startsWith('--from-slack=')) {
+      fromSlack = token.slice('--from-slack='.length);
+    } else if (token === '--config') {
       configPath = argv[i + 1];
       i += 1;
     } else if (token === '--out') {
@@ -127,6 +143,8 @@ const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
     ...(models === undefined ? {} : { models }),
     ...(docs === undefined ? {} : { docs }),
     ...(studio === undefined ? {} : { studio }),
+    ...(fromJira === undefined ? {} : { fromJira }),
+    ...(fromSlack === undefined ? {} : { fromSlack }),
   };
 };
 
@@ -166,6 +184,8 @@ const run = async (): Promise<number> => {
         ...(args.docs === undefined ? {} : { docs: args.docs }),
         ...(args.studio === undefined ? {} : { studio: args.studio }),
         ...(port === undefined ? {} : { port }),
+        ...(args.fromJira === undefined ? {} : { fromJira: args.fromJira }),
+        ...(args.fromSlack === undefined ? {} : { fromSlack: args.fromSlack }),
       },
     });
   }

@@ -1,0 +1,68 @@
+{
+  "project": {
+    "key": "COM",
+    "name": "Commerce"
+  },
+  "issues": [
+    {
+      "key": "COM-9003",
+      "fields": {
+        "issuetype": {
+          "name": "Bug"
+        },
+        "summary": "Fix \"quoted\" payload; template ${x} injection; comment */ terminator; code `snippet` block; tag </script> close; fake mention <@Uxxxx> lookalike",
+        "description": "Reproduction: user input containing Fix \"quoted\" payload; template ${x} injection; comment */ terminator; code `snippet` block; tag </script> close; fake mention <@Uxxxx> lookalike crosses the parser boundary.",
+        "status": {
+          "name": "Done"
+        },
+        "assignee": {
+          "accountId": "acc_felix",
+          "displayName": "Felix Braun"
+        },
+        "reporter": {
+          "accountId": "acc_karim",
+          "displayName": "Karim Aziz"
+        },
+        "customfield_10016": 5,
+        "priority": {
+          "name": "High"
+        },
+        "components": [
+          {
+            "name": "catalog-api"
+          }
+        ],
+        "labels": ["catalog-api"],
+        "created": "2025-08-01T09:00:00.000Z",
+        "resolutiondate": "2025-08-05T17:00:00.000Z"
+      },
+      "changelog": {
+        "histories": []
+      }
+    }
+  ],
+  "slack": {
+    "users": [
+      {
+        "id": "U_FELIX",
+        "name": "felix",
+        "real_name": "Felix Braun",
+        "is_bot": false
+      }
+    ],
+    "channels": [
+      {
+        "id": "C_INJ",
+        "name": "injection-test",
+        "messages": [
+          {
+            "ts": "1754040000.000001",
+            "user": "U_FELIX",
+            "text": "Fix \"quoted\" payload; template ${x} injection; comment */ terminator; code `snippet` block; tag </script> close; fake mention <@Uxxxx> lookalike",
+            "thread_ts": "1754040000.000001"
+          }
+        ]
+      }
+    ]
+  }
+}

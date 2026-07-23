@@ -1,0 +1,484 @@
+{
+  "meta": {
+    "seed": 42,
+    "generatedRange": {
+      "start": "2025-05-01T00:00:00.000Z",
+      "end": "2026-07-15T00:00:00.000Z",
+      "halfSplit": "2025-12-07T00:00:00.000Z"
+    },
+    "minaDegradationOnset": "2026-03-15T00:00:00.000Z",
+    "karimDeparture": "2026-06-30T23:59:00.000Z",
+    "totals": {
+      "jiraIssues": 340,
+      "slackMessages": 766,
+      "mentionTokens": 98,
+      "totalStoryPoints": 1072
+    },
+    "offHoursDefinition": "weekend (Sat/Sun) OR hour<7 OR hour>=22 (UTC), across Jira created/resolved + Slack messages",
+    "people": [
+      {
+        "accountId": "acc_jiho",
+        "displayName": "Jiho Seo",
+        "slackUserId": "U_JIHO",
+        "handle": "jiho"
+      },
+      {
+        "accountId": "acc_mina",
+        "displayName": "Mina Kwon",
+        "slackUserId": "U_MINA",
+        "handle": "mina"
+      },
+      {
+        "accountId": "acc_felix",
+        "displayName": "Felix Braun",
+        "slackUserId": "U_FELIX",
+        "handle": "felix"
+      },
+      {
+        "accountId": "acc_dave",
+        "displayName": "Dave Holt",
+        "slackUserId": "U_DAVE",
+        "handle": "dave"
+      },
+      {
+        "accountId": "acc_yuna",
+        "displayName": "Yuna Ito",
+        "slackUserId": "U_YUNA",
+        "handle": "yuna"
+      },
+      {
+        "accountId": "acc_sam",
+        "displayName": "Sam Ortiz",
+        "slackUserId": "U_SAM",
+        "handle": "sam"
+      },
+      {
+        "accountId": "acc_priyanka",
+        "displayName": "Priyanka Desai",
+        "slackUserId": "U_PRIYANKA",
+        "handle": "priyanka"
+      },
+      {
+        "accountId": "acc_noah",
+        "displayName": "Noah Fischer",
+        "slackUserId": "U_NOAH",
+        "handle": "noah"
+      },
+      {
+        "accountId": "acc_lena",
+        "displayName": "Lena Kovač",
+        "slackUserId": "U_LENA",
+        "handle": "lena"
+      },
+      {
+        "accountId": "acc_tomas",
+        "displayName": "Tomás Silva",
+        "slackUserId": "U_TOMAS",
+        "handle": "tomas"
+      },
+      {
+        "accountId": "acc_karim",
+        "displayName": "Karim Aziz",
+        "slackUserId": "U_KARIM",
+        "handle": "karim"
+      }
+    ],
+    "displayNameToAccountId": {
+      "Jiho Seo": "acc_jiho",
+      "Mina Kwon": "acc_mina",
+      "Felix Braun": "acc_felix",
+      "Dave Holt": "acc_dave",
+      "Yuna Ito": "acc_yuna",
+      "Sam Ortiz": "acc_sam",
+      "Priyanka Desai": "acc_priyanka",
+      "Noah Fischer": "acc_noah",
+      "Lena Kovač": "acc_lena",
+      "Tomás Silva": "acc_tomas",
+      "Karim Aziz": "acc_karim"
+    }
+  },
+  "perPerson": {
+    "acc_jiho": {
+      "accountId": "acc_jiho",
+      "displayName": "Jiho Seo",
+      "slackUserId": "U_JIHO",
+      "ticketCount": 46,
+      "storyPointsTotal": 197,
+      "medianCycleDaysFirstHalf": 5.9,
+      "medianCycleDaysSecondHalf": 5.1,
+      "reopenRate": 2.2,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 9,
+      "helpGiven": 8,
+      "helpReceived": 0,
+      "weekendOffHoursShare": 10.3,
+      "complexityMix": {
+        "hi": 25,
+        "med": 13,
+        "lo": 8
+      }
+    },
+    "acc_mina": {
+      "accountId": "acc_mina",
+      "displayName": "Mina Kwon",
+      "slackUserId": "U_MINA",
+      "ticketCount": 62,
+      "storyPointsTotal": 195,
+      "medianCycleDaysFirstHalf": 3.6,
+      "medianCycleDaysSecondHalf": 4.5,
+      "reopenRate": 6.5,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 0,
+      "helpGiven": 1,
+      "helpReceived": 3,
+      "weekendOffHoursShare": 22.7,
+      "complexityMix": {
+        "hi": 11,
+        "med": 29,
+        "lo": 22
+      }
+    },
+    "acc_felix": {
+      "accountId": "acc_felix",
+      "displayName": "Felix Braun",
+      "slackUserId": "U_FELIX",
+      "ticketCount": 18,
+      "storyPointsTotal": 53,
+      "medianCycleDaysFirstHalf": 2.1,
+      "medianCycleDaysSecondHalf": 3.1,
+      "reopenRate": 0,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 0,
+      "helpGiven": 12,
+      "helpReceived": 0,
+      "weekendOffHoursShare": 17.2,
+      "complexityMix": {
+        "hi": 2,
+        "med": 8,
+        "lo": 8
+      }
+    },
+    "acc_dave": {
+      "accountId": "acc_dave",
+      "displayName": "Dave Holt",
+      "slackUserId": "U_DAVE",
+      "ticketCount": 49,
+      "storyPointsTotal": 102,
+      "medianCycleDaysFirstHalf": 2,
+      "medianCycleDaysSecondHalf": 1.8,
+      "reopenRate": 14.3,
+      "reassignmentsGiven": 7,
+      "reassignmentsReceived": 0,
+      "helpGiven": 0,
+      "helpReceived": 2,
+      "weekendOffHoursShare": 7.5,
+      "complexityMix": {
+        "hi": 3,
+        "med": 8,
+        "lo": 38
+      }
+    },
+    "acc_yuna": {
+      "accountId": "acc_yuna",
+      "displayName": "Yuna Ito",
+      "slackUserId": "U_YUNA",
+      "ticketCount": 24,
+      "storyPointsTotal": 115,
+      "medianCycleDaysFirstHalf": 10.9,
+      "medianCycleDaysSecondHalf": 7.6,
+      "reopenRate": 0,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 0,
+      "helpGiven": 4,
+      "helpReceived": 0,
+      "weekendOffHoursShare": 14,
+      "complexityMix": {
+        "hi": 14,
+        "med": 5,
+        "lo": 5
+      }
+    },
+    "acc_sam": {
+      "accountId": "acc_sam",
+      "displayName": "Sam Ortiz",
+      "slackUserId": "U_SAM",
+      "ticketCount": 28,
+      "storyPointsTotal": 84,
+      "medianCycleDaysFirstHalf": 4.9,
+      "medianCycleDaysSecondHalf": 4.4,
+      "reopenRate": 7.1,
+      "reassignmentsGiven": 2,
+      "reassignmentsReceived": 0,
+      "helpGiven": 0,
+      "helpReceived": 14,
+      "weekendOffHoursShare": 10.8,
+      "complexityMix": {
+        "hi": 6,
+        "med": 10,
+        "lo": 12
+      }
+    },
+    "acc_priyanka": {
+      "accountId": "acc_priyanka",
+      "displayName": "Priyanka Desai",
+      "slackUserId": "U_PRIYANKA",
+      "ticketCount": 30,
+      "storyPointsTotal": 107,
+      "medianCycleDaysFirstHalf": 3.8,
+      "medianCycleDaysSecondHalf": 4.4,
+      "reopenRate": 3.3,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 0,
+      "helpGiven": 2,
+      "helpReceived": 6,
+      "weekendOffHoursShare": 9.4,
+      "complexityMix": {
+        "hi": 8,
+        "med": 16,
+        "lo": 6
+      }
+    },
+    "acc_noah": {
+      "accountId": "acc_noah",
+      "displayName": "Noah Fischer",
+      "slackUserId": "U_NOAH",
+      "ticketCount": 30,
+      "storyPointsTotal": 98,
+      "medianCycleDaysFirstHalf": 4,
+      "medianCycleDaysSecondHalf": 3.5,
+      "reopenRate": 3.3,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 0,
+      "helpGiven": 4,
+      "helpReceived": 3,
+      "weekendOffHoursShare": 10.4,
+      "complexityMix": {
+        "hi": 8,
+        "med": 15,
+        "lo": 7
+      }
+    },
+    "acc_lena": {
+      "accountId": "acc_lena",
+      "displayName": "Lena Kovač",
+      "slackUserId": "U_LENA",
+      "ticketCount": 9,
+      "storyPointsTotal": 26,
+      "medianCycleDaysFirstHalf": 0,
+      "medianCycleDaysSecondHalf": 3.1,
+      "reopenRate": 11.1,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 0,
+      "helpGiven": 0,
+      "helpReceived": 6,
+      "weekendOffHoursShare": 13.6,
+      "complexityMix": {
+        "hi": 1,
+        "med": 4,
+        "lo": 4
+      }
+    },
+    "acc_tomas": {
+      "accountId": "acc_tomas",
+      "displayName": "Tomás Silva",
+      "slackUserId": "U_TOMAS",
+      "ticketCount": 30,
+      "storyPointsTotal": 56,
+      "medianCycleDaysFirstHalf": 1.2,
+      "medianCycleDaysSecondHalf": 1,
+      "reopenRate": 0,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 0,
+      "helpGiven": 1,
+      "helpReceived": 0,
+      "weekendOffHoursShare": 17.5,
+      "complexityMix": {
+        "hi": 1,
+        "med": 5,
+        "lo": 24
+      }
+    },
+    "acc_karim": {
+      "accountId": "acc_karim",
+      "displayName": "Karim Aziz",
+      "slackUserId": "U_KARIM",
+      "ticketCount": 14,
+      "storyPointsTotal": 39,
+      "medianCycleDaysFirstHalf": 3,
+      "medianCycleDaysSecondHalf": 4.1,
+      "reopenRate": 7.1,
+      "reassignmentsGiven": 0,
+      "reassignmentsReceived": 0,
+      "helpGiven": 2,
+      "helpReceived": 0,
+      "weekendOffHoursShare": 37.7,
+      "complexityMix": {
+        "hi": 2,
+        "med": 8,
+        "lo": 4
+      }
+    }
+  },
+  "orgFindings": [
+    {
+      "id": 1,
+      "title": "WORKLOAD CONCENTRATION",
+      "detail": "Mina + Jiho carry 36.6% of story points (392/1072). Mina's second-half cycle median (4.5d) is markedly slower than first-half (3.6d), and her ticket rate rises through 2026.",
+      "pointer": {
+        "accountIds": ["acc_mina", "acc_jiho"],
+        "minaLateDegradedKeys": [
+          "COM-1232",
+          "COM-1241",
+          "COM-1243",
+          "COM-1249",
+          "COM-1250",
+          "COM-1256",
+          "COM-1264",
+          "COM-1266"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "title": "INVISIBLE VALUE (Felix up, Dave down)",
+      "detail": "Felix Jira SP=53 (mid-pack) but Slack help-given=12 (team top) + leads 2 ticket-less incidents. Dave Jira ticketCount=49 (high) but SP=102 (low weight: 38 lo vs 3 hi) and help-given=0.",
+      "pointer": {
+        "felixAccountId": "acc_felix",
+        "felixHelpGiven": 12,
+        "daveAccountId": "acc_dave",
+        "daveHelpGiven": 0,
+        "daveComplexity": {
+          "hi": 3,
+          "med": 8,
+          "lo": 38
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "PROCESS GAPS (Slack-only incidents + ticket-less hotfixes)",
+      "detail": "3 incidents handled only in Slack (no Jira): 2 by Felix (2025-09 catalog outage, 2026-03 billing latency), 1 by Jiho (2025-12 order-api hotfix). Plus 2 hotfix deploys in #deploys with no ticket reference.",
+      "pointer": {
+        "ticketlessIncidents": [
+          {
+            "accountId": "acc_felix",
+            "who": "Felix Braun",
+            "when": "2025-09 catalog outage",
+            "thread_ts": "1757880720.000100"
+          },
+          {
+            "accountId": "acc_jiho",
+            "who": "Jiho Seo",
+            "when": "2025-12 order-api hotfix",
+            "thread_ts": "1765317900.000109"
+          },
+          {
+            "accountId": "acc_felix",
+            "who": "Felix Braun",
+            "when": "2026-03 billing latency",
+            "thread_ts": "1773870000.000116"
+          }
+        ],
+        "hotfixNoTicket": [
+          {
+            "thread_ts": "1765320000.000405",
+            "service": "order-api",
+            "note": "order-api dup-order hotfix, no ticket"
+          },
+          {
+            "thread_ts": "1773872400.000408",
+            "service": "billing-core",
+            "note": "billing-core recon hotfix, no ticket"
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "title": "APPROVAL VACUUM (post-Karim)",
+      "detail": "After Karim departs 2026-06-30, the final 2 #deploys go out with no approval reply — no one holds the release gate.",
+      "pointer": {
+        "deployVacuumThreads": [
+          {
+            "key": "COM-1319",
+            "service": "catalog-api",
+            "thread_ts": "1783189609.000401",
+            "deployer": "Jiho Seo",
+            "deployerAccountId": "acc_jiho"
+          },
+          {
+            "key": "COM-1323",
+            "service": "storefront-web",
+            "thread_ts": "1783993089.000403",
+            "deployer": "Lena Kovač",
+            "deployerAccountId": "acc_lena"
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "title": "BUS FACTOR",
+      "detail": "billing-core assignees = [Yuna Ito, Felix Braun] (Yuna + Felix once). storefront-web assignees = {\"Sam Ortiz\":3,\"Noah Fischer\":30,\"Lena Kovač\":9} (Noah + Lena dominate).",
+      "pointer": {
+        "billingCoreAssignees": [
+          {
+            "accountId": "acc_yuna",
+            "displayName": "Yuna Ito"
+          },
+          {
+            "accountId": "acc_felix",
+            "displayName": "Felix Braun"
+          }
+        ],
+        "storefrontWebAssignees": {
+          "acc_sam": {
+            "displayName": "Sam Ortiz",
+            "count": 3
+          },
+          "acc_noah": {
+            "displayName": "Noah Fischer",
+            "count": 30
+          },
+          "acc_lena": {
+            "displayName": "Lena Kovač",
+            "count": 9
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "KNOWLEDGE FLOW (help hubs)",
+      "detail": "Help edges point overwhelmingly to Jiho (8) and Felix (12) out of 34 total help interactions.",
+      "pointer": {
+        "helpGivenByAccountId": {
+          "acc_jiho": 8,
+          "acc_mina": 1,
+          "acc_felix": 12,
+          "acc_dave": 0,
+          "acc_yuna": 4,
+          "acc_sam": 0,
+          "acc_priyanka": 2,
+          "acc_noah": 4,
+          "acc_lena": 0,
+          "acc_tomas": 1,
+          "acc_karim": 2
+        },
+        "helpGivenByPerson": {
+          "Jiho Seo": 8,
+          "Mina Kwon": 1,
+          "Felix Braun": 12,
+          "Dave Holt": 0,
+          "Yuna Ito": 4,
+          "Sam Ortiz": 0,
+          "Priyanka Desai": 2,
+          "Noah Fischer": 4,
+          "Lena Kovač": 0,
+          "Tomás Silva": 1,
+          "Karim Aziz": 2
+        }
+      }
+    }
+  ]
+}

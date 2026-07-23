@@ -1,0 +1,41 @@
+{
+  "project": {
+    "key": "COM",
+    "name": "Commerce"
+  },
+  "issues": [
+    {
+      "key": "COM-9002",
+      "fields": {
+        "issuetype": {
+          "name": "Bug"
+        },
+        "summary": "Invoice off by a cent",
+        "description": "Rounding drift on multi-currency totals.",
+        "status": {
+          "name": "Done"
+        },
+        "assignee": {
+          "accountId": "acc_yuna",
+          "displayName": "Yuna Ito"
+        },
+        "reporter": {
+          "accountId": "acc_tomas",
+          "displayName": "Tomas Silva"
+        },
+        "customfield_10016": 3,
+        "priority": {
+          "name": "Medium"
+        },
+        "components": [
+          {
+            "name": "billing-core"
+          }
+        ],
+        "labels": ["billing-core"],
+        "created": "2025-07-10T09:00:00.000Z",
+        "resolutiondate": "2025-07-14T15:30:00.000Z"
+      }
+    }
+  ]
+}

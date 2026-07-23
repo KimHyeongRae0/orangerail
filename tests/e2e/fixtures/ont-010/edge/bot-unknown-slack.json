@@ -1,0 +1,40 @@
+{
+  "users": [
+    {
+      "id": "U_ALICE",
+      "name": "alice",
+      "real_name": "Alice Adams",
+      "is_bot": false
+    },
+    {
+      "id": "U_CIBOT",
+      "name": "cibot",
+      "real_name": "CI Bot",
+      "is_bot": true
+    }
+  ],
+  "channels": [
+    {
+      "id": "C_TEST",
+      "name": "test",
+      "messages": [
+        {
+          "ts": "1754040100.000001",
+          "user": "U_CIBOT",
+          "text": "build #482 succeeded",
+          "thread_ts": "1754040100.000001"
+        },
+        {
+          "ts": "1754040200.000002",
+          "user": "U_GHOST",
+          "text": "message from an id not present in users"
+        },
+        {
+          "ts": "1754040300.000003",
+          "user": "U_ALICE",
+          "text": "ack, thanks"
+        }
+      ]
+    }
+  ]
+}

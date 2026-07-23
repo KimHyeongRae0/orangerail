@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import type { OrangerailConfig } from '../../config';
 import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
+import { runInitFromArtifacts } from './artifacts';
 import { buildFileSet } from './codegen';
 import type { ScannedSource } from './ir';
 import { specifiersResolvable, smokeLoadStaged, writeFileSet } from './atomic';
@@ -79,6 +80,17 @@ export const runInit = async ({
     );
 
     return 1;
+  }
+
+  // Flag-driven human-source (Jira/Slack) scan path. When --from-jira is
+  // present, run the parallel instance scanner and return; the type-level
+  // Prisma/OpenAPI path below is byte-unaffected when the flag is absent (AC-1).
+  if (flags.fromJira !== undefined) {
+    return runInitFromArtifacts({
+      cwd,
+      fromJira: flags.fromJira,
+      ...(flags.fromSlack === undefined ? {} : { fromSlack: flags.fromSlack }),
+    });
   }
 
   const scanned = scanRepo({ cwd });

@@ -1,0 +1,41 @@
+{
+  "project": {
+    "key": "COM",
+    "name": "Commerce"
+  },
+  "issues": [
+    {
+      "key": "COM-9001",
+      "fields": {
+        "issuetype": {
+          "name": "Task"
+        },
+        "summary": "Investigate flaky nightly job",
+        "description": "Nightly job fails intermittently. No owner yet.",
+        "status": {
+          "name": "To Do"
+        },
+        "assignee": null,
+        "reporter": {
+          "accountId": "acc_dave",
+          "displayName": "Dave Holt"
+        },
+        "customfield_10016": null,
+        "priority": {
+          "name": "Low"
+        },
+        "components": [
+          {
+            "name": "admin-console"
+          }
+        ],
+        "labels": ["admin-console"],
+        "created": "2025-06-01T09:15:00.000Z",
+        "resolutiondate": null
+      },
+      "changelog": {
+        "histories": []
+      }
+    }
+  ]
+}

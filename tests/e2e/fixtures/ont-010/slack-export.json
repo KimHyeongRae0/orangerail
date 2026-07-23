@@ -1,0 +1,4456 @@
+{
+  "users": [
+    {
+      "id": "U_JIHO",
+      "name": "jiho",
+      "real_name": "Jiho Seo",
+      "is_bot": false
+    },
+    {
+      "id": "U_MINA",
+      "name": "mina",
+      "real_name": "Mina Kwon",
+      "is_bot": false
+    },
+    {
+      "id": "U_FELIX",
+      "name": "felix",
+      "real_name": "Felix Braun",
+      "is_bot": false
+    },
+    {
+      "id": "U_DAVE",
+      "name": "dave",
+      "real_name": "Dave Holt",
+      "is_bot": false
+    },
+    {
+      "id": "U_YUNA",
+      "name": "yuna",
+      "real_name": "Yuna Ito",
+      "is_bot": false
+    },
+    {
+      "id": "U_SAM",
+      "name": "sam",
+      "real_name": "Sam Ortiz",
+      "is_bot": false
+    },
+    {
+      "id": "U_PRIYANKA",
+      "name": "priyanka",
+      "real_name": "Priyanka Desai",
+      "is_bot": false
+    },
+    {
+      "id": "U_NOAH",
+      "name": "noah",
+      "real_name": "Noah Fischer",
+      "is_bot": false
+    },
+    {
+      "id": "U_LENA",
+      "name": "lena",
+      "real_name": "Lena Kovač",
+      "is_bot": false
+    },
+    {
+      "id": "U_TOMAS",
+      "name": "tomas",
+      "real_name": "Tomás Silva",
+      "is_bot": false
+    },
+    {
+      "id": "U_KARIM",
+      "name": "karim",
+      "real_name": "Karim Aziz",
+      "is_bot": false
+    },
+    {
+      "id": "U_DEPLOYBOT",
+      "name": "deploybot",
+      "real_name": "Deploy Bot",
+      "is_bot": true
+    }
+  ],
+  "channels": [
+    {
+      "id": "C_COMMERCEDEV",
+      "name": "commerce-dev",
+      "messages": [
+        {
+          "ts": "1746548478.000632",
+          "user": "U_TOMAS",
+          "text": "COM-1002 is in review if someone has a sec",
+          "thread_ts": "1746548478.000632"
+        },
+        {
+          "ts": "1747304976.000611",
+          "user": "U_DAVE",
+          "text": "question on COM-1008 — does admin-console expect the new field to be nullable?",
+          "thread_ts": "1747304976.000611"
+        },
+        {
+          "ts": "1747307237.000612",
+          "user": "U_JIHO",
+          "text": "yeah nullable for now",
+          "thread_ts": "1747304976.000611"
+        },
+        {
+          "ts": "1747606617.000553",
+          "user": "U_PRIYANKA",
+          "text": "COM-1011 done, moving on"
+        },
+        {
+          "ts": "1747650949.000584",
+          "user": "U_MINA",
+          "text": "question on COM-1013 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1747650949.000584"
+        },
+        {
+          "ts": "1747651919.000585",
+          "user": "U_FELIX",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1747650949.000584"
+        },
+        {
+          "ts": "1747670904.000471",
+          "user": "U_MINA",
+          "text": "picking up COM-1013 (catalog-api)",
+          "thread_ts": "1747670904.000471"
+        },
+        {
+          "ts": "1747676249.000472",
+          "user": "U_PRIYANKA",
+          "text": "lgtm from a glance",
+          "thread_ts": "1747670904.000471"
+        },
+        {
+          "ts": "1747819124.000634",
+          "user": "U_MINA",
+          "text": "picking up COM-1013 (catalog-api)",
+          "thread_ts": "1747819124.000634"
+        },
+        {
+          "ts": "1748278568.000481",
+          "user": "U_SAM",
+          "text": "pushed a fix for COM-1014, PR open",
+          "thread_ts": "1748278568.000481"
+        },
+        {
+          "ts": "1748280235.000482",
+          "user": "U_PRIYANKA",
+          "text": "ping me when it's up",
+          "thread_ts": "1748278568.000481"
+        },
+        {
+          "ts": "1748340990.000417",
+          "user": "U_NOAH",
+          "text": "COM-1020 turned out gnarlier than expected, still on it",
+          "thread_ts": "1748340990.000417"
+        },
+        {
+          "ts": "1748348217.000651",
+          "user": "U_TOMAS",
+          "text": "COM-1018 is in review if someone has a sec",
+          "thread_ts": "1748348217.000651"
+        },
+        {
+          "ts": "1749210684.000428",
+          "user": "U_PRIYANKA",
+          "text": "question on COM-1023 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1749210684.000428"
+        },
+        {
+          "ts": "1749211542.000429",
+          "user": "U_JIHO",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1749210684.000428"
+        },
+        {
+          "ts": "1749225763.000438",
+          "user": "U_PRIYANKA",
+          "text": "pushed a fix for COM-1023, PR open",
+          "thread_ts": "1749225763.000438"
+        },
+        {
+          "ts": "1749557467.000577",
+          "user": "U_MINA",
+          "text": "closed COM-1027"
+        },
+        {
+          "ts": "1749637800.000123",
+          "user": "U_SAM",
+          "text": "stuck on COM-1042 — order pagination returns dupes across pages, can't figure out why",
+          "thread_ts": "1749637800.000123"
+        },
+        {
+          "ts": "1749640071.000124",
+          "user": "U_JIHO",
+          "text": "<@U_SAM> you're sorting by created_at but it's not unique. add order id as a tiebreaker and use a keyset cursor instead of offset.",
+          "thread_ts": "1749637800.000123"
+        },
+        {
+          "ts": "1749641566.000125",
+          "user": "U_JIHO",
+          "text": "yeah offset pagination bites everyone once. keyset from now on.",
+          "thread_ts": "1749637800.000123"
+        },
+        {
+          "ts": "1749646155.000126",
+          "user": "U_SAM",
+          "text": "ohhh that's it. thanks Jiho, works now 🙌",
+          "thread_ts": "1749637800.000123"
+        },
+        {
+          "ts": "1749649359.000456",
+          "user": "U_MINA",
+          "text": "COM-1027 merged 🎉"
+        },
+        {
+          "ts": "1750087784.000645",
+          "user": "U_YUNA",
+          "text": "finally wrapped COM-1021"
+        },
+        {
+          "ts": "1750344637.000467",
+          "user": "U_PRIYANKA",
+          "text": "COM-1037 turned out gnarlier than expected, still on it",
+          "thread_ts": "1750344637.000467"
+        },
+        {
+          "ts": "1750935600.000205",
+          "user": "U_SAM",
+          "text": "how should I scope COM tickets, they always balloon on me",
+          "thread_ts": "1750935600.000205"
+        },
+        {
+          "ts": "1750940788.000206",
+          "user": "U_KARIM",
+          "text": "<@U_SAM> vertical slices — one user-visible outcome per ticket. if it needs 'and', split it.",
+          "thread_ts": "1750935600.000205"
+        },
+        {
+          "ts": "1750944814.000207",
+          "user": "U_SAM",
+          "text": "that reframing helps, thanks Karim",
+          "thread_ts": "1750935600.000205"
+        },
+        {
+          "ts": "1751293334.000609",
+          "user": "U_MINA",
+          "text": "COM-1043 turned out gnarlier than expected, still on it",
+          "thread_ts": "1751293334.000609"
+        },
+        {
+          "ts": "1751295870.000610",
+          "user": "U_FELIX",
+          "text": "I'll review",
+          "thread_ts": "1751293334.000609"
+        },
+        {
+          "ts": "1751880948.000416",
+          "user": "U_MINA",
+          "text": "COM-1045 done, moving on"
+        },
+        {
+          "ts": "1751907998.000599",
+          "user": "U_PRIYANKA",
+          "text": "COM-1046 done, moving on"
+        },
+        {
+          "ts": "1751969733.000654",
+          "user": "U_DAVE",
+          "text": "COM-1047 done, moving on"
+        },
+        {
+          "ts": "1752073200.000169",
+          "user": "U_NOAH",
+          "text": "storefront deploys are slow, 12 min builds. is that infra side?",
+          "thread_ts": "1752073200.000169"
+        },
+        {
+          "ts": "1752073542.000170",
+          "user": "U_FELIX",
+          "text": "<@U_NOAH> your CI cache key busts on every commit. key it on the lockfile hash, builds drop to ~3 min.",
+          "thread_ts": "1752073200.000169"
+        },
+        {
+          "ts": "1752077104.000171",
+          "user": "U_NOAH",
+          "text": "huge, thanks Felix",
+          "thread_ts": "1752073200.000169"
+        },
+        {
+          "ts": "1752592253.000607",
+          "user": "U_TOMAS",
+          "text": "question on COM-1050 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1752592253.000607"
+        },
+        {
+          "ts": "1752595729.000608",
+          "user": "U_JIHO",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1752592253.000607"
+        },
+        {
+          "ts": "1753193100.000127",
+          "user": "U_PRIYANKA",
+          "text": "catalog cache keeps stampeding on deploy, every restart hammers the DB",
+          "thread_ts": "1753193100.000127"
+        },
+        {
+          "ts": "1753193319.000128",
+          "user": "U_FELIX",
+          "text": "<@U_PRIYANKA> add a jittered lock + serve-stale-while-revalidate. I have a helper in the shared lib, lemme point you at it.",
+          "thread_ts": "1753193100.000127"
+        },
+        {
+          "ts": "1753196894.000129",
+          "user": "U_FELIX",
+          "text": "commerce/cachekit has singleflight, wrap the loader with it",
+          "thread_ts": "1753193100.000127"
+        },
+        {
+          "ts": "1753199407.000130",
+          "user": "U_PRIYANKA",
+          "text": "perfect, that fixed the thundering herd. thanks Felix!",
+          "thread_ts": "1753193100.000127"
+        },
+        {
+          "ts": "1753808583.000640",
+          "user": "U_NOAH",
+          "text": "question on COM-1061 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1753808583.000640"
+        },
+        {
+          "ts": "1753809777.000641",
+          "user": "U_YUNA",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1753808583.000640"
+        },
+        {
+          "ts": "1753875600.000217",
+          "user": "U_DAVE",
+          "text": "admin-console deploy is failing the health check, no idea why",
+          "thread_ts": "1753875600.000217"
+        },
+        {
+          "ts": "1753878736.000218",
+          "user": "U_FELIX",
+          "text": "<@U_DAVE> readiness probe points at the old port. update the manifest to 8081, that's the new bind.",
+          "thread_ts": "1753875600.000217"
+        },
+        {
+          "ts": "1753881062.000219",
+          "user": "U_DAVE",
+          "text": "ah, thanks",
+          "thread_ts": "1753875600.000217"
+        },
+        {
+          "ts": "1754047418.000561",
+          "user": "U_NOAH",
+          "text": "COM-1061 is in review if someone has a sec",
+          "thread_ts": "1754047418.000561"
+        },
+        {
+          "ts": "1754048170.000562",
+          "user": "U_MINA",
+          "text": "lgtm from a glance",
+          "thread_ts": "1754047418.000561"
+        },
+        {
+          "ts": "1754306100.000131",
+          "user": "U_SAM",
+          "text": "billing test fixtures make no sense to me, proration numbers never match",
+          "thread_ts": "1754306100.000131"
+        },
+        {
+          "ts": "1754309024.000132",
+          "user": "U_YUNA",
+          "text": "<@U_SAM> proration is day-based not month-based here. anchor to the billing cycle start, I'll drop an example.",
+          "thread_ts": "1754306100.000131"
+        },
+        {
+          "ts": "1754311634.000133",
+          "user": "U_SAM",
+          "text": "that example cleared it up, thank you Yuna",
+          "thread_ts": "1754306100.000131"
+        },
+        {
+          "ts": "1754322362.000602",
+          "user": "U_DAVE",
+          "text": "closed COM-1062"
+        },
+        {
+          "ts": "1754480354.000564",
+          "user": "U_SAM",
+          "text": "finally wrapped COM-1058"
+        },
+        {
+          "ts": "1754488737.000415",
+          "user": "U_MINA",
+          "text": "COM-1064 merged 🎉"
+        },
+        {
+          "ts": "1754566027.000411",
+          "user": "U_MINA",
+          "text": "COM-1064 is in review if someone has a sec",
+          "thread_ts": "1754566027.000411"
+        },
+        {
+          "ts": "1754570123.000412",
+          "user": "U_NOAH",
+          "text": "nice",
+          "thread_ts": "1754566027.000411"
+        },
+        {
+          "ts": "1754656624.000445",
+          "user": "U_MINA",
+          "text": "COM-1064 turned out gnarlier than expected, still on it",
+          "thread_ts": "1754656624.000445"
+        },
+        {
+          "ts": "1754660080.000446",
+          "user": "U_NOAH",
+          "text": "lgtm from a glance",
+          "thread_ts": "1754656624.000445"
+        },
+        {
+          "ts": "1754911733.000465",
+          "user": "U_JIHO",
+          "text": "closed COM-1065"
+        },
+        {
+          "ts": "1754991367.000616",
+          "user": "U_TOMAS",
+          "text": "pushed a fix for COM-1067, PR open",
+          "thread_ts": "1754991367.000616"
+        },
+        {
+          "ts": "1754991947.000474",
+          "user": "U_JIHO",
+          "text": "question on COM-1070 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1754991947.000474"
+        },
+        {
+          "ts": "1754992591.000475",
+          "user": "U_JIHO",
+          "text": "no, required — add a default",
+          "thread_ts": "1754991947.000474"
+        },
+        {
+          "ts": "1755011588.000572",
+          "user": "U_KARIM",
+          "text": "pushed a fix for COM-1069, PR open",
+          "thread_ts": "1755011588.000572"
+        },
+        {
+          "ts": "1755012289.000573",
+          "user": "U_PRIYANKA",
+          "text": "ping me when it's up",
+          "thread_ts": "1755011588.000572"
+        },
+        {
+          "ts": "1755012600.000211",
+          "user": "U_SAM",
+          "text": "how do I get my build into the staging release train?",
+          "thread_ts": "1755012600.000211"
+        },
+        {
+          "ts": "1755013095.000212",
+          "user": "U_TOMAS",
+          "text": "<@U_SAM> tag it with release/next and I'll pick it up in the nightly cut.",
+          "thread_ts": "1755012600.000211"
+        },
+        {
+          "ts": "1755013205.000473",
+          "user": "U_JIHO",
+          "text": "closed COM-1070"
+        },
+        {
+          "ts": "1755015692.000213",
+          "user": "U_SAM",
+          "text": "thanks Tomás",
+          "thread_ts": "1755012600.000211"
+        },
+        {
+          "ts": "1755251464.000489",
+          "user": "U_PRIYANKA",
+          "text": "question on COM-1071 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1755251464.000489"
+        },
+        {
+          "ts": "1755253822.000490",
+          "user": "U_JIHO",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1755251464.000489"
+        },
+        {
+          "ts": "1755522000.000181",
+          "user": "U_SAM",
+          "text": "how do you mock the catalog client in tests?",
+          "thread_ts": "1755522000.000181"
+        },
+        {
+          "ts": "1755526174.000182",
+          "user": "U_PRIYANKA",
+          "text": "<@U_SAM> there's a fake in testkit/catalog, wire it in the module setup.",
+          "thread_ts": "1755522000.000181"
+        },
+        {
+          "ts": "1755531155.000183",
+          "user": "U_SAM",
+          "text": "thanks Priyanka",
+          "thread_ts": "1755522000.000181"
+        },
+        {
+          "ts": "1755881757.000449",
+          "user": "U_MINA",
+          "text": "COM-1077 merged 🎉"
+        },
+        {
+          "ts": "1756126561.000685",
+          "user": "U_MINA",
+          "text": "COM-1077 is in review if someone has a sec",
+          "thread_ts": "1756126561.000685"
+        },
+        {
+          "ts": "1756213807.000681",
+          "user": "U_DAVE",
+          "text": "question on COM-1081 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1756213807.000681"
+        },
+        {
+          "ts": "1756214350.000682",
+          "user": "U_JIHO",
+          "text": "yeah nullable for now",
+          "thread_ts": "1756213807.000681"
+        },
+        {
+          "ts": "1756223605.000601",
+          "user": "U_DAVE",
+          "text": "closed COM-1081"
+        },
+        {
+          "ts": "1756299788.000597",
+          "user": "U_DAVE",
+          "text": "picking up COM-1082 (catalog-api)",
+          "thread_ts": "1756299788.000597"
+        },
+        {
+          "ts": "1756304808.000598",
+          "user": "U_FELIX",
+          "text": "ping me when it's up",
+          "thread_ts": "1756299788.000597"
+        },
+        {
+          "ts": "1756461592.000426",
+          "user": "U_YUNA",
+          "text": "finally wrapped COM-1083"
+        },
+        {
+          "ts": "1756890423.000410",
+          "user": "U_JIHO",
+          "text": "pushed a fix for COM-1085, PR open",
+          "thread_ts": "1756890423.000410"
+        },
+        {
+          "ts": "1757341200.000208",
+          "user": "U_PRIYANKA",
+          "text": "should the promo work go before or after the search revamp on the roadmap?",
+          "thread_ts": "1757341200.000208"
+        },
+        {
+          "ts": "1757341882.000209",
+          "user": "U_KARIM",
+          "text": "<@U_PRIYANKA> after — search unblocks promo filtering. I'll sequence it that way.",
+          "thread_ts": "1757341200.000208"
+        },
+        {
+          "ts": "1757347274.000210",
+          "user": "U_PRIYANKA",
+          "text": "makes sense, thanks",
+          "thread_ts": "1757341200.000208"
+        },
+        {
+          "ts": "1757414816.000427",
+          "user": "U_TOMAS",
+          "text": "finally wrapped COM-1089"
+        },
+        {
+          "ts": "1757426084.000460",
+          "user": "U_TOMAS",
+          "text": "pushed a fix for COM-1089, PR open",
+          "thread_ts": "1757426084.000460"
+        },
+        {
+          "ts": "1758014829.000439",
+          "user": "U_TOMAS",
+          "text": "question on COM-1095 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1758014829.000439"
+        },
+        {
+          "ts": "1758018299.000440",
+          "user": "U_YUNA",
+          "text": "no, required — add a default",
+          "thread_ts": "1758014829.000439"
+        },
+        {
+          "ts": "1758214520.000497",
+          "user": "U_NOAH",
+          "text": "question on COM-1097 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1758214520.000497"
+        },
+        {
+          "ts": "1758215389.000498",
+          "user": "U_FELIX",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1758214520.000497"
+        },
+        {
+          "ts": "1758556986.000613",
+          "user": "U_JIHO",
+          "text": "COM-1098 turned out gnarlier than expected, still on it",
+          "thread_ts": "1758556986.000613"
+        },
+        {
+          "ts": "1758559392.000578",
+          "user": "U_JIHO",
+          "text": "COM-1098 is in review if someone has a sec",
+          "thread_ts": "1758559392.000578"
+        },
+        {
+          "ts": "1758559680.000614",
+          "user": "U_JIHO",
+          "text": "nice",
+          "thread_ts": "1758556986.000613"
+        },
+        {
+          "ts": "1758562910.000678",
+          "user": "U_NOAH",
+          "text": "finally wrapped COM-1097"
+        },
+        {
+          "ts": "1758630107.000443",
+          "user": "U_JIHO",
+          "text": "question on COM-1099 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1758630107.000443"
+        },
+        {
+          "ts": "1758632592.000541",
+          "user": "U_JIHO",
+          "text": "COM-1099 is in review if someone has a sec",
+          "thread_ts": "1758632592.000541"
+        },
+        {
+          "ts": "1758632606.000444",
+          "user": "U_PRIYANKA",
+          "text": "no, required — add a default",
+          "thread_ts": "1758630107.000443"
+        },
+        {
+          "ts": "1758640049.000620",
+          "user": "U_JIHO",
+          "text": "COM-1099 merged 🎉"
+        },
+        {
+          "ts": "1758904644.000544",
+          "user": "U_PRIYANKA",
+          "text": "finally wrapped COM-1102"
+        },
+        {
+          "ts": "1759138988.000579",
+          "user": "U_FELIX",
+          "text": "question on COM-1105 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1759138988.000579"
+        },
+        {
+          "ts": "1759141948.000557",
+          "user": "U_FELIX",
+          "text": "question on COM-1105 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1759141948.000557"
+        },
+        {
+          "ts": "1759142789.000580",
+          "user": "U_YUNA",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1759138988.000579"
+        },
+        {
+          "ts": "1759146691.000558",
+          "user": "U_JIHO",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1759141948.000557"
+        },
+        {
+          "ts": "1759230000.000150",
+          "user": "U_SAM",
+          "text": "how do I run the order-api integration suite locally? it can't find the test DB",
+          "thread_ts": "1759230000.000150"
+        },
+        {
+          "ts": "1759233659.000151",
+          "user": "U_JIHO",
+          "text": "<@U_SAM> you need to `make testdb` first, it spins up the container. then TEST_DB_URL points at it.",
+          "thread_ts": "1759230000.000150"
+        },
+        {
+          "ts": "1759234908.000152",
+          "user": "U_SAM",
+          "text": "got it running, thanks!",
+          "thread_ts": "1759230000.000150"
+        },
+        {
+          "ts": "1759241703.000468",
+          "user": "U_MINA",
+          "text": "question on COM-1106 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1759241703.000468"
+        },
+        {
+          "ts": "1759247029.000469",
+          "user": "U_PRIYANKA",
+          "text": "no, required — add a default",
+          "thread_ts": "1759241703.000468"
+        },
+        {
+          "ts": "1759398600.000134",
+          "user": "U_MINA",
+          "text": "catalog re-index migration is timing out in staging, any idea?",
+          "thread_ts": "1759398600.000134"
+        },
+        {
+          "ts": "1759398815.000135",
+          "user": "U_FELIX",
+          "text": "<@U_MINA> batch it. 500k rows in one txn will always time out — chunk at 5k with a checkpoint table.",
+          "thread_ts": "1759398600.000134"
+        },
+        {
+          "ts": "1759399371.000136",
+          "user": "U_MINA",
+          "text": "batching worked, migration is clean now. thanks Felix 🙏",
+          "thread_ts": "1759398600.000134"
+        },
+        {
+          "ts": "1759507376.000491",
+          "user": "U_TOMAS",
+          "text": "picking up COM-1108 (order-api)",
+          "thread_ts": "1759507376.000491"
+        },
+        {
+          "ts": "1759511421.000492",
+          "user": "U_MINA",
+          "text": "lgtm from a glance",
+          "thread_ts": "1759507376.000491"
+        },
+        {
+          "ts": "1760361125.000674",
+          "user": "U_JIHO",
+          "text": "question on COM-1110 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1760361125.000674"
+        },
+        {
+          "ts": "1760363828.000675",
+          "user": "U_YUNA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1760361125.000674"
+        },
+        {
+          "ts": "1760444170.000582",
+          "user": "U_MINA",
+          "text": "COM-1114 turned out gnarlier than expected, still on it",
+          "thread_ts": "1760444170.000582"
+        },
+        {
+          "ts": "1760445190.000583",
+          "user": "U_JIHO",
+          "text": "lgtm from a glance",
+          "thread_ts": "1760444170.000582"
+        },
+        {
+          "ts": "1760454600.000220",
+          "user": "U_NOAH",
+          "text": "storefront assets aren't busting cache after deploy, users see stale CSS",
+          "thread_ts": "1760454600.000220"
+        },
+        {
+          "ts": "1760457432.000221",
+          "user": "U_FELIX",
+          "text": "<@U_NOAH> you need a content hash in the filename, not a query string — CDNs ignore the query. I'll wire the build plugin.",
+          "thread_ts": "1760454600.000220"
+        },
+        {
+          "ts": "1760458553.000522",
+          "user": "U_FELIX",
+          "text": "question on COM-1112 — does admin-console expect the new field to be nullable?",
+          "thread_ts": "1760458553.000522"
+        },
+        {
+          "ts": "1760460410.000523",
+          "user": "U_YUNA",
+          "text": "no, required — add a default",
+          "thread_ts": "1760458553.000522"
+        },
+        {
+          "ts": "1760462530.000222",
+          "user": "U_NOAH",
+          "text": "that did it, thanks Felix 🙏",
+          "thread_ts": "1760454600.000220"
+        },
+        {
+          "ts": "1760538111.000677",
+          "user": "U_JIHO",
+          "text": "COM-1113 is in review if someone has a sec",
+          "thread_ts": "1760538111.000677"
+        },
+        {
+          "ts": "1760548190.000555",
+          "user": "U_KARIM",
+          "text": "question on COM-1116 — does admin-console expect the new field to be nullable?",
+          "thread_ts": "1760548190.000555"
+        },
+        {
+          "ts": "1760552529.000556",
+          "user": "U_YUNA",
+          "text": "no, required — add a default",
+          "thread_ts": "1760548190.000555"
+        },
+        {
+          "ts": "1760614157.000565",
+          "user": "U_JIHO",
+          "text": "picking up COM-1110 (order-api)",
+          "thread_ts": "1760614157.000565"
+        },
+        {
+          "ts": "1760746726.000670",
+          "user": "U_NOAH",
+          "text": "COM-1115 turned out gnarlier than expected, still on it",
+          "thread_ts": "1760746726.000670"
+        },
+        {
+          "ts": "1760952183.000679",
+          "user": "U_MINA",
+          "text": "question on COM-1120 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1760952183.000679"
+        },
+        {
+          "ts": "1760953540.000680",
+          "user": "U_FELIX",
+          "text": "no, required — add a default",
+          "thread_ts": "1760952183.000679"
+        },
+        {
+          "ts": "1760953612.000626",
+          "user": "U_MINA",
+          "text": "pushed a fix for COM-1118, PR open",
+          "thread_ts": "1760953612.000626"
+        },
+        {
+          "ts": "1761213997.000566",
+          "user": "U_MINA",
+          "text": "question on COM-1120 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1761213997.000566"
+        },
+        {
+          "ts": "1761218454.000567",
+          "user": "U_JIHO",
+          "text": "yeah nullable for now",
+          "thread_ts": "1761213997.000566"
+        },
+        {
+          "ts": "1761560831.000451",
+          "user": "U_YUNA",
+          "text": "question on COM-1119 — does billing-core expect the new field to be nullable?",
+          "thread_ts": "1761560831.000451"
+        },
+        {
+          "ts": "1761561848.000452",
+          "user": "U_JIHO",
+          "text": "no, required — add a default",
+          "thread_ts": "1761560831.000451"
+        },
+        {
+          "ts": "1761571128.000534",
+          "user": "U_MINA",
+          "text": "question on COM-1120 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1761571128.000534"
+        },
+        {
+          "ts": "1761576208.000535",
+          "user": "U_PRIYANKA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1761571128.000534"
+        },
+        {
+          "ts": "1761580009.000447",
+          "user": "U_YUNA",
+          "text": "picking up COM-1119 (billing-core)",
+          "thread_ts": "1761580009.000447"
+        },
+        {
+          "ts": "1761585233.000448",
+          "user": "U_JIHO",
+          "text": "I'll review",
+          "thread_ts": "1761580009.000447"
+        },
+        {
+          "ts": "1761664800.000187",
+          "user": "U_SAM",
+          "text": "catalog search filter syntax confuses me, any docs?",
+          "thread_ts": "1761664800.000187"
+        },
+        {
+          "ts": "1761667095.000188",
+          "user": "U_MINA",
+          "text": "<@U_SAM> it's DSL-ish, I wrote a cheatsheet in the wiki — linking it.",
+          "thread_ts": "1761664800.000187"
+        },
+        {
+          "ts": "1761668558.000189",
+          "user": "U_SAM",
+          "text": "perfect thanks Mina",
+          "thread_ts": "1761664800.000187"
+        },
+        {
+          "ts": "1762424100.000196",
+          "user": "U_PRIYANKA",
+          "text": "does billing emit an event when an invoice is finalized? need it for catalog promos",
+          "thread_ts": "1762424100.000196"
+        },
+        {
+          "ts": "1762428021.000197",
+          "user": "U_YUNA",
+          "text": "<@U_PRIYANKA> yes, invoice.finalized on the billing topic. schema's in the registry.",
+          "thread_ts": "1762424100.000196"
+        },
+        {
+          "ts": "1762433412.000198",
+          "user": "U_PRIYANKA",
+          "text": "great, thanks",
+          "thread_ts": "1762424100.000196"
+        },
+        {
+          "ts": "1762869152.000571",
+          "user": "U_MINA",
+          "text": "COM-1131 turned out gnarlier than expected, still on it",
+          "thread_ts": "1762869152.000571"
+        },
+        {
+          "ts": "1763031156.000487",
+          "user": "U_FELIX",
+          "text": "COM-1132 turned out gnarlier than expected, still on it",
+          "thread_ts": "1763031156.000487"
+        },
+        {
+          "ts": "1763032936.000488",
+          "user": "U_JIHO",
+          "text": "ping me when it's up",
+          "thread_ts": "1763031156.000487"
+        },
+        {
+          "ts": "1763397810.000512",
+          "user": "U_JIHO",
+          "text": "finally wrapped COM-1135"
+        },
+        {
+          "ts": "1763467719.000423",
+          "user": "U_PRIYANKA",
+          "text": "COM-1139 is in review if someone has a sec",
+          "thread_ts": "1763467719.000423"
+        },
+        {
+          "ts": "1763566800.000137",
+          "user": "U_SAM",
+          "text": "order-api null pointer on guest checkout, can't repro locally",
+          "thread_ts": "1763566800.000137"
+        },
+        {
+          "ts": "1763568646.000138",
+          "user": "U_JIHO",
+          "text": "<@U_SAM> guest has no saved address id, the mapper assumes it exists. guard it and default to the shipping block.",
+          "thread_ts": "1763566800.000137"
+        },
+        {
+          "ts": "1763571828.000139",
+          "user": "U_SAM",
+          "text": "yep that was it, thanks again Jiho",
+          "thread_ts": "1763566800.000137"
+        },
+        {
+          "ts": "1763720392.000545",
+          "user": "U_DAVE",
+          "text": "COM-1141 merged 🎉"
+        },
+        {
+          "ts": "1764073961.000633",
+          "user": "U_DAVE",
+          "text": "COM-1144 turned out gnarlier than expected, still on it",
+          "thread_ts": "1764073961.000633"
+        },
+        {
+          "ts": "1764081786.000593",
+          "user": "U_KARIM",
+          "text": "COM-1145 is in review if someone has a sec",
+          "thread_ts": "1764081786.000593"
+        },
+        {
+          "ts": "1764692400.000172",
+          "user": "U_PRIYANKA",
+          "text": "getting intermittent 502s from catalog-api behind the LB, only in prod",
+          "thread_ts": "1764692400.000172"
+        },
+        {
+          "ts": "1764697514.000173",
+          "user": "U_FELIX",
+          "text": "<@U_PRIYANKA> keepalive mismatch — LB idle timeout is lower than the upstream's. bump the upstream keepalive above the LB.",
+          "thread_ts": "1764692400.000172"
+        },
+        {
+          "ts": "1764701333.000174",
+          "user": "U_PRIYANKA",
+          "text": "that stopped the 502s, thank you!",
+          "thread_ts": "1764692400.000172"
+        },
+        {
+          "ts": "1765185631.000635",
+          "user": "U_PRIYANKA",
+          "text": "pushed a fix for COM-1153, PR open",
+          "thread_ts": "1765185631.000635"
+        },
+        {
+          "ts": "1765189398.000547",
+          "user": "U_PRIYANKA",
+          "text": "COM-1153 is in review if someone has a sec",
+          "thread_ts": "1765189398.000547"
+        },
+        {
+          "ts": "1765189811.000455",
+          "user": "U_PRIYANKA",
+          "text": "COM-1153 done, moving on"
+        },
+        {
+          "ts": "1765191818.000548",
+          "user": "U_FELIX",
+          "text": "nice",
+          "thread_ts": "1765189398.000547"
+        },
+        {
+          "ts": "1765271379.000591",
+          "user": "U_PRIYANKA",
+          "text": "COM-1154 turned out gnarlier than expected, still on it",
+          "thread_ts": "1765271379.000591"
+        },
+        {
+          "ts": "1765276219.000656",
+          "user": "U_PRIYANKA",
+          "text": "COM-1153 merged 🎉"
+        },
+        {
+          "ts": "1765276259.000592",
+          "user": "U_FELIX",
+          "text": "nice",
+          "thread_ts": "1765271379.000591"
+        },
+        {
+          "ts": "1765368630.000524",
+          "user": "U_DAVE",
+          "text": "COM-1155 merged 🎉"
+        },
+        {
+          "ts": "1765382561.000668",
+          "user": "U_PRIYANKA",
+          "text": "COM-1154 done, moving on"
+        },
+        {
+          "ts": "1765447551.000636",
+          "user": "U_DAVE",
+          "text": "question on COM-1155 — does admin-console expect the new field to be nullable?",
+          "thread_ts": "1765447551.000636"
+        },
+        {
+          "ts": "1765449851.000637",
+          "user": "U_YUNA",
+          "text": "no, required — add a default",
+          "thread_ts": "1765447551.000636"
+        },
+        {
+          "ts": "1765556636.000500",
+          "user": "U_DAVE",
+          "text": "question on COM-1157 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1765556636.000500"
+        },
+        {
+          "ts": "1765559431.000501",
+          "user": "U_FELIX",
+          "text": "yeah nullable for now",
+          "thread_ts": "1765556636.000500"
+        },
+        {
+          "ts": "1765559816.000413",
+          "user": "U_DAVE",
+          "text": "pushed a fix for COM-1157, PR open",
+          "thread_ts": "1765559816.000413"
+        },
+        {
+          "ts": "1765564760.000414",
+          "user": "U_MINA",
+          "text": "I'll review",
+          "thread_ts": "1765559816.000413"
+        },
+        {
+          "ts": "1765795150.000528",
+          "user": "U_SAM",
+          "text": "finally wrapped COM-1156"
+        },
+        {
+          "ts": "1765884837.000457",
+          "user": "U_TOMAS",
+          "text": "question on COM-1159 — does admin-console expect the new field to be nullable?",
+          "thread_ts": "1765884837.000457"
+        },
+        {
+          "ts": "1765887693.000458",
+          "user": "U_FELIX",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1765884837.000457"
+        },
+        {
+          "ts": "1765972124.000513",
+          "user": "U_JIHO",
+          "text": "picking up COM-1158 (order-api)",
+          "thread_ts": "1765972124.000513"
+        },
+        {
+          "ts": "1765976094.000514",
+          "user": "U_PRIYANKA",
+          "text": "nice",
+          "thread_ts": "1765972124.000513"
+        },
+        {
+          "ts": "1765992868.000424",
+          "user": "U_MINA",
+          "text": "question on COM-1160 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1765992868.000424"
+        },
+        {
+          "ts": "1765994814.000425",
+          "user": "U_YUNA",
+          "text": "no, required — add a default",
+          "thread_ts": "1765992868.000424"
+        },
+        {
+          "ts": "1766589982.000615",
+          "user": "U_YUNA",
+          "text": "closed COM-1165"
+        },
+        {
+          "ts": "1766744681.000525",
+          "user": "U_MINA",
+          "text": "question on COM-1164 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1766744681.000525"
+        },
+        {
+          "ts": "1766748718.000526",
+          "user": "U_YUNA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1766744681.000525"
+        },
+        {
+          "ts": "1766791635.000630",
+          "user": "U_FELIX",
+          "text": "COM-1166 is in review if someone has a sec",
+          "thread_ts": "1766791635.000630"
+        },
+        {
+          "ts": "1766792338.000631",
+          "user": "U_NOAH",
+          "text": "lgtm from a glance",
+          "thread_ts": "1766791635.000630"
+        },
+        {
+          "ts": "1767026866.000549",
+          "user": "U_NOAH",
+          "text": "COM-1169 is in review if someone has a sec",
+          "thread_ts": "1767026866.000549"
+        },
+        {
+          "ts": "1767629490.000587",
+          "user": "U_SAM",
+          "text": "picking up COM-1173 (storefront-web)",
+          "thread_ts": "1767629490.000587"
+        },
+        {
+          "ts": "1767632373.000507",
+          "user": "U_PRIYANKA",
+          "text": "picking up COM-1172 (catalog-api)",
+          "thread_ts": "1767632373.000507"
+        },
+        {
+          "ts": "1767633733.000508",
+          "user": "U_NOAH",
+          "text": "lgtm from a glance",
+          "thread_ts": "1767632373.000507"
+        },
+        {
+          "ts": "1767808027.000671",
+          "user": "U_JIHO",
+          "text": "question on COM-1176 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1767808027.000671"
+        },
+        {
+          "ts": "1767810815.000672",
+          "user": "U_PRIYANKA",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1767808027.000671"
+        },
+        {
+          "ts": "1768483200.000140",
+          "user": "U_DAVE",
+          "text": "what's the right env var for the admin feature flag service now? docs are stale",
+          "thread_ts": "1768483200.000140"
+        },
+        {
+          "ts": "1768484276.000141",
+          "user": "U_FELIX",
+          "text": "<@U_DAVE> it moved to FLAGS_ENDPOINT last quarter. I'll update the runbook.",
+          "thread_ts": "1768483200.000140"
+        },
+        {
+          "ts": "1768485221.000142",
+          "user": "U_DAVE",
+          "text": "cheers",
+          "thread_ts": "1768483200.000140"
+        },
+        {
+          "ts": "1768618013.000470",
+          "user": "U_SAM",
+          "text": "picking up COM-1178 (order-api)",
+          "thread_ts": "1768618013.000470"
+        },
+        {
+          "ts": "1768817857.000510",
+          "user": "U_MINA",
+          "text": "question on COM-1179 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1768817857.000510"
+        },
+        {
+          "ts": "1768818100.000595",
+          "user": "U_NOAH",
+          "text": "question on COM-1180 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1768818100.000595"
+        },
+        {
+          "ts": "1768818157.000511",
+          "user": "U_FELIX",
+          "text": "yeah nullable for now",
+          "thread_ts": "1768817857.000510"
+        },
+        {
+          "ts": "1768821042.000596",
+          "user": "U_YUNA",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1768818100.000595"
+        },
+        {
+          "ts": "1768903384.000627",
+          "user": "U_TOMAS",
+          "text": "COM-1186 done, moving on"
+        },
+        {
+          "ts": "1768917918.000600",
+          "user": "U_FELIX",
+          "text": "finally wrapped COM-1181"
+        },
+        {
+          "ts": "1768987070.000504",
+          "user": "U_TOMAS",
+          "text": "question on COM-1186 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1768987070.000504"
+        },
+        {
+          "ts": "1768987259.000505",
+          "user": "U_JIHO",
+          "text": "yeah nullable for now",
+          "thread_ts": "1768987070.000504"
+        },
+        {
+          "ts": "1769005525.000436",
+          "user": "U_TOMAS",
+          "text": "pushed a fix for COM-1186, PR open",
+          "thread_ts": "1769005525.000436"
+        },
+        {
+          "ts": "1769006179.000437",
+          "user": "U_NOAH",
+          "text": "nice",
+          "thread_ts": "1769005525.000436"
+        },
+        {
+          "ts": "1769084454.000483",
+          "user": "U_YUNA",
+          "text": "COM-1185 turned out gnarlier than expected, still on it",
+          "thread_ts": "1769084454.000483"
+        },
+        {
+          "ts": "1769090400.000190",
+          "user": "U_NOAH",
+          "text": "storefront needs to show tax breakdown, how does billing expose it?",
+          "thread_ts": "1769090400.000190"
+        },
+        {
+          "ts": "1769093312.000191",
+          "user": "U_YUNA",
+          "text": "<@U_NOAH> there's a /tax/preview endpoint, returns line items. don't compute tax client-side.",
+          "thread_ts": "1769090400.000190"
+        },
+        {
+          "ts": "1769094059.000192",
+          "user": "U_NOAH",
+          "text": "thanks Yuna, using the endpoint",
+          "thread_ts": "1769090400.000190"
+        },
+        {
+          "ts": "1769160481.000664",
+          "user": "U_MINA",
+          "text": "question on COM-1187 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1769160481.000664"
+        },
+        {
+          "ts": "1769163121.000552",
+          "user": "U_MINA",
+          "text": "COM-1187 turned out gnarlier than expected, still on it",
+          "thread_ts": "1769163121.000552"
+        },
+        {
+          "ts": "1769165787.000665",
+          "user": "U_FELIX",
+          "text": "yeah nullable for now",
+          "thread_ts": "1769160481.000664"
+        },
+        {
+          "ts": "1769170525.000515",
+          "user": "U_MINA",
+          "text": "question on COM-1187 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1769170525.000515"
+        },
+        {
+          "ts": "1769174013.000516",
+          "user": "U_JIHO",
+          "text": "yeah nullable for now",
+          "thread_ts": "1769170525.000515"
+        },
+        {
+          "ts": "1769519722.000463",
+          "user": "U_FELIX",
+          "text": "question on COM-1188 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1769519722.000463"
+        },
+        {
+          "ts": "1769524991.000464",
+          "user": "U_JIHO",
+          "text": "no, required — add a default",
+          "thread_ts": "1769519722.000463"
+        },
+        {
+          "ts": "1769528814.000570",
+          "user": "U_FELIX",
+          "text": "finally wrapped COM-1188"
+        },
+        {
+          "ts": "1769535203.000661",
+          "user": "U_MINA",
+          "text": "COM-1189 done, moving on"
+        },
+        {
+          "ts": "1769535263.000673",
+          "user": "U_MINA",
+          "text": "pushed a fix for COM-1189, PR open",
+          "thread_ts": "1769535263.000673"
+        },
+        {
+          "ts": "1770132174.000532",
+          "user": "U_TOMAS",
+          "text": "question on COM-1192 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1770132174.000532"
+        },
+        {
+          "ts": "1770133039.000533",
+          "user": "U_PRIYANKA",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1770132174.000532"
+        },
+        {
+          "ts": "1770200400.000153",
+          "user": "U_LENA",
+          "text": "first day on storefront 🙋 where do component styles live? I see three different setups",
+          "thread_ts": "1770200400.000153"
+        },
+        {
+          "ts": "1770201033.000154",
+          "user": "U_NOAH",
+          "text": "<@U_LENA> welcome! we're mid-migration. new stuff uses the tokens in ui/theme, ignore the legacy sass. I'll pair with you after standup.",
+          "thread_ts": "1770200400.000153"
+        },
+        {
+          "ts": "1770203168.000155",
+          "user": "U_NOAH",
+          "text": "also join #storefront-fe, that's where the FE chatter is",
+          "thread_ts": "1770200400.000153"
+        },
+        {
+          "ts": "1770205338.000450",
+          "user": "U_FELIX",
+          "text": "closed COM-1193"
+        },
+        {
+          "ts": "1770206513.000156",
+          "user": "U_LENA",
+          "text": "thank you Noah! that helps a lot",
+          "thread_ts": "1770200400.000153"
+        },
+        {
+          "ts": "1770730478.000666",
+          "user": "U_DAVE",
+          "text": "question on COM-1200 — does admin-console expect the new field to be nullable?",
+          "thread_ts": "1770730478.000666"
+        },
+        {
+          "ts": "1770734060.000667",
+          "user": "U_JIHO",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1770730478.000666"
+        },
+        {
+          "ts": "1770812506.000638",
+          "user": "U_DAVE",
+          "text": "closed COM-1200"
+        },
+        {
+          "ts": "1770906600.000157",
+          "user": "U_LENA",
+          "text": "my storefront build fails on the theme import, red squiggles everywhere",
+          "thread_ts": "1770906600.000157"
+        },
+        {
+          "ts": "1770909282.000158",
+          "user": "U_NOAH",
+          "text": "<@U_LENA> you're on the old node version. nvm use 20, then reinstall. the theme pkg needs 20+.",
+          "thread_ts": "1770906600.000157"
+        },
+        {
+          "ts": "1770913200.000159",
+          "user": "U_LENA",
+          "text": "that fixed it, thanks Noah 🙏",
+          "thread_ts": "1770906600.000157"
+        },
+        {
+          "ts": "1770914839.000662",
+          "user": "U_DAVE",
+          "text": "pushed a fix for COM-1202, PR open",
+          "thread_ts": "1770914839.000662"
+        },
+        {
+          "ts": "1770918375.000663",
+          "user": "U_NOAH",
+          "text": "ping me when it's up",
+          "thread_ts": "1770914839.000662"
+        },
+        {
+          "ts": "1771594200.000199",
+          "user": "U_LENA",
+          "text": "checkout calls order-api and I get a 400 with no body, how do I debug?",
+          "thread_ts": "1771594200.000199"
+        },
+        {
+          "ts": "1771598942.000200",
+          "user": "U_JIHO",
+          "text": "<@U_LENA> turn on the debug header X-Debug: 1, it echoes the validation errors. it's off in prod only.",
+          "thread_ts": "1771594200.000199"
+        },
+        {
+          "ts": "1771601215.000201",
+          "user": "U_LENA",
+          "text": "so helpful, thank you Jiho",
+          "thread_ts": "1771594200.000199"
+        },
+        {
+          "ts": "1772111355.000485",
+          "user": "U_NOAH",
+          "text": "finally wrapped COM-1211"
+        },
+        {
+          "ts": "1772126999.000494",
+          "user": "U_MINA",
+          "text": "pushed a fix for COM-1207, PR open",
+          "thread_ts": "1772126999.000494"
+        },
+        {
+          "ts": "1772552700.000160",
+          "user": "U_LENA",
+          "text": "how does routing work in the checkout flow? I keep getting a blank page on step 2",
+          "thread_ts": "1772552700.000160"
+        },
+        {
+          "ts": "1772555750.000161",
+          "user": "U_NOAH",
+          "text": "<@U_LENA> the stepper uses nested routes, you're missing the <Outlet/>. add it to the layout and it'll render.",
+          "thread_ts": "1772552700.000160"
+        },
+        {
+          "ts": "1772559898.000162",
+          "user": "U_LENA",
+          "text": "ahh outlet, thank you! second week and learning a lot",
+          "thread_ts": "1772552700.000160"
+        },
+        {
+          "ts": "1772625174.000669",
+          "user": "U_NOAH",
+          "text": "COM-1218 done, moving on"
+        },
+        {
+          "ts": "1772644224.000539",
+          "user": "U_NOAH",
+          "text": "COM-1218 turned out gnarlier than expected, still on it",
+          "thread_ts": "1772644224.000539"
+        },
+        {
+          "ts": "1772644503.000540",
+          "user": "U_PRIYANKA",
+          "text": "nice",
+          "thread_ts": "1772644224.000539"
+        },
+        {
+          "ts": "1772707579.000529",
+          "user": "U_PRIYANKA",
+          "text": "finally wrapped COM-1217"
+        },
+        {
+          "ts": "1772716825.000652",
+          "user": "U_NOAH",
+          "text": "pushed a fix for COM-1220, PR open",
+          "thread_ts": "1772716825.000652"
+        },
+        {
+          "ts": "1772720439.000653",
+          "user": "U_PRIYANKA",
+          "text": "I'll review",
+          "thread_ts": "1772716825.000652"
+        },
+        {
+          "ts": "1773024371.000530",
+          "user": "U_MINA",
+          "text": "question on COM-1222 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1773024371.000530"
+        },
+        {
+          "ts": "1773026575.000531",
+          "user": "U_PRIYANKA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1773024371.000530"
+        },
+        {
+          "ts": "1773079054.000461",
+          "user": "U_PRIYANKA",
+          "text": "closed COM-1217"
+        },
+        {
+          "ts": "1773139816.000462",
+          "user": "U_DAVE",
+          "text": "COM-1223 merged 🎉"
+        },
+        {
+          "ts": "1773336332.000628",
+          "user": "U_MINA",
+          "text": "pushed a fix for COM-1231, PR open",
+          "thread_ts": "1773336332.000628"
+        },
+        {
+          "ts": "1773339757.000629",
+          "user": "U_JIHO",
+          "text": "ping me when it's up",
+          "thread_ts": "1773336332.000628"
+        },
+        {
+          "ts": "1773410346.000499",
+          "user": "U_MINA",
+          "text": "finally wrapped COM-1230"
+        },
+        {
+          "ts": "1773439653.000588",
+          "user": "U_MINA",
+          "text": "closed COM-1222"
+        },
+        {
+          "ts": "1773538405.000477",
+          "user": "U_MINA",
+          "text": "COM-1230 merged 🎉"
+        },
+        {
+          "ts": "1773672088.000521",
+          "user": "U_JIHO",
+          "text": "finally wrapped COM-1227"
+        },
+        {
+          "ts": "1773754331.000453",
+          "user": "U_TOMAS",
+          "text": "question on COM-1233 — does admin-console expect the new field to be nullable?",
+          "thread_ts": "1773754331.000453"
+        },
+        {
+          "ts": "1773757778.000454",
+          "user": "U_YUNA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1773754331.000453"
+        },
+        {
+          "ts": "1773768223.000550",
+          "user": "U_TOMAS",
+          "text": "question on COM-1233 — does admin-console expect the new field to be nullable?",
+          "thread_ts": "1773768223.000550"
+        },
+        {
+          "ts": "1773769749.000551",
+          "user": "U_YUNA",
+          "text": "no, required — add a default",
+          "thread_ts": "1773768223.000550"
+        },
+        {
+          "ts": "1774521600.000184",
+          "user": "U_LENA",
+          "text": "where's the API contract for the cart endpoint?",
+          "thread_ts": "1774521600.000184"
+        },
+        {
+          "ts": "1774522464.000185",
+          "user": "U_PRIYANKA",
+          "text": "<@U_LENA> it's in the openapi spec under docs/api, cart section.",
+          "thread_ts": "1774521600.000184"
+        },
+        {
+          "ts": "1774522751.000186",
+          "user": "U_LENA",
+          "text": "found it, thanks!",
+          "thread_ts": "1774521600.000184"
+        },
+        {
+          "ts": "1774617656.000646",
+          "user": "U_SAM",
+          "text": "COM-1237 is in review if someone has a sec",
+          "thread_ts": "1774617656.000646"
+        },
+        {
+          "ts": "1774619264.000486",
+          "user": "U_PRIYANKA",
+          "text": "finally wrapped COM-1240"
+        },
+        {
+          "ts": "1774622795.000647",
+          "user": "U_PRIYANKA",
+          "text": "I'll review",
+          "thread_ts": "1774617656.000646"
+        },
+        {
+          "ts": "1774625352.000648",
+          "user": "U_PRIYANKA",
+          "text": "COM-1240 merged 🎉"
+        },
+        {
+          "ts": "1774869830.000576",
+          "user": "U_MINA",
+          "text": "COM-1243 merged 🎉"
+        },
+        {
+          "ts": "1774882779.000493",
+          "user": "U_YUNA",
+          "text": "picking up COM-1238 (billing-core)",
+          "thread_ts": "1774882779.000493"
+        },
+        {
+          "ts": "1774970962.000527",
+          "user": "U_YUNA",
+          "text": "pushed a fix for COM-1238, PR open",
+          "thread_ts": "1774970962.000527"
+        },
+        {
+          "ts": "1775139600.000223",
+          "user": "U_SAM",
+          "text": "my new order-api pod keeps OOMing in staging, memory looks fine locally",
+          "thread_ts": "1775139600.000223"
+        },
+        {
+          "ts": "1775140187.000224",
+          "user": "U_FELIX",
+          "text": "<@U_SAM> staging has a lower cgroup limit and the JVM isn't container-aware. set MaxRAMPercentage=75, not a fixed Xmx.",
+          "thread_ts": "1775139600.000223"
+        },
+        {
+          "ts": "1775143077.000225",
+          "user": "U_SAM",
+          "text": "no more OOMs, thank you Felix",
+          "thread_ts": "1775139600.000223"
+        },
+        {
+          "ts": "1775468106.000618",
+          "user": "U_FELIX",
+          "text": "closed COM-1247"
+        },
+        {
+          "ts": "1775473461.000520",
+          "user": "U_FELIX",
+          "text": "COM-1247 merged 🎉"
+        },
+        {
+          "ts": "1775484495.000586",
+          "user": "U_NOAH",
+          "text": "COM-1246 merged 🎉"
+        },
+        {
+          "ts": "1775664600.000143",
+          "user": "U_PRIYANKA",
+          "text": "order timeline events are arriving out of order downstream, is that expected?",
+          "thread_ts": "1775664600.000143"
+        },
+        {
+          "ts": "1775668471.000144",
+          "user": "U_JIHO",
+          "text": "<@U_PRIYANKA> kafka partition key is order id but you're publishing from two producers. pin the key and it'll order per-order.",
+          "thread_ts": "1775664600.000143"
+        },
+        {
+          "ts": "1775670134.000145",
+          "user": "U_PRIYANKA",
+          "text": "makes sense, fixed. thanks Jiho",
+          "thread_ts": "1775664600.000143"
+        },
+        {
+          "ts": "1775829010.000649",
+          "user": "U_PRIYANKA",
+          "text": "question on COM-1248 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1775829010.000649"
+        },
+        {
+          "ts": "1775829546.000650",
+          "user": "U_FELIX",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1775829010.000649"
+        },
+        {
+          "ts": "1776098141.000509",
+          "user": "U_PRIYANKA",
+          "text": "COM-1248 merged 🎉"
+        },
+        {
+          "ts": "1776187323.000655",
+          "user": "U_TOMAS",
+          "text": "closed COM-1251"
+        },
+        {
+          "ts": "1776766609.000495",
+          "user": "U_NOAH",
+          "text": "question on COM-1259 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1776766609.000495"
+        },
+        {
+          "ts": "1776768572.000496",
+          "user": "U_FELIX",
+          "text": "yeah nullable for now",
+          "thread_ts": "1776766609.000495"
+        },
+        {
+          "ts": "1776782700.000175",
+          "user": "U_SAM",
+          "text": "how do I add a dashboard for my new endpoint? never done the metrics setup",
+          "thread_ts": "1776782700.000175"
+        },
+        {
+          "ts": "1776784340.000176",
+          "user": "U_FELIX",
+          "text": "<@U_SAM> annotate the handler with the metrics middleware, then clone the dashboard template. I'll link the PR that did it.",
+          "thread_ts": "1776782700.000175"
+        },
+        {
+          "ts": "1776784840.000177",
+          "user": "U_SAM",
+          "text": "thanks Felix, following the example now",
+          "thread_ts": "1776782700.000175"
+        },
+        {
+          "ts": "1776941797.000575",
+          "user": "U_JIHO",
+          "text": "finally wrapped COM-1258"
+        },
+        {
+          "ts": "1777026500.000441",
+          "user": "U_YUNA",
+          "text": "question on COM-1257 — does billing-core expect the new field to be nullable?",
+          "thread_ts": "1777026500.000441"
+        },
+        {
+          "ts": "1777027279.000442",
+          "user": "U_PRIYANKA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1777026500.000441"
+        },
+        {
+          "ts": "1777938861.000623",
+          "user": "U_MINA",
+          "text": "picking up COM-1264 (catalog-api)",
+          "thread_ts": "1777938861.000623"
+        },
+        {
+          "ts": "1777940939.000624",
+          "user": "U_FELIX",
+          "text": "lgtm from a glance",
+          "thread_ts": "1777938861.000623"
+        },
+        {
+          "ts": "1777975863.000430",
+          "user": "U_MINA",
+          "text": "question on COM-1266 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1777975863.000430"
+        },
+        {
+          "ts": "1777977289.000431",
+          "user": "U_FELIX",
+          "text": "yeah nullable for now",
+          "thread_ts": "1777975863.000430"
+        },
+        {
+          "ts": "1777986608.000574",
+          "user": "U_SAM",
+          "text": "finally wrapped COM-1268"
+        },
+        {
+          "ts": "1777996430.000683",
+          "user": "U_SAM",
+          "text": "question on COM-1268 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1777996430.000683"
+        },
+        {
+          "ts": "1778000335.000684",
+          "user": "U_YUNA",
+          "text": "no, required — add a default",
+          "thread_ts": "1777996430.000683"
+        },
+        {
+          "ts": "1778067000.000163",
+          "user": "U_SAM",
+          "text": "review nit q: is it ok to reuse the refund handler for partial refunds or should I split it?",
+          "thread_ts": "1778067000.000163"
+        },
+        {
+          "ts": "1778069617.000164",
+          "user": "U_JIHO",
+          "text": "<@U_SAM> split it. partials have different ledger semantics, don't overload the full-refund path.",
+          "thread_ts": "1778067000.000163"
+        },
+        {
+          "ts": "1778071217.000165",
+          "user": "U_SAM",
+          "text": "makes sense, splitting it. thanks",
+          "thread_ts": "1778067000.000163"
+        },
+        {
+          "ts": "1778365486.000581",
+          "user": "U_SAM",
+          "text": "COM-1268 turned out gnarlier than expected, still on it",
+          "thread_ts": "1778365486.000581"
+        },
+        {
+          "ts": "1778510416.000517",
+          "user": "U_MINA",
+          "text": "finally wrapped COM-1271"
+        },
+        {
+          "ts": "1778759400.000193",
+          "user": "U_SAM",
+          "text": "fullstack q: how do I wire the storefront to my new order endpoint?",
+          "thread_ts": "1778759400.000193"
+        },
+        {
+          "ts": "1778762325.000194",
+          "user": "U_NOAH",
+          "text": "<@U_SAM> add it to the api client gen, then the hook is generated for you. I'll pair 15 min.",
+          "thread_ts": "1778759400.000193"
+        },
+        {
+          "ts": "1778762618.000195",
+          "user": "U_SAM",
+          "text": "thanks Noah!",
+          "thread_ts": "1778759400.000193"
+        },
+        {
+          "ts": "1778977967.000589",
+          "user": "U_MINA",
+          "text": "question on COM-1274 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1778977967.000589"
+        },
+        {
+          "ts": "1778982730.000590",
+          "user": "U_JIHO",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1778977967.000589"
+        },
+        {
+          "ts": "1779111189.000619",
+          "user": "U_JIHO",
+          "text": "COM-1279 turned out gnarlier than expected, still on it",
+          "thread_ts": "1779111189.000619"
+        },
+        {
+          "ts": "1779452411.000434",
+          "user": "U_NOAH",
+          "text": "question on COM-1285 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1779452411.000434"
+        },
+        {
+          "ts": "1779455119.000435",
+          "user": "U_JIHO",
+          "text": "yeah nullable for now",
+          "thread_ts": "1779452411.000434"
+        },
+        {
+          "ts": "1779876300.000146",
+          "user": "U_MINA",
+          "text": "catalog p99 creeping up again, I'm underwater and can't dig in this week",
+          "thread_ts": "1779876300.000146"
+        },
+        {
+          "ts": "1779878350.000147",
+          "user": "U_FELIX",
+          "text": "<@U_MINA> I'll take a look tonight. probably the facet query again — I'll add an index and ping you.",
+          "thread_ts": "1779876300.000146"
+        },
+        {
+          "ts": "1779878862.000148",
+          "user": "U_FELIX",
+          "text": "added a covering index, p99 down 60%. keep an eye on it.",
+          "thread_ts": "1779876300.000146"
+        },
+        {
+          "ts": "1779879260.000149",
+          "user": "U_MINA",
+          "text": "you're a lifesaver, thank you 🙏",
+          "thread_ts": "1779876300.000146"
+        },
+        {
+          "ts": "1779893434.000484",
+          "user": "U_TOMAS",
+          "text": "COM-1289 is in review if someone has a sec",
+          "thread_ts": "1779893434.000484"
+        },
+        {
+          "ts": "1780333053.000657",
+          "user": "U_JIHO",
+          "text": "picking up COM-1290 (order-api)",
+          "thread_ts": "1780333053.000657"
+        },
+        {
+          "ts": "1780336159.000658",
+          "user": "U_PRIYANKA",
+          "text": "I'll review",
+          "thread_ts": "1780333053.000657"
+        },
+        {
+          "ts": "1780398300.000178",
+          "user": "U_MINA",
+          "text": "order + catalog both touch the SKU cache, we keep stepping on each other. thoughts?",
+          "thread_ts": "1780398300.000178"
+        },
+        {
+          "ts": "1780402977.000179",
+          "user": "U_JIHO",
+          "text": "<@U_MINA> let's put a versioned key namespace per service and a shared invalidation event. quick huddle after lunch?",
+          "thread_ts": "1780398300.000178"
+        },
+        {
+          "ts": "1780408027.000180",
+          "user": "U_MINA",
+          "text": "yes please, thank you",
+          "thread_ts": "1780398300.000178"
+        },
+        {
+          "ts": "1780498881.000639",
+          "user": "U_DAVE",
+          "text": "pushed a fix for COM-1292, PR open",
+          "thread_ts": "1780498881.000639"
+        },
+        {
+          "ts": "1780919454.000659",
+          "user": "U_LENA",
+          "text": "question on COM-1295 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1780919454.000659"
+        },
+        {
+          "ts": "1780922802.000660",
+          "user": "U_YUNA",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1780919454.000659"
+        },
+        {
+          "ts": "1780926824.000625",
+          "user": "U_TOMAS",
+          "text": "COM-1294 done, moving on"
+        },
+        {
+          "ts": "1780934240.000559",
+          "user": "U_LENA",
+          "text": "COM-1295 turned out gnarlier than expected, still on it",
+          "thread_ts": "1780934240.000559"
+        },
+        {
+          "ts": "1780934735.000560",
+          "user": "U_PRIYANKA",
+          "text": "lgtm from a glance",
+          "thread_ts": "1780934240.000559"
+        },
+        {
+          "ts": "1780935698.000466",
+          "user": "U_TOMAS",
+          "text": "COM-1294 is in review if someone has a sec",
+          "thread_ts": "1780935698.000466"
+        },
+        {
+          "ts": "1780938534.000642",
+          "user": "U_TOMAS",
+          "text": "COM-1294 is in review if someone has a sec",
+          "thread_ts": "1780938534.000642"
+        },
+        {
+          "ts": "1780940054.000432",
+          "user": "U_LENA",
+          "text": "question on COM-1295 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1780940054.000432"
+        },
+        {
+          "ts": "1780940952.000433",
+          "user": "U_PRIYANKA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1780940054.000432"
+        },
+        {
+          "ts": "1780973618.000418",
+          "user": "U_MINA",
+          "text": "question on COM-1299 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1780973618.000418"
+        },
+        {
+          "ts": "1780976633.000419",
+          "user": "U_YUNA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1780973618.000418"
+        },
+        {
+          "ts": "1781001509.000420",
+          "user": "U_DAVE",
+          "text": "pushed a fix for COM-1298, PR open",
+          "thread_ts": "1781001509.000420"
+        },
+        {
+          "ts": "1781002200.000226",
+          "user": "U_PRIYANKA",
+          "text": "catalog-api tracing spans aren't showing the DB calls, gap in the flamegraph",
+          "thread_ts": "1781002200.000226"
+        },
+        {
+          "ts": "1781004651.000227",
+          "user": "U_FELIX",
+          "text": "<@U_PRIYANKA> the DB driver isn't instrumented. add the otel jdbc wrapper, spans will show up.",
+          "thread_ts": "1781002200.000226"
+        },
+        {
+          "ts": "1781005543.000228",
+          "user": "U_PRIYANKA",
+          "text": "perfect, thanks Felix",
+          "thread_ts": "1781002200.000226"
+        },
+        {
+          "ts": "1781050098.000606",
+          "user": "U_MINA",
+          "text": "pushed a fix for COM-1299, PR open",
+          "thread_ts": "1781050098.000606"
+        },
+        {
+          "ts": "1781058079.000617",
+          "user": "U_MINA",
+          "text": "COM-1299 done, moving on"
+        },
+        {
+          "ts": "1781113236.000554",
+          "user": "U_LENA",
+          "text": "picking up COM-1297 (storefront-web)",
+          "thread_ts": "1781113236.000554"
+        },
+        {
+          "ts": "1781188606.000568",
+          "user": "U_YUNA",
+          "text": "pushed a fix for COM-1293, PR open",
+          "thread_ts": "1781188606.000568"
+        },
+        {
+          "ts": "1781189697.000542",
+          "user": "U_YUNA",
+          "text": "COM-1293 turned out gnarlier than expected, still on it",
+          "thread_ts": "1781189697.000542"
+        },
+        {
+          "ts": "1781190411.000569",
+          "user": "U_FELIX",
+          "text": "I'll review",
+          "thread_ts": "1781188606.000568"
+        },
+        {
+          "ts": "1781191745.000543",
+          "user": "U_NOAH",
+          "text": "lgtm from a glance",
+          "thread_ts": "1781189697.000542"
+        },
+        {
+          "ts": "1781259993.000476",
+          "user": "U_MINA",
+          "text": "picking up COM-1303 (catalog-api)",
+          "thread_ts": "1781259993.000476"
+        },
+        {
+          "ts": "1781279396.000478",
+          "user": "U_MINA",
+          "text": "question on COM-1303 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1781279396.000478"
+        },
+        {
+          "ts": "1781279737.000479",
+          "user": "U_YUNA",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1781279396.000478"
+        },
+        {
+          "ts": "1781527734.000537",
+          "user": "U_JIHO",
+          "text": "question on COM-1296 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1781527734.000537"
+        },
+        {
+          "ts": "1781532423.000538",
+          "user": "U_JIHO",
+          "text": "no, required — add a default",
+          "thread_ts": "1781527734.000537"
+        },
+        {
+          "ts": "1781788200.000166",
+          "user": "U_LENA",
+          "text": "storefront CI is flaky on the image snapshot tests, fails ~1 in 3",
+          "thread_ts": "1781788200.000166"
+        },
+        {
+          "ts": "1781790688.000167",
+          "user": "U_FELIX",
+          "text": "<@U_LENA> font rendering diff in CI. pin the font in the test container and set a 0.1% threshold. I'll show you.",
+          "thread_ts": "1781788200.000166"
+        },
+        {
+          "ts": "1781792226.000563",
+          "user": "U_KARIM",
+          "text": "closed COM-1308"
+        },
+        {
+          "ts": "1781792898.000168",
+          "user": "U_LENA",
+          "text": "thank you Felix, no more flakes",
+          "thread_ts": "1781788200.000166"
+        },
+        {
+          "ts": "1781803802.000676",
+          "user": "U_YUNA",
+          "text": "picking up COM-1307 (billing-core)",
+          "thread_ts": "1781803802.000676"
+        },
+        {
+          "ts": "1782228517.000594",
+          "user": "U_DAVE",
+          "text": "closed COM-1310"
+        },
+        {
+          "ts": "1782306000.000214",
+          "user": "U_SAM",
+          "text": "refund ledger entry is doubling, is that a billing thing?",
+          "thread_ts": "1782306000.000214"
+        },
+        {
+          "ts": "1782308099.000215",
+          "user": "U_YUNA",
+          "text": "<@U_SAM> you're posting the reversal and the refund. only post the reversal, refund is derived.",
+          "thread_ts": "1782306000.000214"
+        },
+        {
+          "ts": "1782311016.000216",
+          "user": "U_SAM",
+          "text": "ohh, thank you Yuna",
+          "thread_ts": "1782306000.000214"
+        },
+        {
+          "ts": "1782391703.000604",
+          "user": "U_MINA",
+          "text": "question on COM-1313 — does catalog-api expect the new field to be nullable?",
+          "thread_ts": "1782391703.000604"
+        },
+        {
+          "ts": "1782392446.000605",
+          "user": "U_YUNA",
+          "text": "nullable, we backfill later",
+          "thread_ts": "1782391703.000604"
+        },
+        {
+          "ts": "1782474977.000506",
+          "user": "U_JIHO",
+          "text": "COM-1312 done, moving on"
+        },
+        {
+          "ts": "1782745964.000518",
+          "user": "U_NOAH",
+          "text": "question on COM-1316 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1782745964.000518"
+        },
+        {
+          "ts": "1782748002.000519",
+          "user": "U_YUNA",
+          "text": "yeah nullable for now",
+          "thread_ts": "1782745964.000518"
+        },
+        {
+          "ts": "1782825285.000480",
+          "user": "U_NOAH",
+          "text": "finally wrapped COM-1316"
+        },
+        {
+          "ts": "1782829353.000546",
+          "user": "U_JIHO",
+          "text": "picking up COM-1312 (order-api)",
+          "thread_ts": "1782829353.000546"
+        },
+        {
+          "ts": "1783074600.000202",
+          "user": "U_SAM",
+          "text": "last one before release — is my idempotency test covering the retry window correctly?",
+          "thread_ts": "1783074600.000202"
+        },
+        {
+          "ts": "1783079046.000203",
+          "user": "U_JIHO",
+          "text": "<@U_SAM> almost, also assert the second call returns the same order id, not just 200. then you're good.",
+          "thread_ts": "1783074600.000202"
+        },
+        {
+          "ts": "1783082010.000204",
+          "user": "U_SAM",
+          "text": "added, thanks Jiho — feeling way more confident lately 🙂",
+          "thread_ts": "1783074600.000202"
+        },
+        {
+          "ts": "1783426878.000603",
+          "user": "U_JIHO",
+          "text": "finally wrapped COM-1322"
+        },
+        {
+          "ts": "1783439924.000621",
+          "user": "U_LENA",
+          "text": "question on COM-1323 — does storefront-web expect the new field to be nullable?",
+          "thread_ts": "1783439924.000621"
+        },
+        {
+          "ts": "1783440139.000536",
+          "user": "U_TOMAS",
+          "text": "finally wrapped COM-1326"
+        },
+        {
+          "ts": "1783443821.000622",
+          "user": "U_JIHO",
+          "text": "yeah nullable for now",
+          "thread_ts": "1783439924.000621"
+        },
+        {
+          "ts": "1783592956.000459",
+          "user": "U_MINA",
+          "text": "closed COM-1327"
+        },
+        {
+          "ts": "1783674166.000421",
+          "user": "U_LENA",
+          "text": "picking up COM-1323 (storefront-web)",
+          "thread_ts": "1783674166.000421"
+        },
+        {
+          "ts": "1783677720.000422",
+          "user": "U_JIHO",
+          "text": "lgtm from a glance",
+          "thread_ts": "1783674166.000421"
+        },
+        {
+          "ts": "1783941730.000502",
+          "user": "U_LENA",
+          "text": "picking up COM-1323 (storefront-web)",
+          "thread_ts": "1783941730.000502"
+        },
+        {
+          "ts": "1783945038.000503",
+          "user": "U_PRIYANKA",
+          "text": "ping me when it's up",
+          "thread_ts": "1783941730.000502"
+        },
+        {
+          "ts": "1783962466.000643",
+          "user": "U_JIHO",
+          "text": "question on COM-1328 — does order-api expect the new field to be nullable?",
+          "thread_ts": "1783962466.000643"
+        },
+        {
+          "ts": "1783967449.000644",
+          "user": "U_YUNA",
+          "text": "no, required — add a default",
+          "thread_ts": "1783962466.000643"
+        }
+      ]
+    },
+    {
+      "id": "C_DEPLOYS",
+      "name": "deploys",
+      "messages": [
+        {
+          "ts": "1746793629.000229",
+          "user": "U_TOMAS",
+          "text": "admin-console release going out: COM-1002 (audit log missing actor). <@U_KARIM> approve?",
+          "thread_ts": "1746793629.000229"
+        },
+        {
+          "ts": "1746796240.000230",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1746793629.000229"
+        },
+        {
+          "ts": "1746800683.000231",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1746793629.000229"
+        },
+        {
+          "ts": "1746887462.000232",
+          "user": "U_JIHO",
+          "text": "ready to ship COM-1003 on order-api — null address crashes checkout. <@U_KARIM>?",
+          "thread_ts": "1746887462.000232"
+        },
+        {
+          "ts": "1746890892.000233",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1746887462.000232"
+        },
+        {
+          "ts": "1746896282.000234",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1746887462.000232"
+        },
+        {
+          "ts": "1746896972.000235",
+          "user": "U_JIHO",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1746887462.000232"
+        },
+        {
+          "ts": "1747082048.000236",
+          "user": "U_MINA",
+          "text": "pushing COM-1007 to prod on catalog-api. <@U_KARIM> green light?",
+          "thread_ts": "1747082048.000236"
+        },
+        {
+          "ts": "1747086325.000237",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1747082048.000236"
+        },
+        {
+          "ts": "1747086894.000238",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1747082048.000236"
+        },
+        {
+          "ts": "1747185893.000239",
+          "user": "U_KARIM",
+          "text": "pushing COM-1005 to prod on catalog-api. <@U_KARIM> green light?",
+          "thread_ts": "1747185893.000239"
+        },
+        {
+          "ts": "1747186831.000240",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1747185893.000239"
+        },
+        {
+          "ts": "1749500998.000241",
+          "user": "U_PRIYANKA",
+          "text": "pushing COM-1023 to prod on order-api. <@U_KARIM> green light?",
+          "thread_ts": "1749500998.000241"
+        },
+        {
+          "ts": "1749502698.000242",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1749500998.000241"
+        },
+        {
+          "ts": "1749507704.000243",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1749500998.000241"
+        },
+        {
+          "ts": "1749514011.000244",
+          "user": "U_DAVE",
+          "text": "catalog-api release going out: COM-1024 (catalog search returns stale prices). <@U_KARIM> approve?",
+          "thread_ts": "1749514011.000244"
+        },
+        {
+          "ts": "1749518350.000245",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1749514011.000244"
+        },
+        {
+          "ts": "1749521323.000246",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1749514011.000244"
+        },
+        {
+          "ts": "1749718585.000247",
+          "user": "U_SAM",
+          "text": "order-api release going out: COM-1025 (order status stuck in progress). <@U_KARIM> approve?",
+          "thread_ts": "1749718585.000247"
+        },
+        {
+          "ts": "1749720760.000248",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1749718585.000247"
+        },
+        {
+          "ts": "1751694199.000249",
+          "user": "U_DAVE",
+          "text": "ready to ship COM-1042 on catalog-api — add catalog-api dashboards. <@U_KARIM>?",
+          "thread_ts": "1751694199.000249"
+        },
+        {
+          "ts": "1751699340.000250",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1751694199.000249"
+        },
+        {
+          "ts": "1751796545.000251",
+          "user": "U_KARIM",
+          "text": "admin-console release going out: COM-1044 (role-based admin nav). <@U_KARIM> approve?",
+          "thread_ts": "1751796545.000251"
+        },
+        {
+          "ts": "1751798591.000252",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1751796545.000251"
+        },
+        {
+          "ts": "1752030304.000253",
+          "user": "U_PRIYANKA",
+          "text": "deploying catalog-api to prod — COM-1046 cache stampede on cold start. <@U_KARIM> ok to ship?",
+          "thread_ts": "1752030304.000253"
+        },
+        {
+          "ts": "1752032962.000254",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1752030304.000253"
+        },
+        {
+          "ts": "1752150779.000255",
+          "user": "U_DAVE",
+          "text": "pushing COM-1047 to prod on order-api. <@U_KARIM> green light?",
+          "thread_ts": "1752150779.000255"
+        },
+        {
+          "ts": "1752152444.000256",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1752150779.000255"
+        },
+        {
+          "ts": "1752598514.000257",
+          "user": "U_TOMAS",
+          "text": "deploying order-api to prod — COM-1050 order-api hotfix release. <@U_KARIM> ok to ship?",
+          "thread_ts": "1752598514.000257"
+        },
+        {
+          "ts": "1752600929.000258",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1752598514.000257"
+        },
+        {
+          "ts": "1753203404.000259",
+          "user": "U_FELIX",
+          "text": "pushing COM-1052 to prod on billing-core. <@U_KARIM> green light?",
+          "thread_ts": "1753203404.000259"
+        },
+        {
+          "ts": "1753204480.000260",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1753203404.000259"
+        },
+        {
+          "ts": "1753207245.000261",
+          "user": "U_FELIX",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1753203404.000259"
+        },
+        {
+          "ts": "1754824137.000262",
+          "user": "U_MINA",
+          "text": "catalog-api release going out: COM-1064 (support bundle skus in catalog). <@U_KARIM> approve?",
+          "thread_ts": "1754824137.000262"
+        },
+        {
+          "ts": "1754824958.000263",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1754824137.000262"
+        },
+        {
+          "ts": "1755028076.000264",
+          "user": "U_SAM",
+          "text": "pushing COM-1058 to prod on order-api. <@U_KARIM> green light?",
+          "thread_ts": "1755028076.000264"
+        },
+        {
+          "ts": "1755030506.000265",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1755028076.000264"
+        },
+        {
+          "ts": "1755032097.000266",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1755028076.000264"
+        },
+        {
+          "ts": "1756911262.000267",
+          "user": "U_PRIYANKA",
+          "text": "pushing COM-1079 to prod on order-api. <@U_KARIM> green light?",
+          "thread_ts": "1756911262.000267"
+        },
+        {
+          "ts": "1756911780.000268",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1756911262.000267"
+        },
+        {
+          "ts": "1756912459.000269",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1756911262.000267"
+        },
+        {
+          "ts": "1757083908.000270",
+          "user": "U_JIHO",
+          "text": "order-api release going out: COM-1085 (split-shipment order model). <@U_KARIM> approve?",
+          "thread_ts": "1757083908.000270"
+        },
+        {
+          "ts": "1757088732.000271",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1757083908.000270"
+        },
+        {
+          "ts": "1757469987.000272",
+          "user": "U_KARIM",
+          "text": "ready to ship COM-1087 on admin-console — doc: admin runbook. <@U_KARIM>?",
+          "thread_ts": "1757469987.000272"
+        },
+        {
+          "ts": "1757473171.000273",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1757469987.000272"
+        },
+        {
+          "ts": "1757476002.000274",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1757469987.000272"
+        },
+        {
+          "ts": "1758060593.000275",
+          "user": "U_NOAH",
+          "text": "pushing COM-1091 to prod on storefront-web. <@U_KARIM> green light?",
+          "thread_ts": "1758060593.000275"
+        },
+        {
+          "ts": "1758062778.000276",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1758060593.000275"
+        },
+        {
+          "ts": "1758066856.000277",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1758060593.000275"
+        },
+        {
+          "ts": "1760155012.000278",
+          "user": "U_PRIYANKA",
+          "text": "order-api release going out: COM-1109 (split-shipment order model). <@U_KARIM> approve?",
+          "thread_ts": "1760155012.000278"
+        },
+        {
+          "ts": "1760158031.000279",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1760155012.000278"
+        },
+        {
+          "ts": "1760420378.000280",
+          "user": "U_YUNA",
+          "text": "deploying billing-core to prod — COM-1107 ledger drift after refund. <@U_KARIM> ok to ship?",
+          "thread_ts": "1760420378.000280"
+        },
+        {
+          "ts": "1760422380.000281",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1760420378.000280"
+        },
+        {
+          "ts": "1760423187.000282",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1760420378.000280"
+        },
+        {
+          "ts": "1760426163.000283",
+          "user": "U_YUNA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1760420378.000280"
+        },
+        {
+          "ts": "1760646773.000284",
+          "user": "U_NOAH",
+          "text": "storefront-web release going out: COM-1115 (compress storefront assets). <@U_KARIM> approve?",
+          "thread_ts": "1760646773.000284"
+        },
+        {
+          "ts": "1760648534.000285",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1760646773.000284"
+        },
+        {
+          "ts": "1760991390.000286",
+          "user": "U_MINA",
+          "text": "catalog-api release going out: COM-1118 (cache stampede on cold start). <@U_KARIM> approve?",
+          "thread_ts": "1760991390.000286"
+        },
+        {
+          "ts": "1760994083.000287",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1760991390.000286"
+        },
+        {
+          "ts": "1760996282.000288",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1760991390.000286"
+        },
+        {
+          "ts": "1760997133.000289",
+          "user": "U_MINA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1760991390.000286"
+        },
+        {
+          "ts": "1761622245.000290",
+          "user": "U_YUNA",
+          "text": "billing-core release going out: COM-1119 (bump billing-core deps). <@U_KARIM> approve?",
+          "thread_ts": "1761622245.000290"
+        },
+        {
+          "ts": "1761622598.000291",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1761622245.000290"
+        },
+        {
+          "ts": "1761625396.000292",
+          "user": "U_YUNA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1761622245.000290"
+        },
+        {
+          "ts": "1761863274.000293",
+          "user": "U_NOAH",
+          "text": "pushing COM-1125 to prod on storefront-web. <@U_KARIM> green light?",
+          "thread_ts": "1761863274.000293"
+        },
+        {
+          "ts": "1761863460.000294",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1761863274.000293"
+        },
+        {
+          "ts": "1762573219.000295",
+          "user": "U_JIHO",
+          "text": "order-api release going out: COM-1127 (guest checkout order path). <@U_KARIM> approve?",
+          "thread_ts": "1762573219.000295"
+        },
+        {
+          "ts": "1762577148.000296",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1762573219.000295"
+        },
+        {
+          "ts": "1762578173.000297",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1762573219.000295"
+        },
+        {
+          "ts": "1762580430.000298",
+          "user": "U_JIHO",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1762573219.000295"
+        },
+        {
+          "ts": "1762903971.000302",
+          "user": "U_MINA",
+          "text": "deploying catalog-api to prod — COM-1128 add faceted search to catalog. <@U_KARIM> ok to ship?",
+          "thread_ts": "1762903971.000302"
+        },
+        {
+          "ts": "1762904322.000303",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1762903971.000302"
+        },
+        {
+          "ts": "1762929761.000299",
+          "user": "U_SAM",
+          "text": "deploying catalog-api to prod — COM-1130 add catalog-api dashboards. <@U_KARIM> ok to ship?",
+          "thread_ts": "1762929761.000299"
+        },
+        {
+          "ts": "1762931024.000300",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1762929761.000299"
+        },
+        {
+          "ts": "1762931795.000301",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1762929761.000299"
+        },
+        {
+          "ts": "1762988811.000304",
+          "user": "U_DAVE",
+          "text": "ready to ship COM-1133 on admin-console — config: feature flags cleanup. <@U_KARIM>?",
+          "thread_ts": "1762988811.000304"
+        },
+        {
+          "ts": "1762991213.000305",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1762988811.000304"
+        },
+        {
+          "ts": "1762995808.000306",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1762988811.000304"
+        },
+        {
+          "ts": "1762999331.000307",
+          "user": "U_DAVE",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1762988811.000304"
+        },
+        {
+          "ts": "1763585876.000308",
+          "user": "U_PRIYANKA",
+          "text": "ready to ship COM-1139 on order-api — order timeline events api. <@U_KARIM>?",
+          "thread_ts": "1763585876.000308"
+        },
+        {
+          "ts": "1763586111.000309",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1763585876.000308"
+        },
+        {
+          "ts": "1763590252.000310",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1763585876.000308"
+        },
+        {
+          "ts": "1763592322.000311",
+          "user": "U_PRIYANKA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1763585876.000308"
+        },
+        {
+          "ts": "1764677943.000312",
+          "user": "U_DAVE",
+          "text": "ready to ship COM-1141 on order-api — rotate order-api secrets. <@U_KARIM>?",
+          "thread_ts": "1764677943.000312"
+        },
+        {
+          "ts": "1764680489.000313",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1764677943.000312"
+        },
+        {
+          "ts": "1764875504.000314",
+          "user": "U_DAVE",
+          "text": "deploying catalog-api to prod — COM-1150 bump catalog-api deps. <@U_KARIM> ok to ship?",
+          "thread_ts": "1764875504.000314"
+        },
+        {
+          "ts": "1764878132.000315",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1764875504.000314"
+        },
+        {
+          "ts": "1765320000.000405",
+          "user": "U_JIHO",
+          "text": "hotfixing order-api in prod right now — dup-order guard, no ticket, backfilling after. heads up.",
+          "thread_ts": "1765320000.000405"
+        },
+        {
+          "ts": "1765320761.000406",
+          "user": "U_KARIM",
+          "text": "understood, go. file it after.",
+          "thread_ts": "1765320000.000405"
+        },
+        {
+          "ts": "1765323858.000407",
+          "user": "U_JIHO",
+          "text": "done, dupes stopped.",
+          "thread_ts": "1765320000.000405"
+        },
+        {
+          "ts": "1765352986.000316",
+          "user": "U_KARIM",
+          "text": "admin-console release going out: COM-1152 (bump admin-console deps). <@U_KARIM> approve?",
+          "thread_ts": "1765352986.000316"
+        },
+        {
+          "ts": "1765357843.000317",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1765352986.000316"
+        },
+        {
+          "ts": "1765750940.000318",
+          "user": "U_DAVE",
+          "text": "deploying admin-console to prod — COM-1155 config save silently fails. <@U_KARIM> ok to ship?",
+          "thread_ts": "1765750940.000318"
+        },
+        {
+          "ts": "1765751482.000319",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1765750940.000318"
+        },
+        {
+          "ts": "1765755950.000320",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1765750940.000318"
+        },
+        {
+          "ts": "1767036596.000321",
+          "user": "U_YUNA",
+          "text": "pushing COM-1165 to prod on billing-core. <@U_KARIM> green light?",
+          "thread_ts": "1767036596.000321"
+        },
+        {
+          "ts": "1767040376.000322",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1767036596.000321"
+        },
+        {
+          "ts": "1767041093.000323",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1767036596.000321"
+        },
+        {
+          "ts": "1767044654.000324",
+          "user": "U_YUNA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1767036596.000321"
+        },
+        {
+          "ts": "1767533773.000325",
+          "user": "U_NOAH",
+          "text": "deploying storefront-web to prod — COM-1168 redesign pdp gallery. <@U_KARIM> ok to ship?",
+          "thread_ts": "1767533773.000325"
+        },
+        {
+          "ts": "1767534393.000326",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1767533773.000325"
+        },
+        {
+          "ts": "1767686002.000329",
+          "user": "U_PRIYANKA",
+          "text": "ready to ship COM-1172 on catalog-api — add faceted search to catalog. <@U_KARIM>?",
+          "thread_ts": "1767686002.000329"
+        },
+        {
+          "ts": "1767689477.000327",
+          "user": "U_SAM",
+          "text": "storefront-web release going out: COM-1173 (update storefront lint config). <@U_KARIM> approve?",
+          "thread_ts": "1767689477.000327"
+        },
+        {
+          "ts": "1767690116.000330",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1767686002.000329"
+        },
+        {
+          "ts": "1767691873.000331",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1767686002.000329"
+        },
+        {
+          "ts": "1767694129.000328",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1767689477.000327"
+        },
+        {
+          "ts": "1767696682.000332",
+          "user": "U_PRIYANKA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1767686002.000329"
+        },
+        {
+          "ts": "1768181220.000333",
+          "user": "U_JIHO",
+          "text": "ready to ship COM-1175 on order-api — order timeline events api. <@U_KARIM>?",
+          "thread_ts": "1768181220.000333"
+        },
+        {
+          "ts": "1768183631.000334",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1768181220.000333"
+        },
+        {
+          "ts": "1768984359.000335",
+          "user": "U_TOMAS",
+          "text": "deploying admin-console to prod — COM-1184 release admin-console. <@U_KARIM> ok to ship?",
+          "thread_ts": "1768984359.000335"
+        },
+        {
+          "ts": "1768985233.000336",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1768984359.000335"
+        },
+        {
+          "ts": "1770288277.000337",
+          "user": "U_TOMAS",
+          "text": "deploying catalog-api to prod — COM-1192 bump catalog-api deps. <@U_KARIM> ok to ship?",
+          "thread_ts": "1770288277.000337"
+        },
+        {
+          "ts": "1770290414.000338",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1770288277.000337"
+        },
+        {
+          "ts": "1770513239.000339",
+          "user": "U_SAM",
+          "text": "order-api release going out: COM-1194 (race on concurrent submit). <@U_KARIM> approve?",
+          "thread_ts": "1770513239.000339"
+        },
+        {
+          "ts": "1770513448.000340",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1770513239.000339"
+        },
+        {
+          "ts": "1770783555.000341",
+          "user": "U_PRIYANKA",
+          "text": "deploying order-api to prod — COM-1196 race on concurrent submit. <@U_KARIM> ok to ship?",
+          "thread_ts": "1770783555.000341"
+        },
+        {
+          "ts": "1770785629.000342",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1770783555.000341"
+        },
+        {
+          "ts": "1770790889.000343",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1770783555.000341"
+        },
+        {
+          "ts": "1770795299.000344",
+          "user": "U_PRIYANKA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1770783555.000341"
+        },
+        {
+          "ts": "1770825783.000345",
+          "user": "U_DAVE",
+          "text": "pushing COM-1198 to prod on admin-console. <@U_KARIM> green light?",
+          "thread_ts": "1770825783.000345"
+        },
+        {
+          "ts": "1770830613.000346",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1770825783.000345"
+        },
+        {
+          "ts": "1770935313.000347",
+          "user": "U_YUNA",
+          "text": "billing-core release going out: COM-1185 (dunning retry state machine). <@U_KARIM> approve?",
+          "thread_ts": "1770935313.000347"
+        },
+        {
+          "ts": "1770939628.000348",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1770935313.000347"
+        },
+        {
+          "ts": "1772508792.000349",
+          "user": "U_YUNA",
+          "text": "billing-core release going out: COM-1209 (dunning retry state machine). <@U_KARIM> approve?",
+          "thread_ts": "1772508792.000349"
+        },
+        {
+          "ts": "1772509260.000350",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1772508792.000349"
+        },
+        {
+          "ts": "1772511175.000351",
+          "user": "U_YUNA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1772508792.000349"
+        },
+        {
+          "ts": "1772582995.000352",
+          "user": "U_MINA",
+          "text": "ready to ship COM-1208 on order-api — order timeline events api. <@U_KARIM>?",
+          "thread_ts": "1772582995.000352"
+        },
+        {
+          "ts": "1772588173.000353",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1772582995.000352"
+        },
+        {
+          "ts": "1772755250.000354",
+          "user": "U_TOMAS",
+          "text": "ready to ship COM-1219 on order-api — bump order-api deps. <@U_KARIM>?",
+          "thread_ts": "1772755250.000354"
+        },
+        {
+          "ts": "1772759617.000355",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1772755250.000354"
+        },
+        {
+          "ts": "1772842918.000356",
+          "user": "U_NOAH",
+          "text": "storefront-web release going out: COM-1220 (wishlist page). <@U_KARIM> approve?",
+          "thread_ts": "1772842918.000356"
+        },
+        {
+          "ts": "1772845760.000357",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1772842918.000356"
+        },
+        {
+          "ts": "1773786497.000358",
+          "user": "U_YUNA",
+          "text": "ready to ship COM-1213 on billing-core — add billing-core alerts. <@U_KARIM>?",
+          "thread_ts": "1773786497.000358"
+        },
+        {
+          "ts": "1773790267.000359",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1773786497.000358"
+        },
+        {
+          "ts": "1773792863.000360",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1773786497.000358"
+        },
+        {
+          "ts": "1773793158.000361",
+          "user": "U_YUNA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1773786497.000358"
+        },
+        {
+          "ts": "1773872400.000408",
+          "user": "U_FELIX",
+          "text": "emergency billing-core deploy — killing the runaway recon query. no ticket, incident in #incidents. shipping now.",
+          "thread_ts": "1773872400.000408"
+        },
+        {
+          "ts": "1773872870.000409",
+          "user": "U_FELIX",
+          "text": "deployed, latency recovered.",
+          "thread_ts": "1773872400.000408"
+        },
+        {
+          "ts": "1775260991.000362",
+          "user": "U_SAM",
+          "text": "pushing COM-1242 to prod on order-api. <@U_KARIM> green light?",
+          "thread_ts": "1775260991.000362"
+        },
+        {
+          "ts": "1775265586.000363",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1775260991.000362"
+        },
+        {
+          "ts": "1775266587.000364",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1775260991.000362"
+        },
+        {
+          "ts": "1775513580.000365",
+          "user": "U_NOAH",
+          "text": "pushing COM-1246 to prod on storefront-web. <@U_KARIM> green light?",
+          "thread_ts": "1775513580.000365"
+        },
+        {
+          "ts": "1775517237.000366",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1775513580.000365"
+        },
+        {
+          "ts": "1775519077.000367",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1775513580.000365"
+        },
+        {
+          "ts": "1777115949.000368",
+          "user": "U_YUNA",
+          "text": "ready to ship COM-1257 on billing-core — retry loops on declined card. <@U_KARIM>?",
+          "thread_ts": "1777115949.000368"
+        },
+        {
+          "ts": "1777120497.000369",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1777115949.000368"
+        },
+        {
+          "ts": "1777121451.000370",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1777115949.000368"
+        },
+        {
+          "ts": "1777699323.000371",
+          "user": "U_LENA",
+          "text": "ready to ship COM-1265 on storefront-web — compress storefront assets. <@U_KARIM>?",
+          "thread_ts": "1777699323.000371"
+        },
+        {
+          "ts": "1777700402.000372",
+          "user": "U_KARIM",
+          "text": "👍 approved",
+          "thread_ts": "1777699323.000371"
+        },
+        {
+          "ts": "1777700799.000373",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1777699323.000371"
+        },
+        {
+          "ts": "1777705137.000374",
+          "user": "U_LENA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1777699323.000371"
+        },
+        {
+          "ts": "1778194862.000375",
+          "user": "U_MINA",
+          "text": "catalog-api release going out: COM-1264 (catalog pagination cursor api). <@U_KARIM> approve?",
+          "thread_ts": "1778194862.000375"
+        },
+        {
+          "ts": "1778196676.000376",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1778194862.000375"
+        },
+        {
+          "ts": "1778200163.000377",
+          "user": "U_MINA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1778194862.000375"
+        },
+        {
+          "ts": "1778777179.000378",
+          "user": "U_MINA",
+          "text": "order-api release going out: COM-1271 (order status stuck in progress). <@U_KARIM> approve?",
+          "thread_ts": "1778777179.000378"
+        },
+        {
+          "ts": "1778780162.000379",
+          "user": "U_KARIM",
+          "text": "approved — ping me if anything smokes",
+          "thread_ts": "1778777179.000378"
+        },
+        {
+          "ts": "1778782894.000380",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1778777179.000378"
+        },
+        {
+          "ts": "1778786538.000381",
+          "user": "U_MINA",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1778777179.000378"
+        },
+        {
+          "ts": "1779202850.000382",
+          "user": "U_YUNA",
+          "text": "billing-core release going out: COM-1270 (add billing-core alerts). <@U_KARIM> approve?",
+          "thread_ts": "1779202850.000382"
+        },
+        {
+          "ts": "1779206242.000383",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1779202850.000382"
+        },
+        {
+          "ts": "1779208545.000384",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1779202850.000382"
+        },
+        {
+          "ts": "1779238842.000385",
+          "user": "U_DAVE",
+          "text": "deploying admin-console to prod — COM-1278 bump admin-console deps. <@U_KARIM> ok to ship?",
+          "thread_ts": "1779238842.000385"
+        },
+        {
+          "ts": "1779242912.000386",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1779238842.000385"
+        },
+        {
+          "ts": "1779244528.000387",
+          "user": "U_DAVE",
+          "text": "shipped, monitoring 👀",
+          "thread_ts": "1779238842.000385"
+        },
+        {
+          "ts": "1779591182.000388",
+          "user": "U_LENA",
+          "text": "ready to ship COM-1286 on storefront-web — checkout button dead on safari. <@U_KARIM>?",
+          "thread_ts": "1779591182.000388"
+        },
+        {
+          "ts": "1779593781.000389",
+          "user": "U_KARIM",
+          "text": "ok approved",
+          "thread_ts": "1779591182.000388"
+        },
+        {
+          "ts": "1780389443.000390",
+          "user": "U_JIHO",
+          "text": "deploying order-api to prod — COM-1290 split-shipment order model. <@U_KARIM> ok to ship?",
+          "thread_ts": "1780389443.000390"
+        },
+        {
+          "ts": "1780392112.000391",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1780389443.000390"
+        },
+        {
+          "ts": "1780544973.000392",
+          "user": "U_DAVE",
+          "text": "ready to ship COM-1292 on admin-console — admin audit log viewer. <@U_KARIM>?",
+          "thread_ts": "1780544973.000392"
+        },
+        {
+          "ts": "1780549327.000393",
+          "user": "U_KARIM",
+          "text": "go for it",
+          "thread_ts": "1780544973.000392"
+        },
+        {
+          "ts": "1781127900.000394",
+          "user": "U_DAVE",
+          "text": "pushing COM-1298 to prod on admin-console. <@U_KARIM> green light?",
+          "thread_ts": "1781127900.000394"
+        },
+        {
+          "ts": "1781130340.000395",
+          "user": "U_KARIM",
+          "text": "approved, ship it 🚀",
+          "thread_ts": "1781127900.000394"
+        },
+        {
+          "ts": "1781131530.000396",
+          "user": "U_TOMAS",
+          "text": "staging verified, gate green ✅",
+          "thread_ts": "1781127900.000394"
+        },
+        {
+          "ts": "1782947260.000397",
+          "user": "U_SAM",
+          "text": "order-api release: COM-1315 (race on concurrent submit). <@U_KARIM>? ...anyone? shipping.",
+          "thread_ts": "1782947260.000397"
+        },
+        {
+          "ts": "1782951031.000398",
+          "user": "U_TOMAS",
+          "text": "gate's green on my side, but no approver online",
+          "thread_ts": "1782947260.000397"
+        },
+        {
+          "ts": "1783108491.000399",
+          "user": "U_NOAH",
+          "text": "storefront-web release: COM-1316 (pdp images 404 on variant). <@U_KARIM>? ...anyone? shipping.",
+          "thread_ts": "1783108491.000399"
+        },
+        {
+          "ts": "1783112351.000400",
+          "user": "U_TOMAS",
+          "text": "gate's green on my side, but no approver online",
+          "thread_ts": "1783108491.000399"
+        },
+        {
+          "ts": "1783189609.000401",
+          "user": "U_JIHO",
+          "text": "deploying catalog-api to prod — COM-1319 cache stampede on cold start. who's approving now that Karim's gone? shipping anyway, can't hold the release.",
+          "thread_ts": "1783189609.000401"
+        },
+        {
+          "ts": "1783189932.000402",
+          "user": "U_JIHO",
+          "text": "shipped. no sign-off, flagging that we have no deploy approver anymore.",
+          "thread_ts": "1783189609.000401"
+        },
+        {
+          "ts": "1783993089.000403",
+          "user": "U_LENA",
+          "text": "deploying storefront-web to prod — COM-1323 pdp images 404 on variant. who's approving now that Karim's gone? shipping anyway, can't hold the release.",
+          "thread_ts": "1783993089.000403"
+        },
+        {
+          "ts": "1783996063.000404",
+          "user": "U_LENA",
+          "text": "shipped. no sign-off, flagging that we have no deploy approver anymore.",
+          "thread_ts": "1783993089.000403"
+        }
+      ]
+    },
+    {
+      "id": "C_INCIDENTS",
+      "name": "incidents",
+      "messages": [
+        {
+          "ts": "1757880720.000100",
+          "user": "U_FELIX",
+          "text": "catalog-api is throwing 5xx across the board, error rate ~40%. Taking point. No ticket yet, will backfill.",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1757885770.000101",
+          "user": "U_FELIX",
+          "text": "Looks like the read replica fell behind and connections are pooling. Draining now.",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1757887768.000102",
+          "user": "U_MINA",
+          "text": "I can help — is it the new faceted-search query?",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1757889950.000103",
+          "user": "U_FELIX",
+          "text": "Yeah, unbounded IN clause on cold cache. I'm capping it and forcing a warm.",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1757892957.000104",
+          "user": "U_PRIYANKA",
+          "text": "storefront is showing empty categories, customers noticing",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1757895903.000105",
+          "user": "U_FELIX",
+          "text": "cache warmed, error rate dropping. 5% and falling.",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1757896303.000106",
+          "user": "U_FELIX",
+          "text": "recovered. p99 back to normal. I'll write this up and we should ticket the query cap for real.",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1757897583.000107",
+          "user": "U_MINA",
+          "text": "thanks Felix, that was fast 🙏",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1757900104.000108",
+          "user": "U_KARIM",
+          "text": "great work Felix. let's get a follow-up ticket for the query cap.",
+          "thread_ts": "1757880720.000100"
+        },
+        {
+          "ts": "1765317900.000109",
+          "user": "U_JIHO",
+          "text": "order-api submitting duplicate orders under retry storm. Prod. I'm on it — hotfixing directly, no ticket, time-sensitive.",
+          "thread_ts": "1765317900.000109"
+        },
+        {
+          "ts": "1765318308.000110",
+          "user": "U_JIHO",
+          "text": "idempotency key isn't being honored on the retry path. patching the guard now.",
+          "thread_ts": "1765317900.000109"
+        },
+        {
+          "ts": "1765320091.000111",
+          "user": "U_SAM",
+          "text": "anything I can do? I wrote part of the retry logic",
+          "thread_ts": "1765317900.000109"
+        },
+        {
+          "ts": "1765321460.000112",
+          "user": "U_JIHO",
+          "text": "no worries Sam, it's the dedup window. deploying the fix in a sec.",
+          "thread_ts": "1765317900.000109"
+        },
+        {
+          "ts": "1765323982.000113",
+          "user": "U_JIHO",
+          "text": "deployed. duplicates stopped. we should add a regression test — I'll file a ticket tomorrow.",
+          "thread_ts": "1765317900.000109"
+        },
+        {
+          "ts": "1765328551.000114",
+          "user": "U_KARIM",
+          "text": "nice save Jiho, thanks for jumping on it late",
+          "thread_ts": "1765317900.000109"
+        },
+        {
+          "ts": "1765332615.000115",
+          "user": "U_TOMAS",
+          "text": "confirmed no new dupes in the last 30 min",
+          "thread_ts": "1765317900.000109"
+        },
+        {
+          "ts": "1773870000.000116",
+          "user": "U_FELIX",
+          "text": "billing-core latency spiking, invoice job backing up. On it. No ticket — will document after.",
+          "thread_ts": "1773870000.000116"
+        },
+        {
+          "ts": "1773875398.000117",
+          "user": "U_FELIX",
+          "text": "ledger reconciliation is holding a lock way too long. killing the runaway query.",
+          "thread_ts": "1773870000.000116"
+        },
+        {
+          "ts": "1773879096.000118",
+          "user": "U_YUNA",
+          "text": "that's the month-end job — it shouldn't be running now. I can look",
+          "thread_ts": "1773870000.000116"
+        },
+        {
+          "ts": "1773879817.000119",
+          "user": "U_FELIX",
+          "text": "already isolated it, an orphaned cron fired twice. disabling the dupe.",
+          "thread_ts": "1773870000.000116"
+        },
+        {
+          "ts": "1773884257.000120",
+          "user": "U_YUNA",
+          "text": "ah the dupe cron, I've seen that before. thanks for catching it Felix",
+          "thread_ts": "1773870000.000116"
+        },
+        {
+          "ts": "1773886036.000121",
+          "user": "U_FELIX",
+          "text": "latency normal now. Yuna can you own the cron dedupe follow-up? it's your module",
+          "thread_ts": "1773870000.000116"
+        },
+        {
+          "ts": "1773891078.000122",
+          "user": "U_YUNA",
+          "text": "yep I'll take it. thanks again 🙏",
+          "thread_ts": "1773870000.000116"
+        }
+      ]
+    },
+    {
+      "id": "C_RANDOM",
+      "name": "random",
+      "messages": [
+        {
+          "ts": "1746112824.000686",
+          "user": "U_DAVE",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1746441445.000689",
+          "user": "U_DAVE",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1746788783.000690",
+          "user": "U_JIHO",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1747060436.000687",
+          "user": "U_DAVE",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1747152598.000688",
+          "user": "U_DAVE",
+          "text": "friday 🎉"
+        },
+        {
+          "ts": "1747412258.000692",
+          "user": "U_FELIX",
+          "text": "coffee count today: 4 and climbing"
+        },
+        {
+          "ts": "1747663036.000694",
+          "user": "U_PRIYANKA",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1747667375.000693",
+          "user": "U_SAM",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1747737401.000695",
+          "user": "U_NOAH",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1748250065.000691",
+          "user": "U_MINA",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1748363547.000696",
+          "user": "U_KARIM",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1748868822.000705",
+          "user": "U_PRIYANKA",
+          "text": "brb rebooting my laptop for the 3rd time"
+        },
+        {
+          "ts": "1749460115.000703",
+          "user": "U_YUNA",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1749467012.000702",
+          "user": "U_FELIX",
+          "text": "TIL you can bisect flaky tests, mind blown"
+        },
+        {
+          "ts": "1749575785.000701",
+          "user": "U_MINA",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1749822674.000704",
+          "user": "U_SAM",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1750081623.000697",
+          "user": "U_DAVE",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1750088060.000700",
+          "user": "U_JIHO",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1750093607.000707",
+          "user": "U_KARIM",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1750094994.000698",
+          "user": "U_DAVE",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1750783098.000706",
+          "user": "U_NOAH",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1751025016.000699",
+          "user": "U_DAVE",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1751367856.000716",
+          "user": "U_NOAH",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1751475275.000708",
+          "user": "U_DAVE",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1752065957.000718",
+          "user": "U_TOMAS",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1752504801.000715",
+          "user": "U_PRIYANKA",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1752570702.000711",
+          "user": "U_JIHO",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1752843777.000713",
+          "user": "U_YUNA",
+          "text": "☕️"
+        },
+        {
+          "ts": "1752856289.000710",
+          "user": "U_DAVE",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1753265543.000714",
+          "user": "U_SAM",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1753347641.000717",
+          "user": "U_NOAH",
+          "text": "weekend plans anyone?"
+        },
+        {
+          "ts": "1753458632.000709",
+          "user": "U_DAVE",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1753701041.000712",
+          "user": "U_MINA",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1754299833.000720",
+          "user": "U_DAVE",
+          "text": "TIL you can bisect flaky tests, mind blown"
+        },
+        {
+          "ts": "1754307541.000722",
+          "user": "U_DAVE",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1754317689.000723",
+          "user": "U_JIHO",
+          "text": "friday 🎉"
+        },
+        {
+          "ts": "1754386964.000727",
+          "user": "U_SAM",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1754411380.000724",
+          "user": "U_MINA",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1754482181.000721",
+          "user": "U_DAVE",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1755190580.000728",
+          "user": "U_PRIYANKA",
+          "text": "coffee count today: 4 and climbing"
+        },
+        {
+          "ts": "1755509770.000719",
+          "user": "U_DAVE",
+          "text": "coffee count today: 4 and climbing"
+        },
+        {
+          "ts": "1755528755.000730",
+          "user": "U_TOMAS",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1755789869.000729",
+          "user": "U_NOAH",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1756125865.000725",
+          "user": "U_FELIX",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1756140563.000726",
+          "user": "U_YUNA",
+          "text": "TIL you can bisect flaky tests, mind blown"
+        },
+        {
+          "ts": "1756203399.000731",
+          "user": "U_KARIM",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1756749219.000741",
+          "user": "U_NOAH",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1757003249.000736",
+          "user": "U_MINA",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1757352694.000738",
+          "user": "U_YUNA",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1757520517.000734",
+          "user": "U_DAVE",
+          "text": "happy friday team"
+        },
+        {
+          "ts": "1757942611.000742",
+          "user": "U_TOMAS",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1758125105.000732",
+          "user": "U_DAVE",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1758189441.000739",
+          "user": "U_SAM",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1758283258.000740",
+          "user": "U_PRIYANKA",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1758289379.000735",
+          "user": "U_JIHO",
+          "text": "friday 🎉"
+        },
+        {
+          "ts": "1758906053.000737",
+          "user": "U_FELIX",
+          "text": "friday 🎉"
+        },
+        {
+          "ts": "1759164180.000733",
+          "user": "U_DAVE",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1759426699.000754",
+          "user": "U_TOMAS",
+          "text": "coffee count today: 4 and climbing"
+        },
+        {
+          "ts": "1759753197.000744",
+          "user": "U_DAVE",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1759936993.000749",
+          "user": "U_YUNA",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1760090210.000745",
+          "user": "U_DAVE",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1760092773.000751",
+          "user": "U_PRIYANKA",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1760370420.000753",
+          "user": "U_NOAH",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1760700134.000743",
+          "user": "U_DAVE",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1760701843.000746",
+          "user": "U_JIHO",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1760722733.000752",
+          "user": "U_PRIYANKA",
+          "text": "happy friday team"
+        },
+        {
+          "ts": "1760980878.000748",
+          "user": "U_FELIX",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1761308819.000747",
+          "user": "U_MINA",
+          "text": "brb rebooting my laptop for the 3rd time"
+        },
+        {
+          "ts": "1761563619.000750",
+          "user": "U_SAM",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1761573590.000755",
+          "user": "U_KARIM",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1762176357.000766",
+          "user": "U_TOMAS",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1762337830.000764",
+          "user": "U_PRIYANKA",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1762513562.000756",
+          "user": "U_DAVE",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1762779462.000761",
+          "user": "U_MINA",
+          "text": "happy friday team"
+        },
+        {
+          "ts": "1762860479.000763",
+          "user": "U_SAM",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1763394788.000759",
+          "user": "U_DAVE",
+          "text": "TIL you can bisect flaky tests, mind blown"
+        },
+        {
+          "ts": "1763574852.000760",
+          "user": "U_JIHO",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1763574884.000765",
+          "user": "U_NOAH",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1763639441.000767",
+          "user": "U_KARIM",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1763717235.000762",
+          "user": "U_YUNA",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1764248765.000758",
+          "user": "U_DAVE",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1764258458.000757",
+          "user": "U_DAVE",
+          "text": "TIL you can bisect flaky tests, mind blown"
+        },
+        {
+          "ts": "1764764927.000777",
+          "user": "U_NOAH",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1764843355.000772",
+          "user": "U_JIHO",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1764856939.000774",
+          "user": "U_YUNA",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1764866806.000778",
+          "user": "U_TOMAS",
+          "text": "☕️"
+        },
+        {
+          "ts": "1765197638.000768",
+          "user": "U_DAVE",
+          "text": "happy friday team"
+        },
+        {
+          "ts": "1765209613.000779",
+          "user": "U_KARIM",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1765387572.000771",
+          "user": "U_DAVE",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1765897935.000773",
+          "user": "U_FELIX",
+          "text": "friday 🎉"
+        },
+        {
+          "ts": "1766407556.000769",
+          "user": "U_DAVE",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1766424003.000776",
+          "user": "U_PRIYANKA",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1766502738.000775",
+          "user": "U_SAM",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1767009405.000770",
+          "user": "U_DAVE",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1767272319.000788",
+          "user": "U_SAM",
+          "text": "happy friday team"
+        },
+        {
+          "ts": "1767612762.000781",
+          "user": "U_DAVE",
+          "text": "weekend plans anyone?"
+        },
+        {
+          "ts": "1767622575.000787",
+          "user": "U_YUNA",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1767632864.000789",
+          "user": "U_PRIYANKA",
+          "text": "coffee count today: 4 and climbing"
+        },
+        {
+          "ts": "1767707697.000784",
+          "user": "U_JIHO",
+          "text": "brb rebooting my laptop for the 3rd time"
+        },
+        {
+          "ts": "1768321435.000791",
+          "user": "U_KARIM",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1768818209.000786",
+          "user": "U_FELIX",
+          "text": "brb rebooting my laptop for the 3rd time"
+        },
+        {
+          "ts": "1768834609.000785",
+          "user": "U_MINA",
+          "text": "weekend plans anyone?"
+        },
+        {
+          "ts": "1769174728.000790",
+          "user": "U_NOAH",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1769183194.000783",
+          "user": "U_DAVE",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1769431337.000782",
+          "user": "U_DAVE",
+          "text": "TIL you can bisect flaky tests, mind blown"
+        },
+        {
+          "ts": "1769444932.000780",
+          "user": "U_DAVE",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1770372437.000798",
+          "user": "U_SAM",
+          "text": "☕️"
+        },
+        {
+          "ts": "1770639948.000793",
+          "user": "U_DAVE",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1770915918.000792",
+          "user": "U_DAVE",
+          "text": "weekend plans anyone?"
+        },
+        {
+          "ts": "1771261611.000797",
+          "user": "U_YUNA",
+          "text": "☕️"
+        },
+        {
+          "ts": "1771262001.000796",
+          "user": "U_MINA",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1771263398.000795",
+          "user": "U_JIHO",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1771599066.000800",
+          "user": "U_NOAH",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1771858780.000801",
+          "user": "U_TOMAS",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1771859281.000799",
+          "user": "U_PRIYANKA",
+          "text": "happy friday team"
+        },
+        {
+          "ts": "1772032337.000802",
+          "user": "U_KARIM",
+          "text": "coffee count today: 4 and climbing"
+        },
+        {
+          "ts": "1772100476.000794",
+          "user": "U_DAVE",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1772447492.000812",
+          "user": "U_TOMAS",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1773078859.000803",
+          "user": "U_DAVE",
+          "text": "☕️"
+        },
+        {
+          "ts": "1773164718.000810",
+          "user": "U_PRIYANKA",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1773398429.000809",
+          "user": "U_SAM",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1773667173.000807",
+          "user": "U_JIHO",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1773668569.000804",
+          "user": "U_DAVE",
+          "text": "☕️"
+        },
+        {
+          "ts": "1774268500.000808",
+          "user": "U_FELIX",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1774270875.000805",
+          "user": "U_DAVE",
+          "text": "weekend plans anyone?"
+        },
+        {
+          "ts": "1774438994.000806",
+          "user": "U_DAVE",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1774459909.000811",
+          "user": "U_NOAH",
+          "text": "brb rebooting my laptop for the 3rd time"
+        },
+        {
+          "ts": "1775121607.000824",
+          "user": "U_KARIM",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1775475001.000818",
+          "user": "U_JIHO",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1775732788.000817",
+          "user": "U_DAVE",
+          "text": "🌮 taco tuesday?"
+        },
+        {
+          "ts": "1776071627.000815",
+          "user": "U_DAVE",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1776072767.000816",
+          "user": "U_DAVE",
+          "text": "weekend plans anyone?"
+        },
+        {
+          "ts": "1776088442.000819",
+          "user": "U_FELIX",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1776337945.000821",
+          "user": "U_PRIYANKA",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1776342603.000814",
+          "user": "U_DAVE",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1776348532.000813",
+          "user": "U_DAVE",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1776770511.000823",
+          "user": "U_LENA",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1777297194.000822",
+          "user": "U_NOAH",
+          "text": "weekend plans anyone?"
+        },
+        {
+          "ts": "1777304964.000820",
+          "user": "U_SAM",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1777651705.000825",
+          "user": "U_DAVE",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1777703678.000834",
+          "user": "U_PRIYANKA",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1777915802.000828",
+          "user": "U_DAVE",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1777983027.000835",
+          "user": "U_NOAH",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1778260653.000833",
+          "user": "U_PRIYANKA",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1778261163.000837",
+          "user": "U_TOMAS",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1778490480.000836",
+          "user": "U_LENA",
+          "text": "who's doing lunch?"
+        },
+        {
+          "ts": "1778604137.000827",
+          "user": "U_DAVE",
+          "text": "friday 🎉"
+        },
+        {
+          "ts": "1778838427.000838",
+          "user": "U_KARIM",
+          "text": "TIL you can bisect flaky tests, mind blown"
+        },
+        {
+          "ts": "1778867055.000826",
+          "user": "U_DAVE",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1779201337.000829",
+          "user": "U_JIHO",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1779280972.000830",
+          "user": "U_MINA",
+          "text": "brb rebooting my laptop for the 3rd time"
+        },
+        {
+          "ts": "1779605419.000832",
+          "user": "U_SAM",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1779725241.000831",
+          "user": "U_SAM",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1780501251.000843",
+          "user": "U_JIHO",
+          "text": "friday 🎉"
+        },
+        {
+          "ts": "1780507478.000850",
+          "user": "U_LENA",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1780585188.000849",
+          "user": "U_NOAH",
+          "text": "coffee count today: 4 and climbing"
+        },
+        {
+          "ts": "1780941540.000851",
+          "user": "U_TOMAS",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1781091377.000845",
+          "user": "U_FELIX",
+          "text": "coffee count today: 4 and climbing"
+        },
+        {
+          "ts": "1781182297.000848",
+          "user": "U_PRIYANKA",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1781185673.000846",
+          "user": "U_YUNA",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1781515480.000841",
+          "user": "U_DAVE",
+          "text": "this meme is too real [link]"
+        },
+        {
+          "ts": "1781522414.000847",
+          "user": "U_SAM",
+          "text": "anyone watching the finals?"
+        },
+        {
+          "ts": "1781529182.000842",
+          "user": "U_DAVE",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1781880355.000839",
+          "user": "U_DAVE",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1782314001.000844",
+          "user": "U_MINA",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1782732707.000852",
+          "user": "U_KARIM",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1782754196.000840",
+          "user": "U_DAVE",
+          "text": "☕️"
+        },
+        {
+          "ts": "1783347584.000855",
+          "user": "U_DAVE",
+          "text": "☕️"
+        },
+        {
+          "ts": "1783595978.000858",
+          "user": "U_FELIX",
+          "text": "office plant update: still alive"
+        },
+        {
+          "ts": "1783936119.000861",
+          "user": "U_PRIYANKA",
+          "text": "new keyboard day, sorry for the clacking"
+        },
+        {
+          "ts": "1784006571.000853",
+          "user": "U_DAVE",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1784016744.000854",
+          "user": "U_DAVE",
+          "text": "the printer hates me specifically"
+        },
+        {
+          "ts": "1784019513.000857",
+          "user": "U_JIHO",
+          "text": "happy friday team"
+        },
+        {
+          "ts": "1784031101.000862",
+          "user": "U_NOAH",
+          "text": "brb rebooting my laptop for the 3rd time"
+        },
+        {
+          "ts": "1784033194.000860",
+          "user": "U_SAM",
+          "text": "great game last night"
+        },
+        {
+          "ts": "1784065327.000856",
+          "user": "U_DAVE",
+          "text": "reminder: standup moved 30 min"
+        },
+        {
+          "ts": "1784071457.000859",
+          "user": "U_YUNA",
+          "text": "who broke the wifi lol"
+        },
+        {
+          "ts": "1784071617.000863",
+          "user": "U_LENA",
+          "text": "anyone else's coffee machine broken 😩"
+        },
+        {
+          "ts": "1783555200.000901",
+          "user": "U_DEPLOYBOT",
+          "text": "Automated: nightly build succeeded, no action needed"
+        },
+        {
+          "ts": "1783641600.000902",
+          "user": "U_EXTERNAL_GUEST",
+          "text": "hi from a contractor account that is not in the roster"
+        }
+      ]
+    }
+  ]
+}
