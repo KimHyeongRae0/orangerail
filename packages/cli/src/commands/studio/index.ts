@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
 
-import { buildSnapshot, studioAppDir } from 'orangerail-studio/snapshot';
+import { buildSnapshot, studioAppDir, type InstanceSnapshot } from 'orangerail-studio/snapshot';
 
 import type { OrangerailConfig } from '../../config';
 import { resolveConfigPath } from '../../config';
+import { gatherInstances } from './instances';
 import { createStudioServer } from './server';
 import { watchConfig } from './watch';
 
@@ -48,11 +49,18 @@ export const runStudio = async ({
   port: number;
   open: boolean;
 }): Promise<number> => {
+  const resolvedConfigPath = resolveConfigPath({ configPath });
+
   let snapshot = buildSnapshot({ registry: config.registry });
+  let instances: InstanceSnapshot = await gatherInstances({
+    registry: config.registry,
+    configPath: resolvedConfigPath,
+  });
 
   const { server, broadcast } = createStudioServer({
     appDir: studioAppDir(),
     getSnapshot: () => snapshot,
+    getInstances: () => instances,
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {
@@ -75,9 +83,20 @@ export const runStudio = async ({
       process.stderr.write(`orangerail studio: serving on ${url}\n`);
 
       stopWatch = watchConfig({
-        configPath: resolveConfigPath({ configPath }),
+        configPath: resolvedConfigPath,
         onReload: ({ snapshot: next }) => {
           snapshot = next;
+
+          // Re-gather instances on a live edit. The resolvers read the emitted
+          // `data/*.json` fresh on each call, so re-running the gather with the
+          // original registry picks up edited instance/edge files; a failing
+          // gather keeps the last good instance snapshot.
+          void gatherInstances({ registry: config.registry, configPath: resolvedConfigPath })
+            .then((next) => {
+              instances = next;
+            })
+            .catch(() => {});
+
           broadcast({ event: 'change', data: '1' });
         },
         onError: ({ message }) => {

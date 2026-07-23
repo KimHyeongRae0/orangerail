@@ -1,0 +1,49 @@
+.place {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  min-width: 120px;
+  max-width: 200px;
+  padding: 8px 12px;
+  border-radius: var(--border-radius-md);
+  background: var(--node-muted-background);
+  border: 1px solid var(--node-border);
+  color: var(--foreground);
+  font-family: var(--ui-font);
+  font-size: var(--font-size-3);
+}
+
+.place[data-place-kind='team'] {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.kind {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--font-size-1);
+  color: var(--overlay-60);
+}
+
+.label {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  font-size: var(--font-size-1);
+  color: var(--overlay-60);
+}
+
+.handle {
+  width: 1px;
+  height: 1px;
+  min-width: 1px;
+  min-height: 1px;
+  border: none;
+  background: transparent;
+  opacity: 0;
+}

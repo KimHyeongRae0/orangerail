@@ -1,6 +1,7 @@
 import type { Edge, Node } from '@xyflow/react';
 
 import type { SnapshotAction, SnapshotLink, SnapshotObject } from '../snapshot/types';
+import type { HelpsEdge, MemberOfEdge, PersonNode, PlaceNode, WorksOnEdge } from './instanceModel';
 
 /** Card display density (Liam's per-node data field with a global default). */
 export type ShowMode = 'all' | 'name';
@@ -42,11 +43,21 @@ export interface ActionEdgeData extends Record<string, unknown> {
 
 export type ObjectNode = Node<ObjectNodeData, 'object'>;
 export type ActionNode = Node<ActionNodeData, 'action'>;
-export type StudioNode = ObjectNode | ActionNode;
+
+/**
+ * Every node kind the one shared React Flow surface can render — the db type
+ * map (object/action) plus the human instance graph (person/service). The build
+ * path is category-scoped (App emits one family at a time), but the surface's
+ * generic must span both so `useNodesState`, fit, and the toolbar type-check
+ * uniformly (plan section 3.2).
+ */
+export type StudioNode = ObjectNode | ActionNode | PersonNode | PlaceNode;
 
 export type LinkEdge = Edge<LinkEdgeData, 'link'>;
 export type ActionEdge = Edge<ActionEdgeData, 'action'>;
-export type StudioEdge = LinkEdge | ActionEdge;
+
+/** Every edge kind the shared surface can render (db links/actions + instance edges). */
+export type StudioEdge = LinkEdge | ActionEdge | HelpsEdge | WorksOnEdge | MemberOfEdge;
 
 /** The isolated-object group id (Liam's non-related-table-group pattern). */
 export const ISOLATED_GROUP_ID = 'isolated-group';

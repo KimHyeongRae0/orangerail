@@ -38,6 +38,26 @@ const ManyMarker = ({ id, color }: { id: string; color: string }) => (
   </marker>
 );
 
+/**
+ * A solid triangular arrowhead for the directed instance edges (`helps`,
+ * `works_on`, `member_of`), added additively to the shared defs pool. `orient`
+ * is `auto` (not `auto-start-reverse`) because these markers only sit at the
+ * edge END, pointing along the flow direction (plan section 3.3).
+ */
+const ArrowMarker = ({ id, color }: { id: string; color: string }) => (
+  <marker
+    id={id}
+    markerWidth="12"
+    markerHeight="12"
+    refX="9"
+    refY="5"
+    orient="auto"
+    markerUnits="userSpaceOnUse"
+  >
+    <path d="M0 0L10 5L0 10Z" fill={color} />
+  </marker>
+);
+
 export const CardinalityMarkers = () => (
   <svg
     aria-hidden="true"
@@ -49,6 +69,9 @@ export const CardinalityMarkers = () => (
       <OneMarker id="card-one-hi" color="var(--edge-highlighted)" />
       <ManyMarker id="card-many" color="var(--edge-resting)" />
       <ManyMarker id="card-many-hi" color="var(--edge-highlighted)" />
+
+      <ArrowMarker id="instance-arrow-helps" color="var(--primary-accent)" />
+      <ArrowMarker id="instance-arrow-place" color="var(--edge-resting)" />
 
       <radialGradient id="edge-flow-particle" cx="50%" cy="50%" r="50%">
         <stop offset="0%" stopColor="var(--primary-accent)" stopOpacity="0.95" />

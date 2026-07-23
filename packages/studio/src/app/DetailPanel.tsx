@@ -1,3 +1,4 @@
+import type { InstanceEmployee, MetricValue } from '../snapshot/instances';
 import type { GraphSnapshot } from '../snapshot/types';
 import type { Focus } from './highlight';
 import styles from './DetailPanel.module.css';
@@ -111,6 +112,125 @@ const ActionDetail = ({ snapshot, name }: { snapshot: GraphSnapshot; name: strin
     </section>
   );
 };
+
+/**
+ * Render a metric value verbatim: a number as its string, the literal
+ * `'unavailable'` as the word `unavailable` — never coerced to `0` or blank
+ * (plan section 3.3 edge case, honesty contract).
+ */
+const metricText = ({ value }: { value: MetricValue }): string =>
+  typeof value === 'number' ? String(value) : value;
+
+/** One labelled metric row: the metric value plus its static derivation note. */
+const MetricRow = ({
+  label,
+  value,
+  derivation,
+}: {
+  label: string;
+  value: string;
+  derivation: string;
+}) => (
+  <div className={styles.row}>
+    <span className={styles.rowKey} title={derivation}>
+      {label}
+    </span>
+    <span className={styles.rowValue}>{value}</span>
+  </div>
+);
+
+/**
+ * The person scorecard (plan section 3.3, Decision 3 — honesty-in-UI). It lists
+ * the ONT-010 evidence-backed metrics with each metric's name and a static
+ * derivation note (title attribute). There is deliberately NO composite score,
+ * NO ranking number, and NO `[data-testid="rank"]` element anywhere — the panel
+ * shows raw evidence only (AC-3). The `displayName` and every value render as
+ * React text; a hostile name stays inert (AC-6).
+ */
+export const PersonScorecard = ({
+  employee,
+  onClose,
+}: {
+  employee: InstanceEmployee;
+  onClose: () => void;
+}) => (
+  <aside className={styles.panel} data-testid="scorecard">
+    <div className={styles.header}>
+      <span className={styles.title} title={employee.displayName}>
+        {employee.displayName}
+      </span>
+      <button
+        type="button"
+        className={styles.close}
+        data-testid="scorecard-close"
+        aria-label="Close scorecard"
+        onClick={onClose}
+      >
+        ×
+      </button>
+    </div>
+
+    <section className={styles.section}>
+      <h3 className={styles.sectionTitle}>Evidence metrics</h3>
+
+      <MetricRow
+        label="Ticket count"
+        value={String(employee.ticketCount)}
+        derivation="Assigned issues in the export window."
+      />
+      <MetricRow
+        label="Story points"
+        value={String(employee.storyPointsTotal)}
+        derivation="Sum of story points across assigned issues."
+      />
+      <MetricRow
+        label="Complexity mix (hi/med/lo)"
+        value={`${employee.complexityMix.hi} / ${employee.complexityMix.med} / ${employee.complexityMix.lo}`}
+        derivation="Assigned issues bucketed by story points."
+      />
+      <MetricRow
+        label="Median cycle days (first half)"
+        value={metricText({ value: employee.medianCycleDaysFirstHalf })}
+        derivation="Median created-to-resolved days, first half of the window."
+      />
+      <MetricRow
+        label="Median cycle days (second half)"
+        value={metricText({ value: employee.medianCycleDaysSecondHalf })}
+        derivation="Median created-to-resolved days, second half of the window."
+      />
+      <MetricRow
+        label="Reopen rate"
+        value={metricText({ value: employee.reopenRate })}
+        derivation="Percent of assigned issues with a reopen transition."
+      />
+      <MetricRow
+        label="Reassignments given"
+        value={metricText({ value: employee.reassignmentsGiven })}
+        derivation="Issues this person reassigned away."
+      />
+      <MetricRow
+        label="Reassignments received"
+        value={metricText({ value: employee.reassignmentsReceived })}
+        derivation="Issues reassigned onto this person."
+      />
+      <MetricRow
+        label="Help given"
+        value={String(employee.helpGiven)}
+        derivation="Out-degree in the Slack help graph."
+      />
+      <MetricRow
+        label="Help received"
+        value={String(employee.helpReceived)}
+        derivation="In-degree in the Slack help graph."
+      />
+      <MetricRow
+        label="Weekend / off-hours share"
+        value={metricText({ value: employee.weekendOffHoursShare })}
+        derivation="Percent of activity outside standard hours."
+      />
+    </section>
+  </aside>
+);
 
 export const DetailPanel = ({
   snapshot,

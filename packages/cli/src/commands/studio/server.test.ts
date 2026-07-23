@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { GraphSnapshot } from 'orangerail-studio/snapshot';
+import type { GraphSnapshot, InstanceSnapshot } from 'orangerail-studio/snapshot';
 
 import { createStudioServer, resolveStaticPath } from './server';
 
@@ -12,6 +12,31 @@ const snapshot: GraphSnapshot = {
   objects: [{ name: 'alpha', fields: [], readAccess: 'authenticated', hasResolve: true }],
   links: [],
   actions: [],
+};
+
+const instances: InstanceSnapshot = {
+  employees: [
+    {
+      accountId: 'acc_a',
+      displayName: 'Ann',
+      active: true,
+      ticketCount: 4,
+      storyPointsTotal: 12,
+      complexityMix: { hi: 1, med: 1, lo: 2 },
+      medianCycleDaysFirstHalf: 2,
+      medianCycleDaysSecondHalf: 1,
+      reopenRate: 'unavailable',
+      reassignmentsGiven: 0,
+      reassignmentsReceived: 0,
+      helpGiven: 3,
+      helpReceived: 1,
+      weekendOffHoursShare: 5,
+    },
+  ],
+  services: [],
+  teams: [],
+  incidents: [],
+  edges: { helps: [{ from: 'acc_a', to: 'acc_a', weight: 1 }], works_on: [], member_of: [] },
 };
 
 describe('resolveStaticPath (AC-7 containment)', () => {
@@ -42,7 +67,11 @@ describe('createStudioServer (plan section 3.6)', () => {
     const appDir = mkdtempSync(join(tmpdir(), 'ont-005-app-'));
     writeFileSync(join(appDir, 'index.html'), '<h1>studio ok</h1>', 'utf8');
 
-    const built = createStudioServer({ appDir, getSnapshot: () => snapshot });
+    const built = createStudioServer({
+      appDir,
+      getSnapshot: () => snapshot,
+      getInstances: () => instances,
+    });
     server = built.server;
     broadcast = built.broadcast;
 
@@ -82,6 +111,21 @@ describe('createStudioServer (plan section 3.6)', () => {
 
   it('rejects any write method with 405', async () => {
     const res = await raw({ method: 'POST', path: '/api/registry' });
+    expect(res.status).toBe(405);
+    expect(res.headers['allow']).toBe('GET, HEAD');
+  });
+
+  it('serves the instance snapshot as JSON', async () => {
+    const res = await raw({ method: 'GET', path: '/api/instances' });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/json');
+    const body = JSON.parse(res.body);
+    expect(body.employees[0].accountId).toBe('acc_a');
+    expect(body.edges.helps.length).toBe(1);
+  });
+
+  it('rejects a non-GET to the instances route with 405 (read-only)', async () => {
+    const res = await raw({ method: 'POST', path: '/api/instances' });
     expect(res.status).toBe(405);
     expect(res.headers['allow']).toBe('GET, HEAD');
   });

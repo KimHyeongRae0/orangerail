@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 
-import type { GraphSnapshot } from 'orangerail-studio/snapshot';
+import type { GraphSnapshot, InstanceSnapshot } from 'orangerail-studio/snapshot';
 
 /** Minimal content-type map for the static assets the app ships (plan 3.6). */
 const CONTENT_TYPES: Record<string, string> = {
@@ -75,9 +75,11 @@ const writeJson = ({
 export const createStudioServer = ({
   appDir,
   getSnapshot,
+  getInstances,
 }: {
   appDir: string;
   getSnapshot: () => GraphSnapshot;
+  getInstances: () => InstanceSnapshot;
 }): { server: Server; broadcast: (args: { event: string; data: string }) => void } => {
   const clients = new Set<SseClient>();
 
@@ -118,6 +120,11 @@ export const createStudioServer = ({
 
     if (path === '/api/registry') {
       writeJson({ res, status: 200, body: JSON.stringify(getSnapshot()) });
+      return;
+    }
+
+    if (path === '/api/instances') {
+      writeJson({ res, status: 200, body: JSON.stringify(getInstances()) });
       return;
     }
 

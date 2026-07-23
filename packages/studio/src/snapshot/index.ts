@@ -30,6 +30,18 @@ export type {
   WhereKind,
 } from './types';
 
+export { buildInstanceSnapshot } from './instances';
+export type {
+  ComplexityMix,
+  InstanceEdge,
+  InstanceEmployee,
+  InstanceIncident,
+  InstanceService,
+  InstanceSnapshot,
+  InstanceTeam,
+  MetricValue,
+} from './instances';
+
 const byName = <T extends { name: string }>(a: T, b: T): number => a.name.localeCompare(b.name);
 
 const buildFields = ({
