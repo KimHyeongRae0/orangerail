@@ -76,5 +76,9 @@ export const emitActionFile = ({
     '',
   ].join('\n');
 
-  return { filename: `${action.name}.mjs`, content: `${renderHeader({ action })}\n${body}` };
+  // Belt-and-suspenders (ONT-015, L-ACTIONFILENAME): derive the filename stem
+  // from the same `sanitizeIdentifier` binding as the `export const`, matching
+  // `emitObjectFile` — so the stem and the binding agree by an identical rule
+  // rather than resting solely on the upstream `sanitizeMcpName` guarantee.
+  return { filename: `${binding}.mjs`, content: `${renderHeader({ action })}\n${body}` };
 };

@@ -1,0 +1,37 @@
+// ONT-015 AC-1 fixture — reserved generated-binding names.
+//
+// `registry` and `z` are names the generated ontology/*.mjs already imports
+// (`import { registry } from './_registry.mjs'`, `import { z } from 'zod'`), so
+// a scanned model with either name currently emits `export const registry`/
+// `export const z`, re-declaring the import -> the file throws SyntaxError at
+// parse and orangerail.config.mjs fails to load. `Alpha`/`Beta` are ordinary
+// models that must keep loading alongside the de-collided reserved ones.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model registry {
+  id   String @id @default(cuid())
+  name String
+}
+
+model z {
+  id   String @id @default(cuid())
+  label String
+}
+
+model Alpha {
+  id    String @id @default(cuid())
+  title String
+}
+
+model Beta {
+  id    String @id @default(cuid())
+  title String
+}

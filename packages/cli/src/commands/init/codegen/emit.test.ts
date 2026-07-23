@@ -150,9 +150,11 @@ describe('emitActionFile', () => {
 
     expect(exported).toBe('actions_create_workflow_dispatch');
     expect(exported).toMatch(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
-    // The registry/MCP tool name and the filename keep the hyphenated form.
+    // The registry/MCP tool name keeps the hyphenated form (a legal MCP name),
+    // but the filename stem is re-sanitized at the sink (ONT-015, AC-4) so it
+    // agrees with the export binding by an identical rule.
     expect(content).toContain('name: "actions_create-workflow-dispatch"');
-    expect(filename).toBe('actions_create-workflow-dispatch.mjs');
+    expect(filename).toBe('actions_create_workflow_dispatch.mjs');
   });
 });
 

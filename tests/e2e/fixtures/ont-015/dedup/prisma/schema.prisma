@@ -1,0 +1,32 @@
+// ONT-015 AC-2/AC-3 fixture — post-sanitize duplicate object names.
+//
+// `sanitizeIdentifier` collapses runs of `_` to a single `_`, so `A__B` and
+// `A_B` both map to the binding + filename `A_B`. With dedup only for actions
+// (never objects), both objects emit `ontology/A_B.mjs` and the second write
+// wins — one object type silently vanishes. `Widget` is an ordinary object
+// whose binding also collides with the OpenAPI `Widget` write op (openapi.json)
+// to exercise the object-vs-action filename collision.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model A__B {
+  id    String @id @default(cuid())
+  title String
+}
+
+model A_B {
+  id    String @id @default(cuid())
+  title String
+}
+
+model Widget {
+  id    String @id @default(cuid())
+  title String
+}

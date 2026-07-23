@@ -1,0 +1,7 @@
+{
+  "name": "ont-015-fixture-reserved",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ONT-015 AC-1 fixture: a Prisma schema whose models include names (`registry`, `z`) that collide with identifiers the generated ontology/*.mjs imports. Copied into a scratch run dir under the repo so bare specifiers resolve via node_modules walk-up."
+}

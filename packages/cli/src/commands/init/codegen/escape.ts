@@ -53,6 +53,28 @@ const RESERVED = new Set([
   'async',
 ]);
 
+/**
+ * Module-scope identifiers the generated `ontology/*.mjs` files import or
+ * declare themselves (ONT-015, M-RESERVEDBINDING). A scanned model / operation
+ * whose sanitized identifier equals one of these would emit an
+ * `export const <binding>` that re-declares an already-imported/declared name,
+ * so the file throws `SyntaxError` at parse and `orangerail.config.mjs` fails to
+ * load. Object files declare `z` (`import { z } from 'zod'`), `registry`,
+ * `getPrisma`, and `wrapPrismaError`; action files declare `z`,
+ * `notImplemented`, and `registry` — the closed union is these five. Kept
+ * SEPARATE from `RESERVED` (which is JS grammar): this set is emitter-internal.
+ * Both take the identical `_` suffix, and it is applied in `sanitizeIdentifier`
+ * ONLY (the JS binding / filename), NOT in `sanitizeMcpName` — the MCP tool
+ * `name:` may legally remain the literal string `registry`.
+ */
+const RESERVED_BINDINGS = new Set([
+  'registry',
+  'z',
+  'notImplemented',
+  'getPrisma',
+  'wrapPrismaError',
+]);
+
 /** Control characters (C0 + DEL + C1) that must never survive into output. */
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
 
@@ -95,7 +117,7 @@ export const sanitizeIdentifier = ({ value }: { value: string }): string => {
     out = `_${out}`;
   }
 
-  if (RESERVED.has(out)) {
+  if (RESERVED.has(out) || RESERVED_BINDINGS.has(out)) {
     out = `${out}_`;
   }
 

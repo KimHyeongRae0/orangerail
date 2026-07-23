@@ -21,6 +21,11 @@ export { emitObjectFile } from './emit-object';
  * shared registry and links under `ontology/` with underscore-prefixed names —
  * and nothing carries a timestamp, so the same inputs render the same bytes
  * twice (AC-9).
+ *
+ * Filename/binding uniqueness across objects + actions is guaranteed UPSTREAM by
+ * the global allocator in `scanRepo` (ONT-015, `init/scan.ts` `allocateNames`),
+ * so this stays a pure renderer over an already-collision-free source — no
+ * de-collision logic lives here.
  */
 export const buildFileSet = ({
   source,

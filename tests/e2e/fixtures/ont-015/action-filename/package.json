@@ -1,0 +1,7 @@
+{
+  "name": "ont-015-fixture-action-filename",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ONT-015 AC-4 fixture: an OpenAPI write op whose MCP-safe name keeps a hyphen (`create-thing`), so the export binding (`create_thing`) and the emitted filename stem must agree. Today emit-action derives the filename from the raw name (`create-thing.mjs`) while the binding is separately re-sanitized (`create_thing`)."
+}

@@ -1,0 +1,31 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ONT-015 dedup fixture API",
+    "version": "1.0.0",
+    "description": "One write operation whose name sanitizes to `Widget`, colliding with the Prisma `Widget` object's binding/filename (object-vs-action collision)."
+  },
+  "paths": {
+    "/widgets": {
+      "post": {
+        "operationId": "Widget",
+        "summary": "Create a widget (name collides with the Widget object binding)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "created" } }
+      }
+    }
+  }
+}

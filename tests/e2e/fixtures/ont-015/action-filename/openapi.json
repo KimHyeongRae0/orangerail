@@ -1,0 +1,31 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ONT-015 action-filename fixture API",
+    "version": "1.0.0",
+    "description": "A write operation whose operationId contains a hyphen, which is legal in the MCP tool-name charset (so it survives into `action.name`) but not in a JS identifier (so the export binding is `create_thing`). The emitted filename stem must match the binding, not the raw name."
+  },
+  "paths": {
+    "/things": {
+      "post": {
+        "operationId": "create-thing",
+        "summary": "Create a thing",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                  "title": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "created" } }
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "ont-015-fixture-dedup",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ONT-015 AC-2/AC-3 fixture: two model names that sanitize to the same identifier (`A__B` and `A_B` both collapse to `A_B`) plus an OpenAPI write op whose name collides with an object binding (`Widget`). Without object/global dedup one object file silently overwrites another and no warning is surfaced."
+}
