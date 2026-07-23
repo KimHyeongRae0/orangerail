@@ -46,6 +46,13 @@ export interface ParsedJira {
    * reassignment metrics are reported as `"unavailable"`, never a silent 0.
    */
   changelogAvailable: boolean;
+  /**
+   * Whether any issue in the export carries a numeric story-point value. When
+   * false, the complexity mix degrades to a single `lo` bucket rather than
+   * fabricating a hi/med/lo spread from issue type (consistent with a
+   * story-point total of 0).
+   */
+  storyPointsAvailable: boolean;
   diagnostics: string[];
 }
 
@@ -89,8 +96,8 @@ export interface EmployeeMetric {
   reopenRate: MetricOrUnavailable;
   reassignmentsGiven: MetricOrUnavailable;
   reassignmentsReceived: MetricOrUnavailable;
-  helpGiven: number;
-  helpReceived: number;
+  helpGiven: MetricOrUnavailable;
+  helpReceived: MetricOrUnavailable;
   weekendOffHoursShare: number;
 }
 
@@ -162,4 +169,11 @@ export interface ExtractedOntology {
   candidates: Candidate[];
   findings: OrgFinding[];
   deployGateEvidenced: boolean;
+  /**
+   * Whether a Slack export was provided to this run (the single honest signal:
+   * `slackRaw !== undefined`, not a message count). Drives how Slack-derived
+   * metrics/findings and the report header are rendered. Never serialized into
+   * `data/*.json` — the emitter serializes ontology fields one by one.
+   */
+  slackProvided: boolean;
 }

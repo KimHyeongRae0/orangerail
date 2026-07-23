@@ -2,6 +2,7 @@ import { groupThreads, rootOf } from './graph';
 import type {
   EmployeeMetric,
   IncidentInstance,
+  MetricOrUnavailable,
   OrgFinding,
   ParsedSlack,
   Person,
@@ -31,9 +32,44 @@ const firstKey = ({ text }: { text: string }): string | null => {
   return match === null ? null : match[0];
 };
 
+/**
+ * Coerce a possibly-`"unavailable"` metric to a number for arithmetic. Only
+ * ever reached on the both-sources path (where help metrics are numeric); the
+ * Slack-dependent builders early-return a not-evaluated note before any help
+ * arithmetic when no Slack export was provided.
+ */
+const num = ({ value }: { value: MetricOrUnavailable }): number =>
+  value === 'unavailable' ? 0 : value;
+
+/**
+ * A Slack-dependent finding that could not be measured on a Jira-only run:
+ * keep the slot's id/title, but state honestly that it was not evaluated
+ * rather than asserting a superlative over an absent value.
+ */
+const notEvaluated = ({
+  id,
+  title,
+  signal,
+}: {
+  id: number;
+  title: string;
+  signal: string;
+}): OrgFinding => ({
+  id,
+  title,
+  detail: `Not evaluated: no Slack export was provided, so ${signal} could not be measured.`,
+  pointer: { notEvaluated: true, reason: 'no Slack export' },
+});
+
 /** Workload concentration: the two people carrying the most story points. */
-const workloadFinding = ({ employees }: { employees: EmployeeMetric[] }): OrgFinding => {
+const workloadFinding = ({ employees }: { employees: EmployeeMetric[] }): OrgFinding | null => {
   const total = employees.reduce((sum, e) => sum + e.storyPointsTotal, 0);
+
+  // R1: no evidence (no people or no story points at all) -> no confident finding.
+  if (employees.length === 0 || total === 0) {
+    return null;
+  }
+
   const ranked = [...employees].sort(
     (a, b) => b.storyPointsTotal - a.storyPointsTotal || a.accountId.localeCompare(b.accountId),
   );
@@ -58,9 +94,31 @@ const workloadFinding = ({ employees }: { employees: EmployeeMetric[] }): OrgFin
 };
 
 /** Invisible value: high chat-help / low tracker weight and the inverse. */
-const invisibleValueFinding = ({ employees }: { employees: EmployeeMetric[] }): OrgFinding => {
+const invisibleValueFinding = ({
+  employees,
+  slackProvided,
+}: {
+  employees: EmployeeMetric[];
+  slackProvided: boolean;
+}): OrgFinding | null => {
+  // H2/H4: help is Slack-derived. Mark, never assert a superlative over 0/absent.
+  if (!slackProvided) {
+    return notEvaluated({
+      id: 2,
+      title: 'INVISIBLE VALUE (chat help vs tracker weight)',
+      signal: 'chat help versus tracker weight (helpGiven)',
+    });
+  }
+
+  // R1: no people -> no finding.
+  if (employees.length === 0) {
+    return null;
+  }
+
   const topHelper = [...employees].sort(
-    (a, b) => b.helpGiven - a.helpGiven || a.accountId.localeCompare(b.accountId),
+    (a, b) =>
+      num({ value: b.helpGiven }) - num({ value: a.helpGiven }) ||
+      a.accountId.localeCompare(b.accountId),
   )[0];
   const noHelp = employees
     .filter((e) => e.helpGiven === 0 && e.ticketCount > 0)
@@ -88,11 +146,22 @@ const processGapFinding = ({
   incidents,
   slack,
   identity,
+  slackProvided,
 }: {
   incidents: IncidentInstance[];
   slack: ParsedSlack;
   identity: SlackIdentity;
-}): OrgFinding => {
+  slackProvided: boolean;
+}): OrgFinding | null => {
+  // H2/H4: both halves of this finding are Slack-derived.
+  if (!slackProvided) {
+    return notEvaluated({
+      id: 3,
+      title: 'PROCESS GAPS (Slack-only incidents + ticket-less deploys)',
+      signal: 'Slack-only incidents and ticket-less deploy threads',
+    });
+  }
+
   const ticketlessIncidents = incidents
     .filter((incident) => !incident.hasTrackerIssue)
     .map((incident) => ({
@@ -103,11 +172,15 @@ const processGapFinding = ({
     }));
 
   const hotfixNoTicket: { thread_ts: string; note: string }[] = [];
+  let deployThreadCount = 0;
   const threads = groupThreads({ messages: slack.messages });
   for (const messages of threads.values()) {
     const root = rootOf({ messages });
     if (!DEPLOY_CHANNELS.has(root.channel)) {
       continue;
+    }
+    if (DEPLOY_INTENT.test(root.text)) {
+      deployThreadCount += 1;
     }
     const hasKey = messages.some((m) => ISSUE_KEY.test(m.text));
     if (hasKey || !DEPLOY_INTENT.test(root.text)) {
@@ -118,6 +191,11 @@ const processGapFinding = ({
   hotfixNoTicket.sort((a, b) => a.thread_ts.localeCompare(b.thread_ts));
 
   void identity;
+
+  // R1: no incidents and no deploy threads -> no evidence, no finding.
+  if (incidents.length === 0 && deployThreadCount === 0) {
+    return null;
+  }
 
   return {
     id: 3,
@@ -135,11 +213,22 @@ const approvalVacuumFinding = ({
   slack,
   identity,
   people,
+  slackProvided,
 }: {
   slack: ParsedSlack;
   identity: SlackIdentity;
   people: Person[];
-}): OrgFinding => {
+  slackProvided: boolean;
+}): OrgFinding | null => {
+  // H2/H4: entirely Slack deploy-thread derived.
+  if (!slackProvided) {
+    return notEvaluated({
+      id: 4,
+      title: 'APPROVAL VACUUM (post-departure deploys)',
+      signal: 'the post-departure approval vacuum in deploy threads',
+    });
+  }
+
   const threads = groupThreads({ messages: slack.messages });
   const deployThreads: { threadTs: string; ts: number; messages: SlackMessage[] }[] = [];
 
@@ -156,6 +245,11 @@ const approvalVacuumFinding = ({
       ts: Number.parseFloat(root.threadTs),
       messages,
     });
+  }
+
+  // R1: no deploy threads -> no evidence, no finding.
+  if (deployThreads.length === 0) {
+    return null;
   }
 
   // The dominant approver = the account that authored the most approval replies.
@@ -225,30 +319,48 @@ const approvalVacuumFinding = ({
 };
 
 /** Bus factor: per-service distinct-assignee set (low = concentration risk). */
-const busFactorFinding = ({ services }: { services: ServiceInstance[] }): OrgFinding => ({
-  id: 5,
-  title: 'BUS FACTOR (per-service ownership)',
-  detail:
-    'Distinct assignee set per service; a small set concentrates knowledge risk. ' +
-    'Formula: count of distinct assignees per Jira component (>=5 issues = meaningful owner).',
-  pointer: {
-    services: services.map((service) => ({
-      id: service.id,
-      distinctAssignees: service.distinctAssignees,
-      busFactor: service.busFactor,
-      assignees: service.assignees,
-    })),
-  },
-});
+const busFactorFinding = ({ services }: { services: ServiceInstance[] }): OrgFinding | null => {
+  // R1: no services -> no evidence, no finding.
+  if (services.length === 0) {
+    return null;
+  }
+
+  return {
+    id: 5,
+    title: 'BUS FACTOR (per-service ownership)',
+    detail:
+      'Distinct assignee set per service; a small set concentrates knowledge risk. ' +
+      'Formula: count of distinct assignees per Jira component (>=5 issues = meaningful owner).',
+    pointer: {
+      services: services.map((service) => ({
+        id: service.id,
+        distinctAssignees: service.distinctAssignees,
+        busFactor: service.busFactor,
+        assignees: service.assignees,
+      })),
+    },
+  };
+};
 
 /** Knowledge flow: help-graph in-degree (who the team leans on). */
 const knowledgeFlowFinding = ({
   helpGiven,
   people,
+  slackProvided,
 }: {
   helpGiven: Map<string, number>;
   people: Person[];
-}): OrgFinding => {
+  slackProvided: boolean;
+}): OrgFinding | null => {
+  // H2/H4: the help graph is Slack-derived — never a superlative over 0/absent.
+  if (!slackProvided) {
+    return notEvaluated({
+      id: 6,
+      title: 'KNOWLEDGE FLOW (help hubs)',
+      signal: 'help-graph hubs (help interactions)',
+    });
+  }
+
   const helpGivenByAccountId: Record<string, number> = {};
   for (const person of people) {
     helpGivenByAccountId[person.accountId] = helpGiven.get(person.accountId) ?? 0;
@@ -256,6 +368,11 @@ const knowledgeFlowFinding = ({
 
   const total = Object.values(helpGivenByAccountId).reduce((sum, n) => sum + n, 0);
   const top = Object.entries(helpGivenByAccountId).sort((a, b) => b[1] - a[1])[0];
+
+  // R1: no help interactions at all -> no evidence, no finding.
+  if (total === 0) {
+    return null;
+  }
 
   return {
     id: 6,
@@ -276,6 +393,7 @@ export const computeFindings = ({
   slack,
   identity,
   people,
+  slackProvided,
 }: {
   employees: EmployeeMetric[];
   services: ServiceInstance[];
@@ -284,11 +402,13 @@ export const computeFindings = ({
   slack: ParsedSlack;
   identity: SlackIdentity;
   people: Person[];
-}): OrgFinding[] => [
-  workloadFinding({ employees }),
-  invisibleValueFinding({ employees }),
-  processGapFinding({ incidents, slack, identity }),
-  approvalVacuumFinding({ slack, identity, people }),
-  busFactorFinding({ services }),
-  knowledgeFlowFinding({ helpGiven, people }),
-];
+  slackProvided: boolean;
+}): OrgFinding[] =>
+  [
+    workloadFinding({ employees }),
+    invisibleValueFinding({ employees, slackProvided }),
+    processGapFinding({ incidents, slack, identity, slackProvided }),
+    approvalVacuumFinding({ slack, identity, people, slackProvided }),
+    busFactorFinding({ services }),
+    knowledgeFlowFinding({ helpGiven, people, slackProvided }),
+  ].filter((finding): finding is OrgFinding => finding !== null);

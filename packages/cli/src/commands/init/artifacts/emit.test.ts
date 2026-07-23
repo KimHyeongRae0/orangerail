@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { emitArtifacts } from './emit';
 import type { ExtractedOntology } from './types';
 
-const ontology = ({ gate }: { gate: boolean }): ExtractedOntology => ({
+const ontology = ({
+  gate,
+  slackProvided = true,
+}: {
+  gate: boolean;
+  slackProvided?: boolean;
+}): ExtractedOntology => ({
   employees: [
     {
       accountId: 'acc_a',
@@ -42,6 +48,7 @@ const ontology = ({ gate }: { gate: boolean }): ExtractedOntology => ({
     { id: 1, title: 'WORKLOAD CONCENTRATION', detail: 'x', pointer: { accountIds: ['acc_a'] } },
   ],
   deployGateEvidenced: gate,
+  slackProvided,
 });
 
 const config = ({ files }: { files: ReturnType<typeof emitArtifacts> }): string =>
@@ -87,6 +94,23 @@ describe('emitArtifacts', () => {
     const a = emitArtifacts({ ontology: ontology({ gate: true }) });
     const b = emitArtifacts({ ontology: ontology({ gate: true }) });
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+
+  it('declares the help schema as z.number() when a Slack export was provided', () => {
+    const text = config({
+      files: emitArtifacts({ ontology: ontology({ gate: true, slackProvided: true }) }),
+    });
+    expect(text.includes('helpGiven: z.number()')).toBe(true);
+    expect(text.includes('helpReceived: z.number()')).toBe(true);
+  });
+
+  it('declares the help schema as the metric union when no Slack export was provided', () => {
+    const text = config({
+      files: emitArtifacts({ ontology: ontology({ gate: true, slackProvided: false }) }),
+    });
+    expect(text.includes('helpGiven: metric')).toBe(true);
+    expect(text.includes('helpReceived: metric')).toBe(true);
+    expect(text.includes('helpGiven: z.number()')).toBe(false);
   });
 
   it('carries a hostile displayName safely inside a JSON data file, not the config body', () => {

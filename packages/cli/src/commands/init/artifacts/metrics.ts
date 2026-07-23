@@ -145,8 +145,12 @@ export const computeMetrics = ({
       a.ticketCount += 1;
       a.storyPointsTotal += issue.storyPoints ?? 0;
 
-      const band =
-        issue.storyPoints === null
+      // When story points are absent across the whole corpus, every assigned
+      // issue lands in the `lo` bucket rather than fabricating a hi/med/lo
+      // spread from issue type — consistent with a story-point total of 0.
+      const band = !jira.storyPointsAvailable
+        ? 'lo'
+        : issue.storyPoints === null
           ? bandFromType({ issuetype: issue.issuetype })
           : bandFromPoints({ points: issue.storyPoints });
       a.mix[band] += 1;

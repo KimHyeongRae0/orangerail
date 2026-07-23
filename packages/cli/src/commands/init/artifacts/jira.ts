@@ -59,6 +59,7 @@ export const parseJira = ({ raw }: { raw: unknown }): ParsedJira => {
 
   const rawIssues = Array.isArray(root['issues']) ? root['issues'] : [];
   let changelogAvailable = false;
+  let storyPointsAvailable = false;
   const issues: JiraIssue[] = [];
 
   for (const rawIssue of rawIssues) {
@@ -88,6 +89,9 @@ export const parseJira = ({ raw }: { raw: unknown }): ParsedJira => {
 
     const storyPoints =
       typeof fields['customfield_10016'] === 'number' ? fields['customfield_10016'] : null;
+    if (storyPoints !== null) {
+      storyPointsAvailable = true;
+    }
     const issuetype = ((fields['issuetype'] ?? {}) as Record<string, unknown>)['name'];
     const status = ((fields['status'] ?? {}) as Record<string, unknown>)['name'];
 
@@ -139,5 +143,13 @@ export const parseJira = ({ raw }: { raw: unknown }): ParsedJira => {
     });
   }
 
-  return { projectKey, projectName, issues, accounts, changelogAvailable, diagnostics };
+  return {
+    projectKey,
+    projectName,
+    issues,
+    accounts,
+    changelogAvailable,
+    storyPointsAvailable,
+    diagnostics,
+  };
 };

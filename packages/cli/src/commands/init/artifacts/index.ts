@@ -36,7 +36,13 @@ export const buildOntology = ({
   slackRaw: unknown | undefined;
 }): { ontology: ExtractedOntology; diagnostics: string[] } => {
   const jira = parseJira({ raw: jiraRaw });
-  const slack = slackRaw === undefined ? emptySlack() : parseSlack({ raw: slackRaw });
+
+  // The single honest signal: a Slack export was PROVIDED (not a message count).
+  // `emptySlack()` produces a byte-identical shape to a provided-but-empty
+  // export, so the provided-vs-absent fact must be captured here, before it is
+  // lost, and threaded explicitly into every downstream layer.
+  const slackProvided = slackRaw !== undefined;
+  const slack = slackProvided ? parseSlack({ raw: slackRaw }) : emptySlack();
 
   const people: Person[] = [...jira.accounts.entries()]
     .map(([accountId, displayName]) => ({ accountId, displayName }))
@@ -47,9 +53,16 @@ export const buildOntology = ({
   const employees = computeMetrics({ jira, slack, identity, people });
   const graph = computeGraph({ jira, slack, identity, people });
 
+  // H1: help metrics are Slack-derived. With no Slack export they are honestly
+  // "unavailable" (the exact ONT-010 representation for missing-history
+  // metrics), never a silent 0 that reads as "helps nobody".
   for (const employee of employees) {
-    employee.helpGiven = graph.helpGiven.get(employee.accountId) ?? 0;
-    employee.helpReceived = graph.helpReceived.get(employee.accountId) ?? 0;
+    employee.helpGiven = slackProvided
+      ? (graph.helpGiven.get(employee.accountId) ?? 0)
+      : 'unavailable';
+    employee.helpReceived = slackProvided
+      ? (graph.helpReceived.get(employee.accountId) ?? 0)
+      : 'unavailable';
   }
 
   const candidates = extractCandidates({ slack, identity });
@@ -62,6 +75,7 @@ export const buildOntology = ({
     slack,
     identity,
     people,
+    slackProvided,
   });
 
   const deployGateEvidenced = candidates.some((candidate) => candidate.kind === 'approval');
@@ -77,6 +91,7 @@ export const buildOntology = ({
     candidates,
     findings,
     deployGateEvidenced,
+    slackProvided,
   };
 
   const diagnostics = [...jira.diagnostics, ...slack.diagnostics, ...identity.diagnostics];
@@ -129,10 +144,13 @@ export const runInitFromArtifacts = async ({
 
   writeFileSet({ files, baseDir: cwd });
 
+  // H3: the summary names only the sources actually read.
+  const sources = ontology.slackProvided ? 'the Jira and Slack exports' : 'the Jira export';
+
   process.stdout.write(
     `orangerail init: extracted ${ontology.employees.length} employee(s), ` +
       `${ontology.services.length} service(s), and ${ontology.findings.length} finding(s) ` +
-      'from the Jira/Slack export(s).\n' +
+      `from ${sources}.\n` +
       'These files are yours — review ANALYTICS.md, then run `orangerail mcp` or `orangerail studio`.\n',
   );
 

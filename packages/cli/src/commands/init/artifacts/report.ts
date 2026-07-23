@@ -45,7 +45,7 @@ const renderRoster = ({ employees }: { employees: EmployeeMetric[] }): string =>
     const reassign = `${show({ value: e.reassignmentsGiven })}/${show({ value: e.reassignmentsReceived })}`;
     const cycle = `${e.medianCycleDaysFirstHalf}/${e.medianCycleDaysSecondHalf}`;
 
-    return `| ${e.accountId} | ${e.displayName} | ${e.active ? 'yes' : 'no'} | ${e.ticketCount} | ${e.storyPointsTotal} | ${mix} | ${show({ value: e.reopenRate })} | ${reassign} | ${e.helpGiven} | ${e.helpReceived} | ${e.weekendOffHoursShare} | ${cycle} |`;
+    return `| ${e.accountId} | ${e.displayName} | ${e.active ? 'yes' : 'no'} | ${e.ticketCount} | ${e.storyPointsTotal} | ${mix} | ${show({ value: e.reopenRate })} | ${reassign} | ${show({ value: e.helpGiven })} | ${show({ value: e.helpReceived })} | ${e.weekendOffHoursShare} | ${cycle} |`;
   });
 
   return [header, divider, ...rows].join('\n');
@@ -53,11 +53,34 @@ const renderRoster = ({ employees }: { employees: EmployeeMetric[] }): string =>
 
 /** Render the full ANALYTICS.md report body. */
 export const renderReport = ({ ontology }: { ontology: ExtractedOntology }): string => {
+  // H3: name only the sources actually provided. The both-sources header is
+  // byte-frozen; a Jira-only run drops the "and Slack" claim.
+  const sourceLine = ontology.slackProvided
+    ? 'number below is a structural proxy computed mechanically from a Jira and Slack'
+    : 'number below is a structural proxy computed mechanically from a Jira';
+
+  // AC-3: on a Jira-only run, declare exactly which signals went unmeasured.
+  // Absent on the both-sources path, so those bytes stay unchanged.
+  const notEvaluatedSection: string[] = ontology.slackProvided
+    ? []
+    : [
+        '## Not evaluated without a Slack export',
+        '',
+        'No Slack export was provided, so the following chat-derived signals could not',
+        'be evaluated and are omitted rather than guessed:',
+        '',
+        '- help given / received per person (shown as `n/a`)',
+        '- KNOWLEDGE FLOW help hubs',
+        '- INVISIBLE VALUE (chat help versus tracker weight)',
+        '- Slack-only incidents and the approval-vacuum pattern',
+        '',
+      ];
+
   const lines: string[] = [
     '# Org onboarding map',
     '',
     'This is an **onboarding map to verify in 1:1s, not a performance review**. Every',
-    'number below is a structural proxy computed mechanically from a Jira and Slack',
+    sourceLine,
     'export — no model read any message. Treat each figure as a question to ask, not a',
     'verdict. People are never ranked or scored; there is no composite number here.',
     '',
@@ -79,6 +102,7 @@ export const renderReport = ({ ontology }: { ontology: ExtractedOntology }): str
     'help hub, and a high ticket count can hide low-weight work with no help given.',
     'Read the two columns together, never one alone.',
     '',
+    ...notEvaluatedSection,
     '## Findings',
     '',
   ];

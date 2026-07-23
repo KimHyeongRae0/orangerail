@@ -61,6 +61,28 @@ describe('parseJira', () => {
     expect(parsed.changelogAvailable).toBe(false);
   });
 
+  it('marks storyPointsAvailable true when any issue carries numeric story points', () => {
+    const parsed = parseJira({
+      raw: { project: { key: 'COM' }, issues: [issue({ key: 'COM-1', storyPoints: 5 })] },
+    });
+
+    expect(parsed.storyPointsAvailable).toBe(true);
+  });
+
+  it('marks storyPointsAvailable false when every issue lacks story points', () => {
+    const parsed = parseJira({
+      raw: {
+        project: { key: 'COM' },
+        issues: [
+          issue({ key: 'COM-1', storyPoints: null }),
+          issue({ key: 'COM-2', storyPoints: null }),
+        ],
+      },
+    });
+
+    expect(parsed.storyPointsAvailable).toBe(false);
+  });
+
   it('extracts status transitions and assignee changes from the changelog', () => {
     const parsed = parseJira({
       raw: {

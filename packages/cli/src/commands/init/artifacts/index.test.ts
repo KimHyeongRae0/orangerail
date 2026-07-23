@@ -71,4 +71,30 @@ describe('buildOntology', () => {
     expect(ontology.findings.length).toBeGreaterThanOrEqual(5);
     expect(ontology.helps).toEqual([]);
   });
+
+  it('sets slackProvided from slackRaw presence, not a message count', () => {
+    expect(buildOntology({ jiraRaw, slackRaw }).ontology.slackProvided).toBe(true);
+    expect(buildOntology({ jiraRaw, slackRaw: undefined }).ontology.slackProvided).toBe(false);
+
+    // A provided-but-empty Slack export still counts as "Slack provided".
+    const emptyExport = { users: [], channels: [] };
+    expect(buildOntology({ jiraRaw, slackRaw: emptyExport }).ontology.slackProvided).toBe(true);
+  });
+
+  it('reports help metrics "unavailable" on a Jira-only run, numeric when Slack is provided', () => {
+    const jiraOnly = buildOntology({ jiraRaw, slackRaw: undefined }).ontology;
+    for (const e of jiraOnly.employees) {
+      expect(e.helpGiven).toBe('unavailable');
+      expect(e.helpReceived).toBe('unavailable');
+    }
+
+    const withEmptySlack = buildOntology({
+      jiraRaw,
+      slackRaw: { users: [], channels: [] },
+    }).ontology;
+    for (const e of withEmptySlack.employees) {
+      expect(typeof e.helpGiven).toBe('number');
+      expect(typeof e.helpReceived).toBe('number');
+    }
+  });
 });

@@ -105,6 +105,7 @@ describe('computeFindings', () => {
     slack,
     identity,
     people,
+    slackProvided: true,
   });
 
   it('emits the required finding categories', () => {
@@ -135,5 +136,59 @@ describe('computeFindings', () => {
   it('detects the deploy with no approval after the historical approver stops', () => {
     const vacuum = findings.find((f) => /approval/i.test(f.title))!;
     expect(JSON.stringify(vacuum.pointer)).toContain('COM-99');
+  });
+});
+
+describe('computeFindings — Jira-only (no Slack export provided)', () => {
+  const jiraOnly = computeFindings({
+    employees: [
+      employee({ accountId: 'acc_a', storyPointsTotal: 80, helpGiven: 0 }),
+      employee({ accountId: 'acc_b', storyPointsTotal: 20, helpGiven: 0 }),
+    ],
+    services,
+    incidents,
+    helpGiven: new Map(),
+    slack: parseSlack({ raw: { users: [], channels: [] } }),
+    identity: { userToAccount: new Map(), diagnostics: [] },
+    people,
+    slackProvided: false,
+  });
+
+  it('marks the four Slack-dependent findings as "not evaluated - no Slack export"', () => {
+    for (const id of [2, 3, 4, 6]) {
+      const f = jiraOnly.find((x) => x.id === id)!;
+      expect(f).toBeDefined();
+      expect(/not evaluated/i.test(f.detail)).toBe(true);
+      expect(/slack/i.test(f.detail)).toBe(true);
+    }
+  });
+
+  it('never asserts a superlative over an unavailable/0 help value', () => {
+    const text = JSON.stringify(jiraOnly);
+    for (const phrase of ['top help-giver', 'help interactions total', 'helpGiven=0']) {
+      expect(text.includes(phrase)).toBe(false);
+    }
+    expect(text.includes('NaN')).toBe(false);
+  });
+
+  it('still emits the Jira-only findings (workload, bus factor) when evidenced', () => {
+    expect(jiraOnly.find((f) => f.id === 1)).toBeDefined();
+    expect(jiraOnly.find((f) => f.id === 5)).toBeDefined();
+  });
+
+  it('drops evidence-free findings on an empty corpus', () => {
+    const empty = computeFindings({
+      employees: [],
+      services: [],
+      incidents: [],
+      helpGiven: new Map(),
+      slack: parseSlack({ raw: { users: [], channels: [] } }),
+      identity: { userToAccount: new Map(), diagnostics: [] },
+      people: [],
+      slackProvided: false,
+    });
+
+    expect(empty.find((f) => f.id === 1)).toBeUndefined();
+    expect(empty.find((f) => f.id === 5)).toBeUndefined();
   });
 });
