@@ -75,7 +75,14 @@ const workloadFinding = ({ employees }: { employees: EmployeeMetric[] }): OrgFin
   );
   const top = ranked.slice(0, 2);
   const topPoints = top.reduce((sum, e) => sum + e.storyPointsTotal, 0);
-  const share = total === 0 ? 0 : Math.round((topPoints / total) * 1000) / 10;
+
+  // ONT-013 D1: a "share of team total" can never exceed 100%. The D2 parse
+  // boundary already excludes negative points (so `total >= 0` and, since `top`
+  // is a subset of `employees`, `topPoints <= total`), and the R1 gate above
+  // drops the finding when `total === 0`; this clamp is self-documenting
+  // defense-in-depth — a strict no-op on valid input (a real top-2 share is
+  // already <= 100) that makes an above-100 percentage structurally impossible.
+  const share = Math.min(100, Math.round((topPoints / total) * 1000) / 10);
 
   return {
     id: 1,
@@ -97,17 +104,23 @@ const workloadFinding = ({ employees }: { employees: EmployeeMetric[] }): OrgFin
 const invisibleValueFinding = ({
   employees,
   slackProvided,
+  orgEmpty,
 }: {
   employees: EmployeeMetric[];
   slackProvided: boolean;
+  orgEmpty: boolean;
 }): OrgFinding | null => {
   // H2/H4: help is Slack-derived. Mark, never assert a superlative over 0/absent.
+  // ONT-013 D3: on a truly empty org there is nothing to not-evaluate, so drop
+  // the placeholder entirely (never emit a "not evaluated" note for no one).
   if (!slackProvided) {
-    return notEvaluated({
-      id: 2,
-      title: 'INVISIBLE VALUE (chat help vs tracker weight)',
-      signal: 'chat help versus tracker weight (helpGiven)',
-    });
+    return orgEmpty
+      ? null
+      : notEvaluated({
+          id: 2,
+          title: 'INVISIBLE VALUE (chat help vs tracker weight)',
+          signal: 'chat help versus tracker weight (helpGiven)',
+        });
   }
 
   // R1: no people -> no finding.
@@ -147,19 +160,24 @@ const processGapFinding = ({
   slack,
   identity,
   slackProvided,
+  orgEmpty,
 }: {
   incidents: IncidentInstance[];
   slack: ParsedSlack;
   identity: SlackIdentity;
   slackProvided: boolean;
+  orgEmpty: boolean;
 }): OrgFinding | null => {
   // H2/H4: both halves of this finding are Slack-derived.
+  // ONT-013 D3: drop the placeholder on a truly empty org.
   if (!slackProvided) {
-    return notEvaluated({
-      id: 3,
-      title: 'PROCESS GAPS (Slack-only incidents + ticket-less deploys)',
-      signal: 'Slack-only incidents and ticket-less deploy threads',
-    });
+    return orgEmpty
+      ? null
+      : notEvaluated({
+          id: 3,
+          title: 'PROCESS GAPS (Slack-only incidents + ticket-less deploys)',
+          signal: 'Slack-only incidents and ticket-less deploy threads',
+        });
   }
 
   const ticketlessIncidents = incidents
@@ -214,19 +232,24 @@ const approvalVacuumFinding = ({
   identity,
   people,
   slackProvided,
+  orgEmpty,
 }: {
   slack: ParsedSlack;
   identity: SlackIdentity;
   people: Person[];
   slackProvided: boolean;
+  orgEmpty: boolean;
 }): OrgFinding | null => {
   // H2/H4: entirely Slack deploy-thread derived.
+  // ONT-013 D3: drop the placeholder on a truly empty org.
   if (!slackProvided) {
-    return notEvaluated({
-      id: 4,
-      title: 'APPROVAL VACUUM (post-departure deploys)',
-      signal: 'the post-departure approval vacuum in deploy threads',
-    });
+    return orgEmpty
+      ? null
+      : notEvaluated({
+          id: 4,
+          title: 'APPROVAL VACUUM (post-departure deploys)',
+          signal: 'the post-departure approval vacuum in deploy threads',
+        });
   }
 
   const threads = groupThreads({ messages: slack.messages });
@@ -347,18 +370,23 @@ const knowledgeFlowFinding = ({
   helpGiven,
   people,
   slackProvided,
+  orgEmpty,
 }: {
   helpGiven: Map<string, number>;
   people: Person[];
   slackProvided: boolean;
+  orgEmpty: boolean;
 }): OrgFinding | null => {
   // H2/H4: the help graph is Slack-derived — never a superlative over 0/absent.
+  // ONT-013 D3: drop the placeholder on a truly empty org.
   if (!slackProvided) {
-    return notEvaluated({
-      id: 6,
-      title: 'KNOWLEDGE FLOW (help hubs)',
-      signal: 'help-graph hubs (help interactions)',
-    });
+    return orgEmpty
+      ? null
+      : notEvaluated({
+          id: 6,
+          title: 'KNOWLEDGE FLOW (help hubs)',
+          signal: 'help-graph hubs (help interactions)',
+        });
   }
 
   const helpGivenByAccountId: Record<string, number> = {};
@@ -403,12 +431,18 @@ export const computeFindings = ({
   identity: SlackIdentity;
   people: Person[];
   slackProvided: boolean;
-}): OrgFinding[] =>
-  [
+}): OrgFinding[] => {
+  // ONT-013 D3: employees are derived from Jira accounts, so 0 recognized
+  // issues -> 0 accounts -> 0 employees. On a truly empty org there is nothing
+  // to not-evaluate, so the Slack-dependent placeholder findings are dropped.
+  const orgEmpty = employees.length === 0;
+
+  return [
     workloadFinding({ employees }),
-    invisibleValueFinding({ employees, slackProvided }),
-    processGapFinding({ incidents, slack, identity, slackProvided }),
-    approvalVacuumFinding({ slack, identity, people, slackProvided }),
+    invisibleValueFinding({ employees, slackProvided, orgEmpty }),
+    processGapFinding({ incidents, slack, identity, slackProvided, orgEmpty }),
+    approvalVacuumFinding({ slack, identity, people, slackProvided, orgEmpty }),
     busFactorFinding({ services }),
-    knowledgeFlowFinding({ helpGiven, people, slackProvided }),
+    knowledgeFlowFinding({ helpGiven, people, slackProvided, orgEmpty }),
   ].filter((finding): finding is OrgFinding => finding !== null);
+};

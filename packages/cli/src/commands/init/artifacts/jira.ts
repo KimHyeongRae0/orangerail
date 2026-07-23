@@ -60,6 +60,8 @@ export const parseJira = ({ raw }: { raw: unknown }): ParsedJira => {
   const rawIssues = Array.isArray(root['issues']) ? root['issues'] : [];
   let changelogAvailable = false;
   let storyPointsAvailable = false;
+  let invalidStoryPoints = 0;
+  let invertedDatePairs = 0;
   const issues: JiraIssue[] = [];
 
   for (const rawIssue of rawIssues) {
@@ -87,10 +89,33 @@ export const parseJira = ({ raw }: { raw: unknown }): ParsedJira => {
       accounts.set(reporter.id, reporter.name);
     }
 
+    // ONT-013 D2: a story point is trusted only when it is a finite, non-negative
+    // number. A negative or non-finite value is invalid == absent (parsed to
+    // `null`, exactly like a missing field), so it never shrinks a downstream
+    // total and never sets `storyPointsAvailable` — an all-invalid corpus is
+    // treated identically to an all-absent one. Invalid numeric values are
+    // counted for an aggregate data-quality diagnostic (AC-3).
+    const rawPoints = fields['customfield_10016'];
     const storyPoints =
-      typeof fields['customfield_10016'] === 'number' ? fields['customfield_10016'] : null;
+      typeof rawPoints === 'number' && Number.isFinite(rawPoints) && rawPoints >= 0
+        ? rawPoints
+        : null;
     if (storyPoints !== null) {
       storyPointsAvailable = true;
+    } else if (typeof rawPoints === 'number') {
+      invalidStoryPoints += 1;
+    }
+
+    // ONT-013 D2: an issue whose `created` post-dates its `resolutiondate` (a
+    // common Jira import/backfill artifact) is counted here so its excluded
+    // cycle sample surfaces as an aggregate diagnostic (AC-3). The exclusion
+    // itself lives in metrics.ts; both layers read the same strings and agree.
+    if (typeof fields['created'] === 'string' && typeof fields['resolutiondate'] === 'string') {
+      const createdMs = Date.parse(fields['created']);
+      const resolvedMs = Date.parse(fields['resolutiondate']);
+      if (Number.isFinite(createdMs) && Number.isFinite(resolvedMs) && resolvedMs < createdMs) {
+        invertedDatePairs += 1;
+      }
     }
     const issuetype = ((fields['issuetype'] ?? {}) as Record<string, unknown>)['name'];
     const status = ((fields['status'] ?? {}) as Record<string, unknown>)['name'];
@@ -141,6 +166,17 @@ export const parseJira = ({ raw }: { raw: unknown }): ParsedJira => {
       statusTransitions,
       assigneeChanges,
     });
+  }
+
+  if (invalidStoryPoints > 0) {
+    diagnostics.push(
+      `excluded ${invalidStoryPoints} invalid story-point value(s) (negative or non-finite) from customfield_10016`,
+    );
+  }
+  if (invertedDatePairs > 0) {
+    diagnostics.push(
+      `excluded ${invertedDatePairs} issue(s) from cycle-time stats (created after resolutiondate)`,
+    );
   }
 
   return {

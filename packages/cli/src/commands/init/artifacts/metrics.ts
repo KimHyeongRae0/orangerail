@@ -173,7 +173,12 @@ export const computeMetrics = ({
         a.lastActivity = Math.max(a.lastActivity, resolved);
       }
 
-      if (created !== null && resolved !== null) {
+      // ONT-013 D2: only a non-inverted pair contributes a cycle sample. When
+      // `created` post-dates `resolutiondate` (or either date is unparseable,
+      // yielding NaN — for which `resolved >= created` is false), that issue's
+      // cycle is unavailable, so the median is taken over the valid remainder
+      // and can never render negative.
+      if (created !== null && resolved !== null && resolved >= created) {
         const cycleDays = (resolved - created) / DAY_MS;
         if (created < halfSplit) {
           a.cycleFirstHalf.push(cycleDays);

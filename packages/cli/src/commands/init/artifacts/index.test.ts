@@ -81,6 +81,27 @@ describe('buildOntology', () => {
     expect(buildOntology({ jiraRaw, slackRaw: emptyExport }).ontology.slackProvided).toBe(true);
   });
 
+  it('returns recognizedIssueCount 0 for degenerate export shapes (ONT-013 D3)', () => {
+    for (const jira of [[], {}, { issues: {} }, { issues: [] }]) {
+      expect(buildOntology({ jiraRaw: jira, slackRaw: undefined }).recognizedIssueCount).toBe(0);
+    }
+  });
+
+  it('returns recognizedIssueCount > 0 for a valid export, including all-unassigned', () => {
+    expect(buildOntology({ jiraRaw, slackRaw: undefined }).recognizedIssueCount).toBe(2);
+
+    const allUnassigned = {
+      project: { key: 'COM', name: 'Commerce' },
+      issues: jiraRaw.issues.map((issue) => ({
+        ...issue,
+        fields: { ...issue.fields, assignee: null },
+      })),
+    };
+    expect(
+      buildOntology({ jiraRaw: allUnassigned, slackRaw: undefined }).recognizedIssueCount,
+    ).toBeGreaterThan(0);
+  });
+
   it('reports help metrics "unavailable" on a Jira-only run, numeric when Slack is provided', () => {
     const jiraOnly = buildOntology({ jiraRaw, slackRaw: undefined }).ontology;
     for (const e of jiraOnly.employees) {

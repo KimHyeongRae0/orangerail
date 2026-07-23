@@ -11,6 +11,59 @@ import type { EmployeeMetric, ExtractedOntology, MetricOrUnavailable } from './t
 const show = ({ value }: { value: MetricOrUnavailable }): string =>
   value === 'unavailable' ? 'n/a' : String(value);
 
+/**
+ * ONT-013 D4: cap an over-long display string for the human-readable table
+ * only. A pathological field (e.g. a 1 MB displayName) is truncated to 80
+ * characters + a three-dot ASCII ellipsis so it cannot bloat or break the
+ * ANALYTICS.md roster table. The raw value in `data/*.json` is untouched — the
+ * emitter serializes ontology fields directly, so only this display is bounded.
+ */
+const truncateDisplay = ({ value }: { value: string }): string =>
+  value.length > 80 ? `${value.slice(0, 80)}...` : value;
+
+/**
+ * The person-name display fields that can carry a free-form, attacker-controlled
+ * value (a Jira `displayName`) into a finding's evidence pointer — e.g. the
+ * bus-factor pointer's per-service `assignees[].displayName` or the workload
+ * pointer's `names[]`. These are capped for the ANALYTICS.md render only; every
+ * other pointer string (formula text, thread notes) is left verbatim.
+ */
+const DISPLAY_NAME_KEYS = new Set(['displayName', 'names', 'who']);
+
+/**
+ * ONT-013 D4: deep-copy a finding pointer, capping only the person-name display
+ * fields so a pathological `displayName` cannot bloat or break ANALYTICS.md when
+ * it surfaces inside a finding's evidence pointer (the roster cell is capped
+ * separately). The original ontology object is never mutated, so `data/*.json`
+ * (serialized directly by the emitter) keeps the raw value. A strict no-op on
+ * well-formed input where every name is far below the 80-char cap.
+ */
+const capPointerDisplayNames = ({
+  value,
+  keyIsDisplay,
+}: {
+  value: unknown;
+  keyIsDisplay: boolean;
+}): unknown => {
+  if (typeof value === 'string') {
+    return keyIsDisplay ? truncateDisplay({ value }) : value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => capPointerDisplayNames({ value: entry, keyIsDisplay }));
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = capPointerDisplayNames({ value: v, keyIsDisplay: DISPLAY_NAME_KEYS.has(k) });
+    }
+    return out;
+  }
+
+  return value;
+};
+
 const METRIC_FORMULAS: [string, string][] = [
   ['ticketCount', 'count of Jira issues assigned to the person'],
   ['storyPointsTotal', 'sum of customfield_10016 over assigned issues'],
@@ -45,7 +98,7 @@ const renderRoster = ({ employees }: { employees: EmployeeMetric[] }): string =>
     const reassign = `${show({ value: e.reassignmentsGiven })}/${show({ value: e.reassignmentsReceived })}`;
     const cycle = `${e.medianCycleDaysFirstHalf}/${e.medianCycleDaysSecondHalf}`;
 
-    return `| ${e.accountId} | ${e.displayName} | ${e.active ? 'yes' : 'no'} | ${e.ticketCount} | ${e.storyPointsTotal} | ${mix} | ${show({ value: e.reopenRate })} | ${reassign} | ${show({ value: e.helpGiven })} | ${show({ value: e.helpReceived })} | ${e.weekendOffHoursShare} | ${cycle} |`;
+    return `| ${e.accountId} | ${truncateDisplay({ value: e.displayName })} | ${e.active ? 'yes' : 'no'} | ${e.ticketCount} | ${e.storyPointsTotal} | ${mix} | ${show({ value: e.reopenRate })} | ${reassign} | ${show({ value: e.helpGiven })} | ${show({ value: e.helpReceived })} | ${e.weekendOffHoursShare} | ${cycle} |`;
   });
 
   return [header, divider, ...rows].join('\n');
@@ -115,7 +168,13 @@ export const renderReport = ({ ontology }: { ontology: ExtractedOntology }): str
     lines.push('Evidence pointer:');
     lines.push('');
     lines.push('```json');
-    lines.push(JSON.stringify(finding.pointer, null, 2));
+    lines.push(
+      JSON.stringify(
+        capPointerDisplayNames({ value: finding.pointer, keyIsDisplay: false }),
+        null,
+        2,
+      ),
+    );
     lines.push('```');
     lines.push('');
   }

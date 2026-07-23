@@ -76,4 +76,67 @@ describe('renderReport', () => {
     expect(both.includes('Jira and Slack')).toBe(true);
     expect(/not evaluated without a slack export/i.test(both)).toBe(false);
   });
+
+  it('truncates an over-long display name in the roster cell with "..." (ONT-013 D4)', () => {
+    const giant = 'X'.repeat(1000);
+    const withGiant = renderReport({
+      ontology: {
+        ...ontology,
+        employees: [{ ...ontology.employees[0]!, displayName: giant }],
+      },
+    });
+
+    expect(withGiant.includes(giant)).toBe(false);
+    expect(withGiant.includes(`${giant.slice(0, 80)}...`)).toBe(true);
+  });
+
+  it('renders a short display name verbatim (no truncation on valid input)', () => {
+    expect(report.includes('| Ann A |')).toBe(true);
+  });
+
+  it('caps a display name that surfaces inside a finding pointer, leaving data raw (ONT-013 D4)', () => {
+    const giant = 'X'.repeat(1000);
+    const withGiantPointer = renderReport({
+      ontology: {
+        ...ontology,
+        findings: [
+          {
+            id: 5,
+            title: 'BUS FACTOR (per-service ownership)',
+            detail: 'x',
+            pointer: {
+              services: [
+                {
+                  id: 'svc',
+                  assignees: [{ accountId: 'acc_giant', displayName: giant, count: 1 }],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(withGiantPointer.includes(giant)).toBe(false);
+    expect(withGiantPointer.includes(`${giant.slice(0, 80)}...`)).toBe(true);
+  });
+
+  it('leaves a long non-name pointer string (e.g. a thread note) untouched (AC-7 safety)', () => {
+    const note = 'N'.repeat(113);
+    const withNote = renderReport({
+      ontology: {
+        ...ontology,
+        findings: [
+          {
+            id: 3,
+            title: 'PROCESS GAPS',
+            detail: 'x',
+            pointer: { hotfixNoTicket: [{ thread_ts: '1.1', note }] },
+          },
+        ],
+      },
+    });
+
+    expect(withNote.includes(note)).toBe(true);
+  });
 });

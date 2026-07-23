@@ -191,4 +191,74 @@ describe('computeFindings — Jira-only (no Slack export provided)', () => {
     expect(empty.find((f) => f.id === 1)).toBeUndefined();
     expect(empty.find((f) => f.id === 5)).toBeUndefined();
   });
+
+  it('drops the four Slack-dependent placeholders when the org is empty (ONT-013 D3)', () => {
+    const empty = computeFindings({
+      employees: [],
+      services: [],
+      incidents: [],
+      helpGiven: new Map(),
+      slack: parseSlack({ raw: { users: [], channels: [] } }),
+      identity: { userToAccount: new Map(), diagnostics: [] },
+      people: [],
+      slackProvided: false,
+    });
+
+    expect(empty).toEqual([]);
+    for (const id of [2, 3, 4, 6]) {
+      expect(empty.find((f) => f.id === id)).toBeUndefined();
+    }
+  });
+});
+
+describe('computeFindings — ONT-013 D1 share clamp', () => {
+  const clampEmployee = ({
+    accountId,
+    storyPointsTotal,
+  }: {
+    accountId: string;
+    storyPointsTotal: number;
+  }): EmployeeMetric => ({
+    accountId,
+    displayName: accountId,
+    active: true,
+    ticketCount: 5,
+    storyPointsTotal,
+    complexityMix: { hi: 1, med: 2, lo: 2 },
+    medianCycleDaysFirstHalf: 1,
+    medianCycleDaysSecondHalf: 1,
+    reopenRate: 0,
+    reassignmentsGiven: 0,
+    reassignmentsReceived: 0,
+    helpGiven: 0,
+    helpReceived: 0,
+    weekendOffHoursShare: 0,
+  });
+
+  it('clamps the workload share to <= 100 even if a stray negative total shrinks the denominator', () => {
+    // A negative total on a non-top-2 employee makes top2 sum exceed the grand
+    // total; the clamp keeps the rendered share <= 100 (defense-in-depth).
+    const findings = computeFindings({
+      employees: [
+        clampEmployee({ accountId: 'acc_a', storyPointsTotal: 100 }),
+        clampEmployee({ accountId: 'acc_b', storyPointsTotal: 20 }),
+        clampEmployee({ accountId: 'acc_c', storyPointsTotal: -100 }),
+      ],
+      services: [],
+      incidents: [],
+      helpGiven: new Map(),
+      slack: parseSlack({ raw: { users: [], channels: [] } }),
+      identity: { userToAccount: new Map(), diagnostics: [] },
+      people: [
+        { accountId: 'acc_a', displayName: 'acc_a' },
+        { accountId: 'acc_b', displayName: 'acc_b' },
+        { accountId: 'acc_c', displayName: 'acc_c' },
+      ],
+      slackProvided: false,
+    });
+
+    const workload = findings.find((f) => f.id === 1)!;
+    expect(workload).toBeDefined();
+    expect((workload.pointer as { sharePct: number }).sharePct).toBeLessThanOrEqual(100);
+  });
 });

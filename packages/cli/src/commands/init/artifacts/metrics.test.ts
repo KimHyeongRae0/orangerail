@@ -176,6 +176,60 @@ describe('computeMetrics', () => {
     expect(to.reassignmentsReceived).toBe(1);
   });
 
+  it('excludes an inverted (created after resolutiondate) cycle and keeps the median non-negative', () => {
+    const jira = jiraWith({
+      issues: [
+        // Valid: created before resolved -> positive cycle.
+        mkIssue({
+          key: 'C1',
+          accountId: 'acc_p',
+          storyPoints: 3,
+          created: '2025-05-01T10:00:00.000Z',
+          resolutiondate: '2025-05-05T10:00:00.000Z',
+        }),
+        // Inverted: created AFTER resolved -> would be a negative cycle; excluded.
+        mkIssue({
+          key: 'C2',
+          accountId: 'acc_p',
+          storyPoints: 3,
+          created: '2025-05-20T10:00:00.000Z',
+          resolutiondate: '2025-05-10T10:00:00.000Z',
+        }),
+      ],
+    });
+
+    const [p] = computeMetrics({ jira, slack: emptySlack(), identity: noIdentity(), people });
+
+    expect(p!.medianCycleDaysFirstHalf).toBeGreaterThanOrEqual(0);
+    expect(p!.medianCycleDaysSecondHalf).toBeGreaterThanOrEqual(0);
+  });
+
+  it('keeps storyPointsTotal at 0 and degrades complexity when all points are invalid', () => {
+    const jira = jiraWith({
+      issues: [
+        mkIssue({
+          key: 'C1',
+          accountId: 'acc_p',
+          storyPoints: -5,
+          created: '2025-05-01T10:00:00.000Z',
+        }),
+        mkIssue({
+          key: 'C2',
+          accountId: 'acc_p',
+          storyPoints: -1,
+          created: '2025-05-01T10:00:00.000Z',
+        }),
+      ],
+    });
+
+    const [p] = computeMetrics({ jira, slack: emptySlack(), identity: noIdentity(), people });
+
+    expect(p!.storyPointsTotal).toBe(0);
+    expect(p!.storyPointsTotal).toBeGreaterThanOrEqual(0);
+    expect(p!.complexityMix).toEqual({ hi: 0, med: 0, lo: 2 });
+    expect(p!.complexityMix.lo).toBe(p!.ticketCount);
+  });
+
   it('produces byte-identical output on repeated runs (determinism)', () => {
     const issues = [
       mkIssue({
