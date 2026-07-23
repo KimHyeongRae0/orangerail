@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { GraphSnapshot, InstanceSnapshot } from 'orangerail-studio/snapshot';
 
-import { createStudioServer, resolveStaticPath } from './server';
+import { createStudioServer, isAllowedHost, resolveStaticPath } from './server';
 
 const snapshot: GraphSnapshot = {
   objects: [{ name: 'alpha', fields: [], readAccess: 'authenticated', hasResolve: true }],
@@ -55,6 +55,45 @@ describe('resolveStaticPath (AC-7 containment)', () => {
   it('rejects raw and encoded traversal', () => {
     expect(resolveStaticPath({ appDir, urlPath: '/../../package.json' })).toBeNull();
     expect(resolveStaticPath({ appDir, urlPath: '/%2e%2e%2f%2e%2e%2fpackage.json' })).toBeNull();
+  });
+});
+
+describe('isAllowedHost (ONT-016 M-DNSREBIND allowlist)', () => {
+  const port = 4893;
+
+  it('allows the loopback names on the bound port (case-insensitive, incl. IPv6)', () => {
+    expect(isAllowedHost({ host: `127.0.0.1:${port}`, port })).toBe(true);
+    expect(isAllowedHost({ host: `localhost:${port}`, port })).toBe(true);
+    expect(isAllowedHost({ host: `LocalHost:${port}`, port })).toBe(true);
+    expect(isAllowedHost({ host: `[::1]:${port}`, port })).toBe(true);
+  });
+
+  it('denies a missing Host header', () => {
+    expect(isAllowedHost({ host: undefined, port })).toBe(false);
+  });
+
+  it('denies a spoofed hostname regardless of port', () => {
+    expect(isAllowedHost({ host: 'evil.attacker.com', port })).toBe(false);
+    expect(isAllowedHost({ host: `evil.attacker.com:${port}`, port })).toBe(false);
+  });
+
+  it('denies a bare loopback host with no port', () => {
+    expect(isAllowedHost({ host: '127.0.0.1', port })).toBe(false);
+    expect(isAllowedHost({ host: 'localhost', port })).toBe(false);
+  });
+
+  it('denies a loopback host on the wrong port', () => {
+    expect(isAllowedHost({ host: `127.0.0.1:1`, port })).toBe(false);
+    expect(isAllowedHost({ host: `localhost:${port + 1}`, port })).toBe(false);
+  });
+
+  it('denies a non-loopback IPv6 address', () => {
+    expect(isAllowedHost({ host: `[2001:db8::1]:${port}`, port })).toBe(false);
+  });
+
+  it('denies a garbage-suffixed (non-all-digit) port', () => {
+    expect(isAllowedHost({ host: `127.0.0.1:${port}evil.com`, port })).toBe(false);
+    expect(isAllowedHost({ host: `127.0.0.1:${port}abc`, port })).toBe(false);
   });
 });
 
@@ -172,5 +211,88 @@ describe('createStudioServer (plan section 3.6)', () => {
     });
 
     expect(received).toContain('event: change');
+  });
+
+  const rawWithHost = ({ path, host }: { path: string; host: string }) =>
+    new Promise<{ status: number }>((resolve, reject) => {
+      const url = new URL(base);
+      const req = request(
+        { host: url.hostname, port: url.port, method: 'GET', path, headers: { host } },
+        (res) => {
+          res.on('data', () => {});
+          res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+
+  it('rejects a spoofed Host with 403 on /api/registry and /api/instances (M-DNSREBIND)', async () => {
+    expect((await rawWithHost({ path: '/api/registry', host: 'evil.attacker.com' })).status).toBe(
+      403,
+    );
+    expect((await rawWithHost({ path: '/api/instances', host: 'evil.attacker.com' })).status).toBe(
+      403,
+    );
+  });
+
+  it('rejects a loopback Host on the wrong port with 403', async () => {
+    expect((await rawWithHost({ path: '/api/registry', host: '127.0.0.1:1' })).status).toBe(403);
+  });
+
+  it('still serves loopback fetches (localhost + 127.0.0.1) with 200', async () => {
+    const url = new URL(base);
+    expect(
+      (await rawWithHost({ path: '/api/registry', host: `127.0.0.1:${url.port}` })).status,
+    ).toBe(200);
+    expect(
+      (await rawWithHost({ path: '/api/registry', host: `localhost:${url.port}` })).status,
+    ).toBe(200);
+  });
+
+  it('caps SSE connections: the (MAX+1)th /api/events connection is 503 (L-SSE-UNBOUNDED)', async () => {
+    const MAX_SSE_CLIENTS = 16;
+    const url = new URL(base);
+
+    const openSse = () =>
+      new Promise<{ status: number; req: ReturnType<typeof request> }>((resolve, reject) => {
+        const req = request(
+          { host: url.hostname, port: url.port, method: 'GET', path: '/api/events' },
+          (res) => {
+            res.on('data', () => {});
+            resolve({ status: res.statusCode ?? 0, req });
+          },
+        );
+        req.on('error', (err) => {
+          if ((err as NodeJS.ErrnoException).code !== 'ECONNRESET') {
+            reject(err);
+          }
+        });
+        req.end();
+      });
+
+    const opened: Array<ReturnType<typeof request>> = [];
+
+    try {
+      for (let i = 0; i < MAX_SSE_CLIENTS; i += 1) {
+        const handle = await openSse();
+        opened.push(handle.req);
+        expect(handle.status).toBe(200);
+      }
+
+      const overflow = await openSse();
+      overflow.req.destroy();
+      expect(overflow.status).toBe(503);
+    } finally {
+      for (const req of opened) {
+        req.destroy();
+      }
+    }
+
+    // Self-healing: after releasing the admitted clients a new connection is 200.
+    await new Promise((done) => setTimeout(done, 200));
+    const afterFree = await openSse();
+    expect(afterFree.status).toBe(200);
+    afterFree.req.destroy();
   });
 });

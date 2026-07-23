@@ -100,8 +100,12 @@ export const runStudio = async ({
           broadcast({ event: 'change', data: '1' });
         },
         onError: ({ message }) => {
+          // ONT-016 L-SSE-PATHLEAK: the detailed message (which carries the
+          // absolute config path) stays on the operator's own stderr; the SSE
+          // client receives only a generic signal with no path (the client
+          // discards the data and merely flips a banner — App.tsx).
           process.stderr.write(`orangerail studio: reload failed — ${message}\n`);
-          broadcast({ event: 'reload-error', data: message.replace(/\n/g, ' ') });
+          broadcast({ event: 'reload-error', data: '1' });
         },
       });
 
