@@ -1,9 +1,28 @@
 {
   "name": "orangerail-core",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
   "description": "orangerail core: defineObject / defineLink / defineAction, policy engine, governed action lifecycle, store contract",
+  "keywords": [
+    "ontology",
+    "agent",
+    "governance",
+    "mcp",
+    "zod",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "HyeongRae Kim",
+  "homepage": "https://github.com/orangerail/orangerail#readme",
+  "bugs": "https://github.com/orangerail/orangerail/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orangerail/orangerail.git",
+    "directory": "packages/core"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

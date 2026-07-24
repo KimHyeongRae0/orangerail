@@ -1,9 +1,28 @@
 {
   "name": "orangerail",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
   "description": "orangerail cli (npm bin `orangerail`): approvals list/show/approve/reject, audit verify, store unlock, mcp server launcher",
+  "keywords": [
+    "ontology",
+    "agent",
+    "governance",
+    "mcp",
+    "cli",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "HyeongRae Kim",
+  "homepage": "https://github.com/orangerail/orangerail#readme",
+  "bugs": "https://github.com/orangerail/orangerail/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orangerail/orangerail.git",
+    "directory": "packages/cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "orangerail": "./dist/main.js"
   },

@@ -1,9 +1,28 @@
 {
   "name": "orangerail-mcp",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
   "description": "orangerail mcp: generate a governed MCP server (read tools + staged write-actions + approval re-check) from an ontology registry",
+  "keywords": [
+    "ontology",
+    "agent",
+    "governance",
+    "mcp",
+    "model-context-protocol",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "HyeongRae Kim",
+  "homepage": "https://github.com/orangerail/orangerail#readme",
+  "bugs": "https://github.com/orangerail/orangerail/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orangerail/orangerail.git",
+    "directory": "packages/mcp"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

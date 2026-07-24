@@ -1,0 +1,11 @@
+{
+  "name": "ont-019-fixture-notes",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture for orangerail init on a Prisma SQLite source: a single Note model exercising the from-registry boot (init -> mcp -> governed write loop) after installing the packed tarballs into an out-of-repo prefix. Copied into an out-of-repo scratch project dir by the ONT-019 e2e so resolution never walks up to the monorepo node_modules. Declares prisma + @prisma/client so the generated client can be built without a network install.",
+  "devDependencies": {
+    "prisma": "^6",
+    "@prisma/client": "^6"
+  }
+}
