@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/release-dry-run.sh
 #
-# Offline, idempotent release readiness check for the five @orangerail/* packages.
+# Offline, idempotent release readiness check for the five orangerail packages.
 # It NEVER publishes — it runs `pnpm publish --dry-run` and `pnpm pack` only, and
 # inspects the produced tarballs. Safe to run any number of times.
 #
@@ -14,11 +14,9 @@
 #      publishable (no `workspace:` spec survives, `dist` is shipped).
 #   3. Publish, in dependency (topological) order:
 #          core -> docs-gen -> mcp -> studio -> cli
-#      All five share ONE coordinated version (v0 line: 0.1.0). Because the
-#      packages are scoped (@orangerail/*), their FIRST publish defaults to
-#      restricted — each manifest carries `publishConfig.access: "public"`, so a
-#      plain `pnpm publish` is public. If ever publishing by hand, pass
-#      `--access public` explicitly.
+#      All five share ONE coordinated version (v0 line: 0.1.0). The packages are
+#      unscoped, so they publish public by default; each manifest also carries
+#      `publishConfig.access: "public"` (harmless for unscoped, explicit intent).
 #   4. The one-command path once this script is green:
 #          pnpm -r --filter "./packages/**" publish
 #      (pnpm walks the packages in topological order and rewrites the
@@ -84,7 +82,8 @@ for pkg in "${PACKAGES[@]}"; do
     fail "$dir tarball does not ship the built \`dist\`"
   fi
 
-  echo "  ok  @orangerail/$pkg -> $(basename "$tgz")"
+  name="$(printf '%s' "$manifest" | grep -m1 '"name"' | sed -E 's/.*"name":[[:space:]]*"([^"]+)".*/\1/')"
+  echo "  ok  $name -> $(basename "$tgz")"
 done
 
 echo -e "${BOLD}${GREEN}release dry-run OK — all five packages are publish-ready${NC}"
