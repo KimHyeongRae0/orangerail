@@ -13,11 +13,11 @@
   ],
   "license": "MIT",
   "author": "HyeongRae Kim",
-  "homepage": "https://github.com/orangerail/orangerail#readme",
-  "bugs": "https://github.com/orangerail/orangerail/issues",
+  "homepage": "https://github.com/KimHyeongRae0/orangerail#readme",
+  "bugs": "https://github.com/KimHyeongRae0/orangerail/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/orangerail/orangerail.git",
+    "url": "git+https://github.com/KimHyeongRae0/orangerail.git",
     "directory": "packages/mcp"
   },
   "publishConfig": {

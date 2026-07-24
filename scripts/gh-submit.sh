@@ -92,7 +92,7 @@ esac
 # ---- ensure labels exist (idempotent), assignee = authenticated user ----
 ASSIGNEE=$(gh api user --jq .login)
 for l in "${LABELS[@]}"; do
-  gh label create "$l" -R orangerail/orangerail 2>/dev/null || true
+  gh label create "$l" -R KimHyeongRae0/orangerail 2>/dev/null || true
 done
 
 LABEL_FLAGS=()
@@ -101,10 +101,10 @@ for l in "${LABELS[@]}"; do LABEL_FLAGS+=(--label "$l"); done
 info "kind=$KIND title='$TITLE' assignee=$ASSIGNEE labels=${LABELS[*]}"
 
 if [[ "$KIND" == "issue" ]]; then
-  gh issue create -R orangerail/orangerail --title "$TITLE" --body-file "$DRAFT" \
+  gh issue create -R KimHyeongRae0/orangerail --title "$TITLE" --body-file "$DRAFT" \
     --assignee "$ASSIGNEE" "${LABEL_FLAGS[@]}"
 else
-  gh pr create -R orangerail/orangerail --title "$TITLE" --body-file "$DRAFT" \
+  gh pr create -R KimHyeongRae0/orangerail --title "$TITLE" --body-file "$DRAFT" \
     --assignee "$ASSIGNEE" "${LABEL_FLAGS[@]}"
 fi
 ok "$KIND submitted"
