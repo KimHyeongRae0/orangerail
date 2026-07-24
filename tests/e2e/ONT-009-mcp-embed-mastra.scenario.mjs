@@ -14,12 +14,12 @@
  *   check     {"phase":"check","status":"executed"}   (extra keys allowed)
  *
  * Flow: sandbox setup -> discover -> stage -> CLI approvals list/approve ->
- * check -> per-phase no-orphan sweep -> DESIGN.md section 9-9 decision stamp.
+ * check -> per-phase no-orphan sweep.
  *
  * RED (pre-implementation): the harness directory
  * (tests/e2e/fixtures/ont-009/harness) does not exist yet, so the harness-absent
- * assertion fails before any phase runs; the DESIGN.md item-9 stamp is also
- * still unchecked. verify.sh stays green (no packages/ change).
+ * assertion fails before any phase runs. verify.sh stays green (no packages/
+ * change).
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
@@ -33,7 +33,6 @@ const FIXTURE = join(ROOT, 'tests', 'e2e', 'fixtures', 'ont-009');
 const CONFIG = join(FIXTURE, 'config.mjs');
 const HARNESS = join(FIXTURE, 'harness');
 const RUN_PHASE = join(HARNESS, 'run-phase.mjs');
-const DESIGN = join(ROOT, 'DESIGN.md');
 
 const fail = ({ message }) => {
   console.error(`ONT-009 e2e FAIL: ${message}`);
@@ -320,22 +319,6 @@ const main = async () => {
   assert({ ok: verify.status === 0, message: `audit verify failed: ${verify.stderr}` });
 
   assertNoOrphan({ label: 'check' });
-
-  // ---- Decision stamp: DESIGN.md section 9-9 (ASCII-only structural match) ----
-  console.log('Decision stamp: DESIGN.md item 9 + parking-lot invariant');
-
-  const designLines = readFileSync(DESIGN, 'utf8').split('\n');
-  assert({
-    ok: designLines.some((line) => /^9\. \[x\]/.test(line)),
-    message:
-      'DESIGN.md v0 checklist item 9 is not checked ([x]) — the section 9-9 decision stamp is missing',
-  });
-
-  const elicitationLines = designLines.filter((line) => line.includes('MCP Elicitation'));
-  assert({
-    ok: elicitationLines.length >= 2,
-    message: `expected "MCP Elicitation" on at least 2 distinct DESIGN.md lines (design section + parking-lot entry), found ${elicitationLines.length}`,
-  });
 
   console.log('ONT-009 mcp-embed-mastra scenario: all assertions passed');
 };

@@ -240,7 +240,8 @@ assert({
 });
 assert({
   ok: studioEntries.some((e) => e.startsWith('package/dist/node/')),
-  message: 'orangerail-studio: the tarball must ship the node-consumable snapshot entry (dist/node)',
+  message:
+    'orangerail-studio: the tarball must ship the node-consumable snapshot entry (dist/node)',
 });
 
 console.log('[phase 1] OK — all five tarballs carry the publish contract');

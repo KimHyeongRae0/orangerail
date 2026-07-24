@@ -170,7 +170,9 @@ export const runInit = async ({
   }
 
   if (!options.studio) {
-    process.stdout.write('\nDone. Run `orangerail studio` to explore the map, or `orangerail mcp`.\n');
+    process.stdout.write(
+      '\nDone. Run `orangerail studio` to explore the map, or `orangerail mcp`.\n',
+    );
     return 0;
   }
 

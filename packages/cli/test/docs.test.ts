@@ -9,7 +9,9 @@ import { z } from 'zod';
 import { runDocs } from '../src/commands/docs';
 import type { OrangerailConfig } from '../src/config';
 
-const buildConfig = ({ preset }: { preset?: OrangerailConfig['preset'] } = {}): OrangerailConfig => {
+const buildConfig = ({
+  preset,
+}: { preset?: OrangerailConfig['preset'] } = {}): OrangerailConfig => {
   const registry = createRegistry();
 
   registry.defineObject({
