@@ -254,9 +254,16 @@ const phaseReservedBinding = async () => {
 
 /** Phase 2 (AC-2): objects (and object-vs-action) are de-duplicated, none dropped. */
 const phaseObjectDedup = async ({ init }) => {
-  // 3 objects (A__B, A_B, Widget) + 1 action (Widget) = 4 distinct bindings.
-  // Pre-fix, A__B/A_B collapse into one A_B.mjs and the Widget object is
-  // overwritten by the Widget action -> only 2 files on disk.
+  // 3 objects (A__B, A_B, Widget) + 1 OpenAPI action (Widget). Since ONT-018,
+  // each Prisma model also synthesizes create/update/delete write actions, so
+  // the dedup fixture now exercises THREE collision classes at once:
+  //   - object <-> object:  A__B and A_B both sanitize to `A_B`  -> A_B, A_B_2
+  //   - object <-> action:  the Widget object vs the OpenAPI Widget op -> Widget, Widget_2
+  //   - action <-> action:  createA__B and createA_B both sanitize to `createA_B`
+  //                         (same for update/delete) -> ..., ..._2
+  // The invariant is unchanged: every colliding binding lands in its OWN file,
+  // none silently dropped by a last-write-wins overwrite. Pre-fix, each pair
+  // would collapse to a single file.
   const files = ontologyBindingFiles({ dir: RUN_DEDUP });
 
   assert({
@@ -264,16 +271,34 @@ const phaseObjectDedup = async ({ init }) => {
     message: `AC-2: init on the dedup fixture must succeed (exit 0), got ${init.status}. stderr:\n${init.stderr.trim()}`,
   });
 
+  // Derived from the fixture: 3 objects + 3 models x 3 CRUD + 1 OpenAPI action,
+  // with each collision pair de-collided to `<name>` + `<name>_2`.
+  const expected = [
+    'A_B.mjs',
+    'A_B_2.mjs', // object <-> object collision survivors
+    'Widget.mjs',
+    'Widget_2.mjs', // object <-> action collision survivors
+    'createA_B.mjs',
+    'createA_B_2.mjs', // action <-> action collision survivors (A__B vs A_B)
+    'updateA_B.mjs',
+    'updateA_B_2.mjs',
+    'deleteA_B.mjs',
+    'deleteA_B_2.mjs',
+    'createWidget.mjs',
+    'updateWidget.mjs',
+    'deleteWidget.mjs',
+  ].sort();
+  const got = [...files].sort();
+
   assert({
-    ok: files.length === 4,
+    ok: got.length === expected.length && expected.every((f, i) => got[i] === f),
     message:
-      `AC-2: expected 4 distinct ontology bindings (A__B, A_B, Widget object, ` +
-      `Widget action) in distinct files, got ${files.length}: [${files.join(', ')}]. ` +
-      `A post-sanitize duplicate object or an object-vs-action collision was ` +
-      `silently dropped (later write wins).`,
+      `AC-2: expected exactly these de-collided ontology files [${expected.join(', ')}], ` +
+      `got [${got.join(', ')}]. A post-sanitize object, object-vs-action, or ` +
+      `action-vs-action collision was silently dropped (later write wins).`,
   });
 
-  return { detail: `4 distinct ontology files: [${files.join(', ')}]` };
+  return { detail: `${got.length} distinct ontology files: [${got.join(', ')}]` };
 };
 
 /** Phase 3 (AC-3): the de-collision is surfaced on stderr, not silent. */

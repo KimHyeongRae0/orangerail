@@ -74,6 +74,14 @@ export const allocateNames = ({ source }: { source: ScannedSource }): ScannedSou
   const used = new Set<string>();
   const warnings: string[] = [];
 
+  // original object name -> renamed object name, so a Prisma action's `model`
+  // reference tracks the same rename the object got. The emitter recomputes the
+  // client accessor from `model`, so this keeps read (from `object.name`) and
+  // write (from `action.prisma.model`) pointed at the same `prisma.<accessor>`
+  // member even after a collision-rename (plan-review finding 2). No-op unless a
+  // collision actually renames an object, so non-colliding input stays unchanged.
+  const objectRenames = new Map<string, string>();
+
   const objects = source.objects.map((object) => {
     const id = sanitizeIdentifier({ value: object.name });
     if (!used.has(id)) {
@@ -88,10 +96,20 @@ export const allocateNames = ({ source }: { source: ScannedSource }): ScannedSou
       `scan: object '${object.name}' maps to identifier '${id}', which is already taken — renamed to '${candidate}'`,
     );
 
+    objectRenames.set(object.name, candidate);
+
     return { ...object, name: candidate };
   });
 
-  const actions = source.actions.map((action) => {
+  const actions = source.actions.map((rawAction) => {
+    const renamedModel =
+      rawAction.prisma === undefined ? undefined : objectRenames.get(rawAction.prisma.model);
+
+    const action =
+      renamedModel === undefined || rawAction.prisma === undefined
+        ? rawAction
+        : { ...rawAction, prisma: { ...rawAction.prisma, model: renamedModel } };
+
     const id = sanitizeIdentifier({ value: action.name });
     if (!used.has(id)) {
       used.add(id);

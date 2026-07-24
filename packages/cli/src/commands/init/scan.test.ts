@@ -7,6 +7,7 @@ import { allocateNames } from './scan';
 
 const actionNamed = ({ name, rawName }: { name: string; rawName?: string }): IrAction => ({
   name,
+  source: 'openapi',
   ...(rawName === undefined ? {} : { rawName }),
   method: 'POST',
   path: `/x/${name}`,

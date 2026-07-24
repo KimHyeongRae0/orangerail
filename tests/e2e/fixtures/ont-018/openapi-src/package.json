@@ -1,0 +1,7 @@
+{
+  "name": "ont-018-fixture-openapi",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAPI-source sub-fixture for ONT-018 Phase 3 (AC-6): proves the OpenAPI action emitter is byte-identical to the pre-ONT-018 reference — the write-action feature must not touch the OpenAPI stub path. Copied into its own scratch run dir; bare imports resolve via the monorepo-root node_modules walk-up."
+}

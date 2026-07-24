@@ -21,6 +21,17 @@ export const ownershipLine =
 const camelCase = ({ name }: { name: string }): string =>
   `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
 
+/**
+ * The Prisma client accessor for a scanned name — `camelCase(sanitizeIdentifier)`
+ * of the (post-allocation) model/object name. Shared by the read side
+ * (`emitObjectFile` resolve) and the write side (`emitActionFile` execute) so
+ * both derive the SAME `prisma.<accessor>` member from the SAME post-allocation
+ * name, even when the global allocator renamed a colliding model
+ * (plan-review finding 2). Recomputed at emit time — never embedded at synthesis.
+ */
+export const accessorName = ({ name }: { name: string }): string =>
+  camelCase({ name: sanitizeIdentifier({ value: name }) });
+
 const renderSchema = ({ object }: { object: IrObject }): string => {
   const lines = object.fields.map(
     (field) => `    ${escapeStringLiteral({ value: field.name })}: ${fieldExpr({ field })},`,
@@ -39,18 +50,30 @@ export const buildResolveDiagnostic = ({ objectName }: { objectName: string }): 
   `Cannot resolve @prisma/client for object "${objectName}": the Prisma client is not generated or installed. ` +
   'Fix: run `npm install @prisma/client && npx prisma generate`, and make sure DATABASE_URL is set.';
 
-/** True when an error is a module-resolution failure (ESM or CJS variant). */
-const isModuleResolutionError = ({ error }: { error: unknown }): boolean => {
+/**
+ * True when an error means the Prisma client is not usable for this model:
+ * either `@prisma/client` did not resolve at all (ESM/CJS module-not-found), or
+ * it resolved but the model accessor is `undefined` because the client was
+ * never generated (or was generated from a different schema) — that latter case
+ * surfaces as a `TypeError` when the resolve reads `.findUnique`/`.create` off
+ * `undefined`. Both are the same actionable situation ("not generated or
+ * installed"), so both map to the diagnostic rather than a raw crash.
+ */
+const isClientUnavailable = ({ error }: { error: unknown }): boolean => {
   const code = (error as { code?: unknown } | null | undefined)?.code;
-  return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';
+  return (
+    code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND' || error instanceof TypeError
+  );
 };
 
 /**
- * Map a resolve-time error into what the resolve should throw: a
- * module-resolution failure becomes the actionable diagnostic (cause + fix +
- * the original message as detail); any other error is returned untouched so
- * real runtime failures are never masked. This is the exact logic mirrored
- * inline into generated object files; it is exported for direct unit testing.
+ * Map a resolve-time error into what the resolve should throw: a client that is
+ * unavailable for this model (not installed, or not generated) becomes the
+ * actionable diagnostic (cause + fix + the original message as detail); any
+ * other error is returned untouched so real runtime failures (a live query
+ * error, a connection refusal) are never masked. This is the exact logic
+ * mirrored inline into generated object/action files; it is exported for direct
+ * unit testing.
  */
 export const wrapResolveError = ({
   objectName,
@@ -59,7 +82,7 @@ export const wrapResolveError = ({
   objectName: string;
   error: unknown;
 }): unknown => {
-  if (!isModuleResolutionError({ error })) {
+  if (!isClientUnavailable({ error })) {
     return error;
   }
 
@@ -75,7 +98,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
     return '';
   }
 
-  const accessor = camelCase({ name: sanitizeIdentifier({ value: object.name }) });
+  const accessor = accessorName({ name: object.name });
   const idKey = escapeStringLiteral({ value: object.idField });
 
   return [
@@ -102,13 +125,17 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
 
 /**
  * The lazy, memoized `@prisma/client` accessor plus the actionable
- * error-wrapper shared by an object's resolve (plan D6/I4). `wrapPrismaError`
- * mirrors `wrapResolveError`: a module-resolution failure is rethrown as the
- * actionable diagnostic; any other error passes through untouched.
+ * error-wrapper shared by a generated file's Prisma call sites (plan D6/I4).
+ * `wrapPrismaError` mirrors `wrapResolveError`: a client that is unavailable for
+ * this model — not installed (module-not-found) OR resolved-but-not-generated
+ * (a `TypeError` from reading an operation off the `undefined` model accessor)
+ * — is rethrown as the actionable diagnostic; any other error passes through
+ * untouched. Shared verbatim by object resolve files and Prisma action files so
+ * both degrade identically (plan D3, exported for `emit-action.ts`).
  */
-const prismaAccessor = ({ object }: { object: IrObject }): string => {
+export const prismaClientBlock = ({ diagnosticName }: { diagnosticName: string }): string => {
   const diagnostic = escapeStringLiteral({
-    value: buildResolveDiagnostic({ objectName: object.name }),
+    value: buildResolveDiagnostic({ objectName: diagnosticName }),
   });
 
   return [
@@ -125,7 +152,8 @@ const prismaAccessor = ({ object }: { object: IrObject }): string => {
     '',
     'const wrapPrismaError = (error) => {',
     '  const code = error === null || error === undefined ? undefined : error.code;',
-    "  if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'MODULE_NOT_FOUND') {",
+    "  const unavailable = code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND' || error instanceof TypeError;",
+    '  if (!unavailable) {',
     '    return error;',
     '  }',
     '',
@@ -158,7 +186,7 @@ export const emitObjectFile = ({
     "import { z } from 'zod';",
     '',
     "import { registry } from './_registry.mjs';",
-    ...(resolve === '' ? [] : ['', prismaAccessor({ object })]),
+    ...(resolve === '' ? [] : ['', prismaClientBlock({ diagnosticName: object.name })]),
     '',
     `export const ${binding} = registry.defineObject({`,
     `  name: ${escapeStringLiteral({ value: object.name })},`,

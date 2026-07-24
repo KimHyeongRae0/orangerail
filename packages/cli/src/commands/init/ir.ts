@@ -27,6 +27,10 @@ export interface IrField {
   optional: boolean;
   list: boolean;
   isId: boolean;
+  /** True when the field declares `@default(...)` (Prisma fills it if omitted). */
+  hasDefault?: boolean;
+  /** True when the field declares `@updatedAt` (Prisma-managed, never written). */
+  updatedAt?: boolean;
 }
 
 /** A relation from one object to another (Prisma model reference). */
@@ -64,14 +68,39 @@ export interface IrActionField {
   optional: boolean;
 }
 
-/** A scanned action type (OpenAPI write operation). */
+/**
+ * A synthesized Prisma write action's execution metadata (plan D1/D3). The
+ * `model` is the scanned model name and is kept in lockstep with the owning
+ * `IrObject.name` by the global allocator (`scan.ts` `allocateNames`) so the
+ * emitter can recompute the client accessor from it at EMIT time, mirroring the
+ * read side (`emit-object.ts` `accessorName`). The client accessor is never
+ * embedded here — it is derived from `model` when the file is rendered, so a
+ * collision-rename tracked onto `model` keeps read/write pointed at the same
+ * `prisma.<accessor>` member (plan-review finding 2).
+ */
+export interface IrPrismaAction {
+  /** The scanned model name (allocator-tracked; drives the emit-time accessor). */
+  model: string;
+  /** Which CRUD operation this action performs. */
+  op: 'create' | 'update' | 'delete';
+  /** The single `@id` field name, present for `update` / `delete` (the `where` key). */
+  idField?: string;
+}
+
+/** A scanned action type (an OpenAPI write operation or a Prisma CRUD action). */
 export interface IrAction {
   /** The MCP-safe, identifier-safe registry name (already sanitized). */
   name: string;
   /** The original operation identifier, kept as inert provenance data. */
   rawName?: string;
-  method: string;
-  path: string;
+  /** Which scanner produced this action; selects the emitter branch (plan D4). */
+  source: 'openapi' | 'prisma';
+  /** OpenAPI HTTP method (openapi-source only). */
+  method?: string;
+  /** OpenAPI request path (openapi-source only). */
+  path?: string;
+  /** Prisma execution metadata (prisma-source only). */
+  prisma?: IrPrismaAction;
   write: boolean;
   input: IrActionField[];
   /** Provenance description (operation summary), kept as inert data. */

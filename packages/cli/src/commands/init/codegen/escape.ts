@@ -60,8 +60,10 @@ const RESERVED = new Set([
  * `export const <binding>` that re-declares an already-imported/declared name,
  * so the file throws `SyntaxError` at parse and `orangerail.config.mjs` fails to
  * load. Object files declare `z` (`import { z } from 'zod'`), `registry`,
- * `getPrisma`, and `wrapPrismaError`; action files declare `z`,
- * `notImplemented`, and `registry` — the closed union is these five. Kept
+ * `getPrisma`, and `wrapPrismaError`; OpenAPI action files declare `z`,
+ * `notImplemented`, and `registry`; Prisma action files declare `z`,
+ * `registry`, `getPrisma`, and `wrapPrismaError` (ONT-018 real execute) — the
+ * closed union across all generated files is these five. Kept
  * SEPARATE from `RESERVED` (which is JS grammar): this set is emitter-internal.
  * Both take the identical `_` suffix, and it is applied in `sanitizeIdentifier`
  * ONLY (the JS binding / filename), NOT in `sanitizeMcpName` — the MCP tool

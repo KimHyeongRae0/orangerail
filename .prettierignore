@@ -5,3 +5,7 @@ pnpm-lock.yaml
 docs/
 .claude/
 *.md
+
+# Captured codegen golden — must stay byte-identical to the shipped emitter
+# output (ONT-018 AC-6), so it is never reformatted.
+tests/e2e/fixtures/**/openapi-reference/

@@ -423,6 +423,7 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
 
       const action: IrAction = {
         name,
+        source: 'openapi',
         ...(rawName === undefined || rawName === name ? {} : { rawName }),
         method: method.toUpperCase(),
         path,

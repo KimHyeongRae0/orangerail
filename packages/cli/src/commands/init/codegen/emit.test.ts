@@ -2,8 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { IrAction, IrObject, ScannedSource } from '../ir';
 import { emptySource } from '../ir';
+import { allocateNames } from '../scan';
 import { buildFileSet } from './index';
-import { buildResolveDiagnostic, emitObjectFile, wrapResolveError } from './emit-object';
+import {
+  accessorName,
+  buildResolveDiagnostic,
+  emitObjectFile,
+  wrapResolveError,
+} from './emit-object';
 import { emitActionFile } from './emit-action';
 
 const product: IrObject = {
@@ -37,6 +43,7 @@ const orderItem: IrObject = {
 
 const coupon: IrAction = {
   name: 'grant_import_fs_coupon',
+  source: 'openapi',
   rawName: "grant'); import(`fs`); /* coupon",
   method: 'POST',
   path: '/coupons',
@@ -80,10 +87,12 @@ describe('emitObjectFile', () => {
     expect(content).toContain('} catch (error) {');
     expect(content).toContain('throw wrapPrismaError(error);');
 
-    // The wrapper branches on both module-resolution error codes and, when
-    // matched, throws a diagnostic naming the object + the exact fix commands.
+    // The wrapper branches on both module-resolution error codes AND a
+    // TypeError (resolved-but-not-generated client) and, when matched, throws a
+    // diagnostic naming the object + the exact fix commands.
     expect(content).toContain('ERR_MODULE_NOT_FOUND');
     expect(content).toContain('MODULE_NOT_FOUND');
+    expect(content).toContain('error instanceof TypeError');
     expect(content).toContain('object \\"Product\\"');
     expect(content).toContain('@prisma/client');
     expect(content).toContain('npx prisma generate');
@@ -121,6 +130,22 @@ describe('wrapResolveError (I4 — resolve-time diagnostic logic)', () => {
 
     expect(wrapResolveError({ objectName: 'Post', error: raw })).toBe(raw);
   });
+
+  it('maps a resolved-but-not-generated client (TypeError on the model accessor) to the diagnostic', () => {
+    // `@prisma/client` resolves but was never generated for this model, so the
+    // accessor is undefined and the resolve throws a TypeError reading the op
+    // off it. That is the same actionable situation as a missing install — the
+    // guarantee is "actionable diagnostic, never a raw crash" (ONT-008 AC-3).
+    const raw = new TypeError("Cannot read properties of undefined (reading 'findMany')");
+
+    const wrapped = wrapResolveError({ objectName: 'Post', error: raw }) as Error;
+
+    expect(wrapped).toBeInstanceOf(Error);
+    expect(wrapped).not.toBe(raw);
+    for (const needle of ['Post', '@prisma/client', 'prisma generate', 'DATABASE_URL']) {
+      expect(wrapped.message).toContain(needle);
+    }
+  });
 });
 
 describe('emitActionFile', () => {
@@ -155,6 +180,155 @@ describe('emitActionFile', () => {
     // agrees with the export binding by an identical rule.
     expect(content).toContain('name: "actions_create-workflow-dispatch"');
     expect(filename).toBe('actions_create_workflow_dispatch.mjs');
+  });
+});
+
+describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () => {
+  const createNote: IrAction = {
+    name: 'createNote',
+    source: 'prisma',
+    prisma: { model: 'Note', op: 'create' },
+    write: true,
+    input: [
+      { name: 'title', kind: 'scalar', scalar: 'string', optional: false },
+      { name: 'done', kind: 'scalar', scalar: 'boolean', optional: true },
+    ],
+  };
+
+  const updateNote: IrAction = {
+    name: 'updateNote',
+    source: 'prisma',
+    prisma: { model: 'Note', op: 'update', idField: 'id' },
+    write: true,
+    input: [
+      { name: 'id', kind: 'scalar', scalar: 'int', optional: false },
+      { name: 'title', kind: 'scalar', scalar: 'string', optional: true },
+    ],
+  };
+
+  const deleteNote: IrAction = {
+    name: 'deleteNote',
+    source: 'prisma',
+    prisma: { model: 'Note', op: 'delete', idField: 'id' },
+    write: true,
+    input: [{ name: 'id', kind: 'scalar', scalar: 'int', optional: false }],
+  };
+
+  it('emits a real prisma.<accessor>.create with a data body, not the stub', () => {
+    const { content } = emitActionFile({ action: createNote });
+
+    expect(content).toContain('prisma.note.create');
+    expect(content).toContain('data: {');
+    expect(content).toContain('"title": input["title"]');
+    expect(content).toContain('"done": input["done"]');
+    expect(content).not.toContain('notImplemented');
+    // secure by default is preserved for the Prisma branch too.
+    expect(content).toMatch(/approval:\s*'required'/);
+    // the shared lazy-client plumbing is inlined (D3 reuse).
+    expect(content).toContain("await import('@prisma/client')");
+    expect(content).toContain('throw wrapPrismaError(error);');
+  });
+
+  it('emits update as where(id) + a partial data body over the non-id fields', () => {
+    const { content } = emitActionFile({ action: updateNote });
+
+    expect(content).toContain('prisma.note.update');
+    expect(content).toContain('where: { "id": input["id"] }');
+    expect(content).toContain('"title": input["title"]');
+    // the id is the where key, never a data field.
+    expect(content).not.toContain('"id": input["id"],');
+  });
+
+  it('emits delete as a where(id)-only call and marks it DESTRUCTIVE (AC-5)', () => {
+    const { content } = emitActionFile({ action: deleteNote });
+
+    expect(content).toContain('prisma.note.delete({ where: { "id": input["id"] } })');
+    expect(content).toMatch(/DESTRUCTIVE/);
+    expect(content).not.toContain('notImplemented');
+  });
+
+  it('is byte-stable across two emits (NOLLM-01: no Date.now / Math.random)', () => {
+    expect(emitActionFile({ action: createNote }).content).toBe(
+      emitActionFile({ action: createNote }).content,
+    );
+  });
+
+  it('sinks a hostile field name through escapeStringLiteral on both key and read', () => {
+    const hostile: IrAction = {
+      name: 'createEvil',
+      source: 'prisma',
+      prisma: { model: 'Evil', op: 'create' },
+      write: true,
+      input: [
+        { name: 'a"]; process.exit(1); ["b', kind: 'scalar', scalar: 'string', optional: false },
+      ],
+    };
+
+    const { content } = emitActionFile({ action: hostile });
+
+    // The payload only ever appears as a JSON-stringified literal (its `"` are
+    // backslash-escaped, so it can neither close the data key nor the input
+    // index and inject a statement). It is used TWICE — the data key and the
+    // input[...] read — and never as a bare, unescaped token.
+    const escaped = JSON.stringify('a"]; process.exit(1); ["b');
+    // present as the escaped literal (input schema key, data key, input read),
+    // never as a bare unescaped token that could break out and inject.
+    expect(content).toContain(`${escaped}: input[${escaped}]`);
+    expect(content).not.toContain('a"]; process.exit(1); ["b');
+  });
+});
+
+describe('read/write accessor parity across an allocator collision-rename (finding 2)', () => {
+  it('keeps the write execute on the SAME prisma.<accessor> as the read resolve', () => {
+    // Two objects whose sanitized identifiers collide: the second is renamed by
+    // the allocator. Its Prisma create action must recompute its accessor from
+    // the POST-allocation model name, matching what the object's resolve emits.
+    const first: IrObject = {
+      name: 'Note',
+      idField: 'id',
+      relations: [],
+      fields: [
+        { name: 'id', kind: 'scalar', scalar: 'string', optional: false, list: false, isId: true },
+      ],
+    };
+    // `Note_` sanitizes to `Note` (trailing underscore stripped) — collides.
+    const second: IrObject = {
+      name: 'Note_',
+      idField: 'id',
+      relations: [],
+      fields: [
+        { name: 'id', kind: 'scalar', scalar: 'string', optional: false, list: false, isId: true },
+      ],
+    };
+    const secondCreate: IrAction = {
+      name: 'createNote_',
+      source: 'prisma',
+      prisma: { model: 'Note_', op: 'create' },
+      write: true,
+      input: [{ name: 'id', kind: 'scalar', scalar: 'string', optional: false }],
+    };
+
+    const allocated = allocateNames({
+      source: { ...emptySource(), objects: [first, second], actions: [secondCreate] },
+    });
+
+    const renamedObject = allocated.objects[1]!;
+    const renamedAction = allocated.actions[0]!;
+
+    // the object WAS renamed (collision resolved).
+    expect(renamedObject.name).not.toBe('Note_');
+    // the action's model reference tracked the rename.
+    expect(renamedAction.prisma?.model).toBe(renamedObject.name);
+
+    const readAccessor = accessorName({ name: renamedObject.name });
+    const writeAccessor = accessorName({ name: renamedAction.prisma!.model });
+    expect(writeAccessor).toBe(readAccessor);
+
+    // and the emitted files agree at the byte level on the client member.
+    const objectFile = emitObjectFile({ object: renamedObject });
+    const actionFile = emitActionFile({ action: renamedAction });
+    expect(objectFile.content).toContain(`prisma.${readAccessor}.findUnique`);
+    expect(actionFile.content).toContain(`prisma.${writeAccessor}.create`);
   });
 });
 

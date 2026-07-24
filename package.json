@@ -13,9 +13,11 @@
   },
   "devDependencies": {
     "orangerail-core": "workspace:*",
+    "@prisma/client": "^6.19.3",
     "@types/node": "^22.10.0",
     "eslint": "^9.0.0",
     "prettier": "^3.3.0",
+    "prisma": "^6.19.3",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.15.0",

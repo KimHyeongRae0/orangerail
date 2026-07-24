@@ -2,7 +2,15 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '.docs/**', '.claude/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '.docs/**',
+      '.claude/**',
+      // Captured codegen golden — must stay byte-identical to the shipped
+      // emitter output (ONT-018 AC-6), so it is never reformatted/linted.
+      'tests/e2e/fixtures/**/openapi-reference/**',
+    ],
   },
   ...tseslint.configs.recommended,
   {

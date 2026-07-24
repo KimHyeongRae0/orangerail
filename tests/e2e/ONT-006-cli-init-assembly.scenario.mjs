@@ -53,7 +53,15 @@ const SESSION = 'ont006-e2e';
 
 const MODELS = ['Product', 'Customer', 'Order', 'OrderItem', 'AuditNote'];
 const EXPECTED_READ_TOOLS = new Set(MODELS.flatMap((m) => [`${m}_get`, `${m}_list`]));
-const EXPECTED_ACTION_COUNT = 4; // placeOrder, issueRefund, derived DELETE /products/{id}, sanitized hostile coupon op
+// OpenAPI write actions: placeOrder, issueRefund, derived DELETE /products/{id},
+// sanitized hostile coupon op.
+const EXPECTED_OPENAPI_ACTIONS = 4;
+// Prisma write actions (ONT-018): every fixture model declares a single `@id`,
+// so each yields create/update/delete — derived from the model set, not a
+// magic number. If a model without a single @id were added, this would need a
+// per-model breakdown (create-only for the keyless one).
+const EXPECTED_PRISMA_ACTIONS = MODELS.length * 3;
+const EXPECTED_ACTION_COUNT = EXPECTED_OPENAPI_ACTIONS + EXPECTED_PRISMA_ACTIONS; // 4 + 15 = 19
 
 const fail = ({ message }) => {
   console.error(`ONT-006 e2e FAIL: ${message}`);
@@ -470,18 +478,28 @@ assert({
 
 const accept = runCli({ args: ['sync', '--accept-new'], cwd: RUN_A });
 const afterAccept = snapshotDir({ dir: ontologyDir });
+// The new Review model brings its object file AND its three CRUD action files
+// (ONT-018: every mutable model yields create/update/delete), so --accept-new
+// creates exactly four new files, not one.
+const EXPECTED_NEW_FILES = 4;
 assert({
-  ok: afterAccept.size === beforeDrift.size + 1,
-  message: `--accept-new must create exactly one new file (before ${beforeDrift.size}, after ${afterAccept.size}); exit ${accept.status}`,
+  ok: afterAccept.size === beforeDrift.size + EXPECTED_NEW_FILES,
+  message: `--accept-new must create exactly ${EXPECTED_NEW_FILES} new files for the new model (before ${beforeDrift.size}, after ${afterAccept.size}); exit ${accept.status}`,
 });
 assert({
   ok: [...beforeDrift].every(([k, v]) => afterAccept.get(k) === v),
   message: '--accept-new must leave every pre-existing ontology file byte-identical',
 });
-const newFile = [...afterAccept.keys()].find((k) => !beforeDrift.has(k));
+const newFiles = [...afterAccept.keys()].filter((k) => !beforeDrift.has(k));
 assert({
-  ok: newFile !== undefined && afterAccept.get(newFile).includes('Review'),
-  message: `the accepted new file must declare the Review model (got ${newFile})`,
+  ok: newFiles.includes('Review.mjs') && afterAccept.get('Review.mjs').includes('Review'),
+  message: `the accepted new object file must declare the Review model (got ${newFiles.join(', ')})`,
+});
+assert({
+  ok: ['createReview.mjs', 'updateReview.mjs', 'deleteReview.mjs'].every((f) =>
+    newFiles.includes(f),
+  ),
+  message: `--accept-new must also add the new model's CRUD action files (got ${newFiles.join(', ')})`,
 });
 
 writeFileSync(join(ontologyDir, 'stray.ts'), 'export const stray = true;\n');

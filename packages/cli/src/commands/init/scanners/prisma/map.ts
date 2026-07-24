@@ -1,5 +1,6 @@
 import type { IrEnum, IrField, IrObject, IrRelation, IrScalar, ScannedSource } from '../../ir';
 import { emptySource } from '../../ir';
+import { synthesizePrismaActions } from './actions';
 import type { ParsedSchema, RawField, RawModel } from './parse';
 
 /**
@@ -53,6 +54,8 @@ const mapModel = ({
     }
 
     const isId = hasAttribute({ attributes: field.attributes, attr: 'id' });
+    const hasDefault = hasAttribute({ attributes: field.attributes, attr: 'default' });
+    const updatedAt = hasAttribute({ attributes: field.attributes, attr: 'updatedAt' });
 
     if (modelNames.has(field.type)) {
       relations.push({
@@ -71,6 +74,8 @@ const mapModel = ({
         optional: field.optional,
         list: field.list,
         isId,
+        hasDefault,
+        updatedAt,
       });
       return;
     }
@@ -94,6 +99,8 @@ const mapModel = ({
       optional: field.optional,
       list: field.list,
       isId,
+      hasDefault,
+      updatedAt,
     });
   };
 
@@ -159,6 +166,13 @@ export const mapPrismaToIr = ({ parsed }: { parsed: ParsedSchema }): ScannedSour
   }
 
   resolveEnumFields({ objects: source.objects, rawByModel, enumsByName });
+
+  // Governed CRUD write actions are synthesized AFTER enum resolution so an
+  // enum field's write input carries its member list (plan D1). Warnings from
+  // no-@id models flow into the same skip-with-warning channel.
+  source.actions.push(
+    ...synthesizePrismaActions({ objects: source.objects, warnings: source.warnings }),
+  );
 
   const enums: IrEnum[] = parsed.enums.map((e) => ({ name: e.name, values: [...e.values] }));
   source.enums.push(...enums);

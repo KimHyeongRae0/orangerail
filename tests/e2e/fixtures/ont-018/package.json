@@ -1,0 +1,11 @@
+{
+  "name": "ont-018-fixture-notes",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture for orangerail init on a Prisma SQLite source: a single Note model exercising the governed write loop (create/update/delete). Copied into a scratch run dir under .docs/scratch by the e2e; bare imports in generated code and the generated Prisma client resolve via the monorepo-root node_modules walk-up. Declares prisma + @prisma/client so `prisma db push` finds them without a network install.",
+  "devDependencies": {
+    "prisma": "^6",
+    "@prisma/client": "^6"
+  }
+}
