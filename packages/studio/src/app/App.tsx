@@ -35,6 +35,7 @@ import { computeInstanceLayout } from './instanceLayout';
 import {
   type Category,
   type PersonNodeData,
+  type PlaceNodeData,
   type Relationship,
   type ViewMode,
 } from './instanceModel';
@@ -146,6 +147,7 @@ const Studio = () => {
   const [weightThreshold, setWeightThreshold] = useState(1);
   const [active, setActive] = useState<Focus>(null);
   const [activePerson, setActivePerson] = useState<string | null>(null);
+  const [activeService, setActiveService] = useState<string | null>(null);
   const [hover, setHover] = useState<Focus>(null);
   const [reloadError, setReloadError] = useState(false);
 
@@ -270,7 +272,15 @@ const Studio = () => {
       }
 
       if (viewMode === 'ownership') {
-        return buildOwnershipGraph({ snapshot: instances, positions: ownershipPositions });
+        return buildOwnershipGraph({
+          snapshot: instances,
+          positions: ownershipPositions,
+          selection: activePerson
+            ? { type: 'person', accountId: activePerson }
+            : activeService
+              ? { type: 'service', id: activeService }
+              : null,
+        });
       }
 
       return buildInstanceGraph({
@@ -296,6 +306,7 @@ const Studio = () => {
     relationship,
     weightThreshold,
     activePerson,
+    activeService,
     snapshot,
     highlights,
     dbPositions,
@@ -376,11 +387,20 @@ const Studio = () => {
     if (node.type === 'object') {
       setActive({ type: 'object', name: (node.data as ObjectNodeData).object.name });
       setActivePerson(null);
+      setActiveService(null);
       return;
     }
 
     if (node.type === 'person') {
       setActivePerson((node.data as PersonNodeData).employee.accountId);
+      setActiveService(null);
+      setActive(null);
+      return;
+    }
+
+    if (node.type === 'service') {
+      setActiveService((node.data as PlaceNodeData).service?.id ?? null);
+      setActivePerson(null);
       setActive(null);
     }
   }, []);
@@ -436,6 +456,7 @@ const Studio = () => {
     setCategoryPinned(true);
     setActive(null);
     setActivePerson(null);
+    setActiveService(null);
 
     const url = new URL(window.location.href);
     url.searchParams.set('category', next);
@@ -460,6 +481,7 @@ const Studio = () => {
     setViewMode(view);
     setActive(null);
     setActivePerson(null);
+    setActiveService(null);
 
     const url = new URL(window.location.href);
     url.searchParams.set('view', view);
@@ -525,6 +547,7 @@ const Studio = () => {
         onPaneClick={() => {
           setActive(null);
           setActivePerson(null);
+          setActiveService(null);
         }}
         attributionPosition="bottom-left"
       >

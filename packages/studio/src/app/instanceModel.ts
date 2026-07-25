@@ -36,6 +36,8 @@ export interface PlaceNodeData extends Record<string, unknown> {
   label: string;
   service?: InstanceService;
   team?: InstanceTeam;
+  /** True when this place node is the current selection (Ownership focus). */
+  active?: boolean;
   /** True when a focus mode is active and this node is outside the ego set. */
   dim?: boolean;
 }
