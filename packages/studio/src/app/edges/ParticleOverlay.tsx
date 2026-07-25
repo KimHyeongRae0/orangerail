@@ -61,16 +61,43 @@ export const ParticleOverlay = ({ activeEdgeIds }: { activeEdgeIds: string[] }) 
     return signal;
   });
 
+  // The set of edge ids React Flow currently holds. A focus can INSERT edges
+  // (the human views overlay a focused person's / service's `works_on` ties),
+  // and React Flow renders those in a later commit than the one that changed
+  // `activeEdgeIds`. Re-reading when this signal changes lets the overlay pick
+  // up a newly-added focus edge once its path is actually in the DOM.
+  const edgeSignal = useStore((state) => state.edges.map((edge) => edge.id).join('|'));
+
   const [paths, setPaths] = useState<OverlayPath[]>([]);
 
   const key = activeEdgeIds.join('|');
 
   // `key` re-reads when the active set changes; `positionSignal` re-reads when a
-  // node drag / re-layout moves an edge, so the overlay always uses fresh
-  // geometry. `activeEdgeIds` is intentionally read through the stable `key`.
+  // node drag / re-layout moves an edge; `edgeSignal` re-reads when the rendered
+  // edge set changes (a focus overlay adds edges), so the overlay always uses
+  // fresh geometry. `activeEdgeIds` is intentionally read through the stable `key`.
+  //
+  // A focus change hands React Flow a fresh edge array, so it re-renders every
+  // edge and recomputes each path `d` from an async node measurement — for a
+  // frame the paths are absent. We read immediately (fast path for edges already
+  // measured, e.g. the DB map) and again once measurement has settled (the same
+  // 70ms + two-frame wait `fitAll` uses), so a focus edge whose geometry lands a
+  // frame later is still picked up.
   useEffect(() => {
-    setPaths(readActivePaths({ activeEdgeIds }));
-  }, [key, positionSignal, activeEdgeIds]);
+    const read = () => setPaths(readActivePaths({ activeEdgeIds }));
+
+    read();
+
+    let frame = 0;
+    const timer = setTimeout(() => {
+      frame = requestAnimationFrame(() => requestAnimationFrame(read));
+    }, 70);
+
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+    };
+  }, [key, positionSignal, edgeSignal, activeEdgeIds]);
 
   const [tx, ty, zoom] = transform;
 

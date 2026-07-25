@@ -30,12 +30,20 @@ export const HelpsEdge = ({
   });
 
   const width = edgeWidth({ weight: data?.weight ?? 1 });
-  const opacity = data?.dim === true ? 0.08 : 0.75;
+  const focused = data?.focused === true;
+  const dim = data?.dim === true;
+
+  // Calm at rest (grey, low opacity) so the resting graph reads as a quiet
+  // field; strong on focus (accent green, near-opaque, thicker) so the hovered
+  // or selected person's ties pop — mirroring the DB view's figure/ground.
+  const stroke = focused ? 'var(--edge-highlighted)' : 'var(--edge-resting)';
+  const opacity = dim ? 0.06 : focused ? 0.95 : 0.4;
+  const strokeWidth = focused ? width + 0.75 : width;
 
   return (
     <BaseEdge
       path={path}
-      style={{ stroke: 'var(--primary-accent)', strokeWidth: width, opacity }}
+      style={{ stroke, strokeWidth, opacity }}
       markerEnd="url(#instance-arrow-helps)"
       interactionWidth={0}
     />

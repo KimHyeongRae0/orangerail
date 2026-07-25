@@ -55,28 +55,103 @@ export const buildInstanceGraph = ({
   relationship,
   weightThreshold,
   activeAccountId,
+  activeServiceId = null,
 }: {
   snapshot: InstanceSnapshot;
   positions: Map<string, { x: number; y: number }>;
   relationship: Relationship;
   weightThreshold: number;
   activeAccountId: string | null;
+  /**
+   * The focused service (click or hover) in the Network view. A person focus
+   * always wins over a service focus; when only a service is focused, its
+   * `works_on` people light up and the rest dims — the Network-view mirror of
+   * the Ownership view's service selection.
+   */
+  activeServiceId?: string | null;
 }): { nodes: InstanceNode[]; edges: InstanceEdge[] } => {
-  const ego =
-    activeAccountId !== null
-      ? computeEgoSet({ snapshot, accountId: activeAccountId, relationship })
-      : null;
-
-  // Focus is only "active" once the selected person actually resolves to a node
-  // (an unknown account id yields an empty ego set and dims nothing).
-  const focusActive =
-    ego !== null &&
+  const personFocus =
     activeAccountId !== null &&
-    ego.nodeIds.has(personNodeId({ accountId: activeAccountId }));
+    snapshot.employees.some((employee) => employee.accountId === activeAccountId);
 
-  const isNodeDim = ({ id }: { id: string }): boolean => focusActive && !ego!.nodeIds.has(id);
+  const ego = personFocus
+    ? computeEgoSet({ snapshot, accountId: activeAccountId as string, relationship })
+    : null;
 
-  const isEdgeDim = ({ key }: { key: string }): boolean => focusActive && !ego!.edgeIds.has(key);
+  // A service focus only engages when there is no person focus and the id
+  // resolves to a real service.
+  const serviceFocus =
+    !personFocus &&
+    activeServiceId !== null &&
+    snapshot.services.some((service) => service.id === activeServiceId);
+
+  // The service ego: the service node plus every person who works on it, and the
+  // `works_on` edge keys that connect them (overlaid even outside `works_on`).
+  const serviceEgoNodeIds = new Set<string>();
+  const serviceEgoEdgeKeys = new Set<string>();
+
+  if (serviceFocus) {
+    serviceEgoNodeIds.add(serviceNodeId({ id: activeServiceId as string }));
+
+    for (const edge of snapshot.edges.works_on) {
+      if (edge.to === activeServiceId) {
+        serviceEgoNodeIds.add(personNodeId({ accountId: edge.from }));
+        serviceEgoEdgeKeys.add(
+          egoEdgeKey({ relationship: 'works_on', from: edge.from, to: edge.to }),
+        );
+      }
+    }
+  }
+
+  // Focus is only "active" once the selection resolves to a node (an unknown
+  // account/service id dims nothing).
+  const focusActive =
+    (personFocus && ego!.nodeIds.has(personNodeId({ accountId: activeAccountId as string }))) ||
+    serviceFocus;
+
+  const focusNodeIds = personFocus ? ego!.nodeIds : serviceEgoNodeIds;
+  const focusEdgeKeys = personFocus ? ego!.edgeIds : serviceEgoEdgeKeys;
+
+  const isNodeDim = ({ id }: { id: string }): boolean => focusActive && !focusNodeIds.has(id);
+  const isNodeFocused = ({ id }: { id: string }): boolean => focusActive && focusNodeIds.has(id);
+  const isEdgeDim = ({ key }: { key: string }): boolean => focusActive && !focusEdgeKeys.has(key);
+  const isEdgeFocused = ({ key }: { key: string }): boolean =>
+    focusActive && focusEdgeKeys.has(key);
+
+  const active = filterByWeight({
+    edges: snapshot.edges[relationship],
+    threshold: weightThreshold,
+  });
+
+  // Per-person connectivity in the active relationship — a `helps` edge counts
+  // both endpoints, a `works_on`/`member_of` edge counts its person source.
+  const degreeByAccount = new Map<string, number>();
+  const bumpDegree = ({ accountId }: { accountId: string }) =>
+    degreeByAccount.set(accountId, (degreeByAccount.get(accountId) ?? 0) + 1);
+
+  for (const edge of active) {
+    bumpDegree({ accountId: edge.from });
+
+    if (relationship === 'helps') {
+      bumpDegree({ accountId: edge.to });
+    }
+  }
+
+  // Place ids that carry an edge in the active relationship — a place outside
+  // this set is structural context (muted) unless the focus pulls it in.
+  const connectedPlaceIds = new Set<string>();
+
+  if (relationship === 'works_on') {
+    for (const edge of active) {
+      connectedPlaceIds.add(serviceNodeId({ id: edge.to }));
+    }
+  }
+
+  if (relationship === 'member_of') {
+    for (const edge of active) {
+      connectedPlaceIds.add(teamNodeId({ id: edge.to }));
+    }
+  }
 
   const nodes: InstanceNode[] = [];
 
@@ -96,7 +171,8 @@ export const buildInstanceGraph = ({
       data: {
         employee,
         radius,
-        active: employee.accountId === activeAccountId,
+        active: personFocus && employee.accountId === activeAccountId,
+        degree: degreeByAccount.get(employee.accountId) ?? 0,
         dim: isNodeDim({ id }),
       },
     });
@@ -104,6 +180,7 @@ export const buildInstanceGraph = ({
 
   for (const service of snapshot.services) {
     const id = serviceNodeId({ id: service.id });
+    const muted = !connectedPlaceIds.has(id) && !isNodeFocused({ id });
 
     nodes.push({
       id,
@@ -111,12 +188,20 @@ export const buildInstanceGraph = ({
       position: positions.get(id) ?? { x: 0, y: 0 },
       width: PLACE_WIDTH,
       height: PLACE_HEIGHT,
-      data: { kind: 'service', label: service.name, service, dim: isNodeDim({ id }) },
+      data: {
+        kind: 'service',
+        label: service.name,
+        service,
+        active: serviceFocus && service.id === activeServiceId,
+        muted,
+        dim: isNodeDim({ id }),
+      },
     });
   }
 
   for (const team of snapshot.teams) {
     const id = teamNodeId({ id: team.id });
+    const muted = !connectedPlaceIds.has(id) && !isNodeFocused({ id });
 
     nodes.push({
       id,
@@ -124,16 +209,11 @@ export const buildInstanceGraph = ({
       position: positions.get(id) ?? { x: 0, y: 0 },
       width: PLACE_WIDTH,
       height: PLACE_HEIGHT,
-      data: { kind: 'team', label: team.name, team, dim: isNodeDim({ id }) },
+      data: { kind: 'team', label: team.name, team, muted, dim: isNodeDim({ id }) },
     });
   }
 
   const edges: InstanceEdge[] = [];
-
-  const active = filterByWeight({
-    edges: snapshot.edges[relationship],
-    threshold: weightThreshold,
-  });
 
   if (relationship === 'helps') {
     active.forEach((edge, index) => {
@@ -144,7 +224,7 @@ export const buildInstanceGraph = ({
         type: 'helps',
         source: personNodeId({ accountId: edge.from }),
         target: personNodeId({ accountId: edge.to }),
-        data: { weight: edge.weight, dim: isEdgeDim({ key }) },
+        data: { weight: edge.weight, dim: isEdgeDim({ key }), focused: isEdgeFocused({ key }) },
       });
     });
   }
@@ -158,7 +238,12 @@ export const buildInstanceGraph = ({
         type: 'worksOn',
         source: personNodeId({ accountId: edge.from }),
         target: serviceNodeId({ id: edge.to }),
-        data: { weight: edge.weight, variant: 'worksOn', dim: isEdgeDim({ key }) },
+        data: {
+          weight: edge.weight,
+          variant: 'worksOn',
+          dim: isEdgeDim({ key }),
+          focused: isEdgeFocused({ key }),
+        },
       });
     });
   }
@@ -172,15 +257,19 @@ export const buildInstanceGraph = ({
         type: 'memberOf',
         source: personNodeId({ accountId: edge.from }),
         target: teamNodeId({ id: edge.to }),
-        data: { weight: edge.weight, variant: 'memberOf', dim: isEdgeDim({ key }) },
+        data: {
+          weight: edge.weight,
+          variant: 'memberOf',
+          dim: isEdgeDim({ key }),
+          focused: isEdgeFocused({ key }),
+        },
       });
     });
   }
 
-  // Focus service-context overlay: in `helps` focus the ego's `works_on` edges
-  // are emitted (undimmed) even though `helps` is the active family, so the
-  // selected person's service ownership shows during focus (plan section 3.2e).
-  if (focusActive && relationship === 'helps') {
+  // Person `helps` focus overlays the ego's own `works_on` edges (focused) so
+  // the selected person's service ownership shows even while `helps` is active.
+  if (focusActive && personFocus && relationship === 'helps') {
     snapshot.edges.works_on.forEach((edge, index) => {
       if (edge.from !== activeAccountId) {
         return;
@@ -191,7 +280,26 @@ export const buildInstanceGraph = ({
         type: 'worksOn',
         source: personNodeId({ accountId: edge.from }),
         target: serviceNodeId({ id: edge.to }),
-        data: { weight: edge.weight, variant: 'worksOn', dim: false },
+        data: { weight: edge.weight, variant: 'worksOn', dim: false, focused: true },
+      });
+    });
+  }
+
+  // Service focus overlays that service's `works_on` edges (focused) when the
+  // active relationship isn't already drawing them, so hovering a service in the
+  // `helps`/`member_of` view still lights the people who own it.
+  if (serviceFocus && relationship !== 'works_on') {
+    snapshot.edges.works_on.forEach((edge, index) => {
+      if (edge.to !== activeServiceId) {
+        return;
+      }
+
+      edges.push({
+        id: `svc-works_on:${index}:${edge.from}->${edge.to}`,
+        type: 'worksOn',
+        source: personNodeId({ accountId: edge.from }),
+        target: serviceNodeId({ id: edge.to }),
+        data: { weight: edge.weight, variant: 'worksOn', dim: false, focused: true },
       });
     });
   }

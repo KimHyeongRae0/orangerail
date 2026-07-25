@@ -30,15 +30,23 @@ export const WorksOnEdge = ({
 
   const isMember = data?.variant === 'memberOf';
   const width = isMember ? 1 : edgeWidth({ weight: data?.weight ?? 1 });
-  const restingOpacity = isMember ? 0.4 : 0.7;
-  const opacity = data?.dim === true ? 0.08 : restingOpacity;
+  const focused = data?.focused === true;
+  const dim = data?.dim === true;
+
+  // Same calm-at-rest / strong-on-focus treatment as the `helps` edge: a resting
+  // person→place tie is a quiet grey line; a focused one lights accent green and
+  // carries the flow-particle animation.
+  const restingOpacity = isMember ? 0.3 : 0.4;
+  const stroke = focused ? 'var(--edge-highlighted)' : 'var(--edge-resting)';
+  const opacity = dim ? 0.06 : focused ? 0.95 : restingOpacity;
+  const strokeWidth = focused ? width + 0.75 : width;
 
   return (
     <BaseEdge
       path={path}
       style={{
-        stroke: 'var(--edge-resting)',
-        strokeWidth: width,
+        stroke,
+        strokeWidth,
         opacity,
         strokeDasharray: isMember ? '4 4' : undefined,
       }}
