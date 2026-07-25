@@ -1,9 +1,15 @@
 import { spawn } from 'node:child_process';
 
-import { buildSnapshot, studioAppDir, type InstanceSnapshot } from 'orangerail-studio/snapshot';
+import {
+  buildSnapshot,
+  studioAppDir,
+  type AgentFleetSnapshot,
+  type InstanceSnapshot,
+} from 'orangerail-studio/snapshot';
 
 import type { OrangerailConfig } from '../../config';
 import { resolveConfigPath } from '../../config';
+import { gatherFleet } from './fleet';
 import { gatherInstances } from './instances';
 import { createStudioServer } from './server';
 import { watchConfig } from './watch';
@@ -56,11 +62,13 @@ export const runStudio = async ({
     registry: config.registry,
     configPath: resolvedConfigPath,
   });
+  let fleet: AgentFleetSnapshot = gatherFleet({ configPath: resolvedConfigPath });
 
   const { server, broadcast } = createStudioServer({
     appDir: studioAppDir(),
     getSnapshot: () => snapshot,
     getInstances: () => instances,
+    getFleet: () => fleet,
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {
@@ -96,6 +104,11 @@ export const runStudio = async ({
               instances = next;
             })
             .catch(() => {});
+
+          // The fleet manifest lives in `data/fleet.json` beside the config; a
+          // live edit re-derives it (pure, synchronous). A bad file keeps the
+          // last good fleet snapshot.
+          fleet = gatherFleet({ configPath: resolvedConfigPath });
 
           broadcast({ event: 'change', data: '1' });
         },

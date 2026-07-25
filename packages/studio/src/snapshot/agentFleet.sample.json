@@ -1,0 +1,262 @@
+{
+  "$comment": "SPIKE SAMPLE ONLY — hand-authored to illustrate an orchestration fleet. This is the shape a deterministic scan of N declared orangerail configs would yield: each agent contributes the write-actions declared in its own registry (name + target object + verb + policy), plus static delegation/handoff edges (A2A-style) and any recursive spawn templates. Nothing here needs an LLM to assemble.",
+  "domain": "e-commerce operations",
+  "objects": [
+    "Task",
+    "Ticket",
+    "Order",
+    "Refund",
+    "Invoice",
+    "Payout",
+    "Payment",
+    "Subscription",
+    "Inventory",
+    "PurchaseOrder",
+    "Shipment",
+    "Customer"
+  ],
+  "approverRoles": ["ops", "finance", "treasury", "dpo"],
+  "agents": [
+    {
+      "id": "ops-supervisor",
+      "name": "Operations Supervisor",
+      "role": "supervisor",
+      "purpose": "Top-level planner. Receives one operator goal, decomposes it, and routes subtasks to specialist workers. Holds no destructive authority of its own — but can REACH almost everything through its workers.",
+      "actions": [
+        { "name": "createTask", "target": "Task", "verb": "create", "policy": { "approval": null } }
+      ],
+      "delegatesTo": [
+        "support-triage-agent",
+        "refund-agent",
+        "order-ops-agent",
+        "billing-agent",
+        "dunning-agent",
+        "data-cleanup-agent"
+      ]
+    },
+    {
+      "id": "support-triage-agent",
+      "name": "Support Triage Agent",
+      "role": "worker",
+      "purpose": "Classifies and tags inbound support tickets, then hands off to a specialist (peer handoff / swarm-style).",
+      "actions": [
+        {
+          "name": "createTicket",
+          "target": "Ticket",
+          "verb": "create",
+          "policy": { "approval": null }
+        },
+        {
+          "name": "updateTicket",
+          "target": "Ticket",
+          "verb": "update",
+          "policy": { "approval": null }
+        }
+      ],
+      "delegatesTo": ["refund-agent", "order-ops-agent"]
+    },
+    {
+      "id": "refund-agent",
+      "name": "Refund Agent",
+      "role": "worker",
+      "purpose": "Issues customer refunds against orders within policy limits.",
+      "actions": [
+        {
+          "name": "issueRefund",
+          "target": "Refund",
+          "verb": "create",
+          "policy": { "approval": "required", "roles": ["finance"] }
+        },
+        {
+          "name": "updateOrder",
+          "target": "Order",
+          "verb": "update",
+          "policy": { "approval": null }
+        }
+      ],
+      "delegatesTo": []
+    },
+    {
+      "id": "order-ops-agent",
+      "name": "Order Ops Agent",
+      "role": "hybrid",
+      "purpose": "Manages order lifecycle (cancels, holds) AND is itself a sub-supervisor: it orchestrates warehouse workers. Nested orchestration layer (depth 2 under ops-supervisor).",
+      "actions": [
+        {
+          "name": "cancelOrder",
+          "target": "Order",
+          "verb": "delete",
+          "policy": { "approval": "required", "roles": ["ops"] }
+        },
+        {
+          "name": "updateOrder",
+          "target": "Order",
+          "verb": "update",
+          "policy": { "approval": null }
+        }
+      ],
+      "delegatesTo": ["inventory-sync-agent", "fulfillment-agent"]
+    },
+    {
+      "id": "inventory-sync-agent",
+      "name": "Inventory Sync Agent",
+      "role": "worker",
+      "purpose": "Reconciles stock levels with the warehouse feed (depth 3 under ops-supervisor).",
+      "actions": [
+        {
+          "name": "updateInventory",
+          "target": "Inventory",
+          "verb": "update",
+          "policy": { "approval": null }
+        },
+        {
+          "name": "createPurchaseOrder",
+          "target": "PurchaseOrder",
+          "verb": "create",
+          "policy": { "approval": "required", "roles": ["ops"] }
+        }
+      ],
+      "delegatesTo": []
+    },
+    {
+      "id": "fulfillment-agent",
+      "name": "Fulfillment Agent",
+      "role": "worker",
+      "purpose": "Creates and cancels shipments (depth 3 under ops-supervisor).",
+      "actions": [
+        {
+          "name": "createShipment",
+          "target": "Shipment",
+          "verb": "create",
+          "policy": { "approval": null }
+        },
+        {
+          "name": "cancelShipment",
+          "target": "Shipment",
+          "verb": "delete",
+          "policy": { "approval": "required", "roles": ["ops"] }
+        }
+      ],
+      "delegatesTo": []
+    },
+    {
+      "id": "billing-agent",
+      "name": "Billing Agent",
+      "role": "worker",
+      "purpose": "Generates invoices and processes merchant payouts.",
+      "actions": [
+        {
+          "name": "createInvoice",
+          "target": "Invoice",
+          "verb": "create",
+          "policy": { "approval": null }
+        },
+        {
+          "name": "issueRefund",
+          "target": "Refund",
+          "verb": "create",
+          "policy": { "approval": "required", "roles": ["finance"] }
+        },
+        {
+          "name": "processPayout",
+          "target": "Payout",
+          "verb": "create",
+          "policy": { "approval": "required", "roles": ["finance", "treasury"] }
+        }
+      ],
+      "delegatesTo": ["dunning-agent"]
+    },
+    {
+      "id": "dunning-agent",
+      "name": "Dunning Agent",
+      "role": "worker",
+      "purpose": "Handles overdue accounts: reminders, charge retries, subscription suspension. Delegates back to billing — forms a CYCLE.",
+      "actions": [
+        {
+          "name": "cancelSubscription",
+          "target": "Subscription",
+          "verb": "update",
+          "policy": { "approval": "required", "roles": ["finance"] }
+        },
+        {
+          "name": "chargeCustomer",
+          "target": "Payment",
+          "verb": "create",
+          "policy": { "approval": "required", "roles": ["finance"] }
+        }
+      ],
+      "delegatesTo": ["billing-agent"]
+    },
+    {
+      "id": "data-cleanup-agent",
+      "name": "Data Cleanup Agent",
+      "role": "hybrid",
+      "purpose": "Nightly GDPR erasure + stale-record purge. RECURSIVELY SPAWNS one eraser sub-agent per stale object class it discovers at runtime; each spawned child inherits erasure authority. Unbounded spawn template.",
+      "actions": [
+        {
+          "name": "deleteTicket",
+          "target": "Ticket",
+          "verb": "delete",
+          "policy": { "approval": null }
+        }
+      ],
+      "delegatesTo": [],
+      "spawns": {
+        "template": "object-eraser",
+        "recursive": true,
+        "note": "Fan-out is data-dependent (one child per stale object class); the tree's shape is only known at run time. The three children below are a representative expansion, not a fixed roster."
+      }
+    },
+    {
+      "id": "customer-eraser",
+      "name": "Customer Eraser (spawned)",
+      "role": "worker",
+      "ephemeral": true,
+      "spawnedBy": "data-cleanup-agent",
+      "purpose": "Spawned child: erases a stale customer record (GDPR).",
+      "actions": [
+        {
+          "name": "deleteCustomer",
+          "target": "Customer",
+          "verb": "delete",
+          "policy": { "approval": "required", "roles": ["dpo"] }
+        }
+      ],
+      "delegatesTo": []
+    },
+    {
+      "id": "order-purger",
+      "name": "Order Purger (spawned)",
+      "role": "worker",
+      "ephemeral": true,
+      "spawnedBy": "data-cleanup-agent",
+      "purpose": "Spawned child: hard-deletes an aged order.",
+      "actions": [
+        {
+          "name": "purgeOrder",
+          "target": "Order",
+          "verb": "delete",
+          "policy": { "approval": "required", "roles": ["ops"] }
+        }
+      ],
+      "delegatesTo": []
+    },
+    {
+      "id": "invoice-shredder",
+      "name": "Invoice Shredder (spawned)",
+      "role": "worker",
+      "ephemeral": true,
+      "spawnedBy": "data-cleanup-agent",
+      "purpose": "Spawned child: deletes an expired invoice past retention.",
+      "actions": [
+        {
+          "name": "deleteInvoice",
+          "target": "Invoice",
+          "verb": "delete",
+          "policy": { "approval": "required", "roles": ["finance"] }
+        }
+      ],
+      "delegatesTo": []
+    }
+  ]
+}
