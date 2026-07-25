@@ -25,6 +25,13 @@ export interface PersonNodeData extends Record<string, unknown> {
   /** Node radius in px, derived monotonically from `storyPointsTotal`. */
   radius: number;
   active: boolean;
+  /**
+   * Incident-edge count in the active relationship (a person's connectivity in
+   * the current view). Drives a border-weight emphasis so well-connected hubs
+   * read as anchors, separate from the story-point radius channel. Optional so
+   * builders that don't model connectivity (Ownership) can omit it.
+   */
+  degree?: number;
   /** True when a focus mode is active and this node is outside the ego set. */
   dim?: boolean;
 }
@@ -38,6 +45,12 @@ export interface PlaceNodeData extends Record<string, unknown> {
   team?: InstanceTeam;
   /** True when this place node is the current selection (Ownership focus). */
   active?: boolean;
+  /**
+   * True when this place carries no edge in the active relationship (e.g. a
+   * service in the `helps` view) and is not pulled into the current focus — it
+   * recedes as context so the active relationship reads as the figure.
+   */
+  muted?: boolean;
   /** True when a focus mode is active and this node is outside the ego set. */
   dim?: boolean;
 }
@@ -47,6 +60,12 @@ export interface HelpsEdgeData extends Record<string, unknown> {
   weight: number;
   /** True when a focus mode is active and this edge is outside the ego set. */
   dim?: boolean;
+  /**
+   * True when this edge is inside the active focus/hover ego set. It renders
+   * emphasised and carries the flow-particle animation, mirroring the DB view's
+   * highlighted links.
+   */
+  focused?: boolean;
 }
 
 /** Data carried by a `works_on` / `member_of` edge (person → place). */
@@ -55,6 +74,12 @@ export interface WorksOnEdgeData extends Record<string, unknown> {
   variant: 'worksOn' | 'memberOf';
   /** True when a focus mode is active and this edge is outside the ego set. */
   dim?: boolean;
+  /**
+   * True when this edge is inside the active focus/hover ego set. It renders
+   * emphasised and carries the flow-particle animation, mirroring the DB view's
+   * highlighted links.
+   */
+  focused?: boolean;
 }
 
 export type PersonNode = Node<PersonNodeData, 'person'>;

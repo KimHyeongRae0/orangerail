@@ -12,8 +12,13 @@ import styles from './PersonNode.module.css';
  * click bubbles to React Flow's `onNodeClick`, which opens the scorecard.
  */
 export const PersonNode = ({ data }: NodeProps<PersonNodeType>) => {
-  const { employee, radius, active, dim } = data;
+  const { employee, radius, active, dim, degree } = data;
   const diameter = radius * 2;
+
+  // Hub emphasis: a well-connected person carries a heavier ring (a second
+  // channel independent of the story-point radius), so the eye anchors on the
+  // network's connectors. Capped so a very high degree stays bounded.
+  const borderWidth = 1.5 + Math.min(degree ?? 0, 8) * 0.4;
 
   return (
     <div
@@ -23,7 +28,7 @@ export const PersonNode = ({ data }: NodeProps<PersonNodeType>) => {
       data-active={active}
       data-inactive={!employee.active}
       data-dim={dim === true}
-      style={{ width: diameter, height: diameter }}
+      style={{ width: diameter, height: diameter, borderWidth }}
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />
 

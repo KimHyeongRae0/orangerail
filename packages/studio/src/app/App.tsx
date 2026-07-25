@@ -149,6 +149,10 @@ const Studio = () => {
   const [activePerson, setActivePerson] = useState<string | null>(null);
   const [activeService, setActiveService] = useState<string | null>(null);
   const [hover, setHover] = useState<Focus>(null);
+  // Transient hover focus for the human graph (person / service), mirroring the
+  // DB view's object hover. An active click selection always wins over a hover.
+  const [hoverAccountId, setHoverAccountId] = useState<string | null>(null);
+  const [hoverServiceId, setHoverServiceId] = useState<string | null>(null);
   const [reloadError, setReloadError] = useState(false);
 
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -165,6 +169,20 @@ const Studio = () => {
       90,
     );
   }, []);
+
+  // The human-graph counterpart of `scheduleHover`: debounce a person/service
+  // hover the same way (the graph rebuild on focus can otherwise drop the very
+  // click a user is making). Only one of account/service is ever set.
+  const scheduleHumanHover = useCallback(
+    ({ accountId, serviceId }: { accountId: string | null; serviceId: string | null }) => {
+      clearTimeout(hoverTimer.current);
+      hoverTimer.current = setTimeout(() => {
+        setHoverAccountId(accountId);
+        setHoverServiceId(serviceId);
+      }, 90);
+    },
+    [],
+  );
 
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
 
@@ -288,7 +306,10 @@ const Studio = () => {
         positions: humanPositions,
         relationship,
         weightThreshold,
-        activeAccountId: activePerson,
+        // A click selection wins over a hover; a service focus lights the people
+        // who own it (person focus takes precedence inside the builder).
+        activeAccountId: activePerson ?? hoverAccountId,
+        activeServiceId: activeService ?? hoverServiceId,
       });
     }
 
@@ -307,6 +328,8 @@ const Studio = () => {
     weightThreshold,
     activePerson,
     activeService,
+    hoverAccountId,
+    hoverServiceId,
     snapshot,
     highlights,
     dbPositions,
@@ -323,6 +346,14 @@ const Studio = () => {
   // Edge ids that carry flow particles: db link/action highlights only. The
   // human category has no particle overlay, so its list is empty.
   const activeEdgeIds = useMemo(() => {
+    // Human views animate the focused (ego) edges — the same flow particles the
+    // DB view runs on its highlighted links.
+    if (category === 'human') {
+      return built.edges
+        .filter((edge) => (edge.data as { focused?: boolean } | undefined)?.focused === true)
+        .map((edge) => edge.id);
+    }
+
     if (category !== 'db' || !snapshot || !highlights) {
       return [] as string[];
     }
@@ -344,7 +375,7 @@ const Studio = () => {
     }
 
     return ids;
-  }, [category, snapshot, highlights]);
+  }, [category, built.edges, snapshot, highlights]);
 
   // Push nodes then edges together. The instance nodes carry explicit
   // width/height (set in `buildInstanceGraph`) so React Flow has their
@@ -405,33 +436,56 @@ const Studio = () => {
     }
   }, []);
 
-  // Hover applies the same relation-highlight treatment as a click (db map).
+  // Hover applies the same relation-highlight treatment as a click: an object
+  // (db map), a person, or a service (human graph) all light their connections
+  // on hover and animate them, exactly like a selection.
   const onNodeMouseEnter = useCallback<NodeMouseHandler<StudioNode>>(
     (_event, node) => {
       if (node.type === 'object') {
         scheduleHover({
           focus: { type: 'object', name: (node.data as ObjectNodeData).object.name },
         });
+        return;
+      }
+
+      if (node.type === 'person') {
+        scheduleHumanHover({
+          accountId: (node.data as PersonNodeData).employee.accountId,
+          serviceId: null,
+        });
+        return;
+      }
+
+      if (node.type === 'service') {
+        scheduleHumanHover({
+          accountId: null,
+          serviceId: (node.data as PlaceNodeData).service?.id ?? null,
+        });
       }
     },
-    [scheduleHover],
+    [scheduleHover, scheduleHumanHover],
   );
 
   const onNodeMouseLeave = useCallback<NodeMouseHandler<StudioNode>>(
     (event, node) => {
-      if (node.type !== 'object') {
+      if (node.type !== 'object' && node.type !== 'person' && node.type !== 'service') {
         return;
       }
 
-      // Ignore a phantom leave: the cursor is still inside the card (the leave
+      // Ignore a phantom leave: the cursor is still inside the node (the leave
       // was fired by a DOM re-attach, not a real exit). See `pointerInside`.
       if (pointerInside({ element: event.currentTarget, x: event.clientX, y: event.clientY })) {
         return;
       }
 
-      scheduleHover({ focus: null });
+      if (node.type === 'object') {
+        scheduleHover({ focus: null });
+        return;
+      }
+
+      scheduleHumanHover({ accountId: null, serviceId: null });
     },
-    [scheduleHover],
+    [scheduleHover, scheduleHumanHover],
   );
 
   const handleTidy = useCallback(async () => {
@@ -457,6 +511,8 @@ const Studio = () => {
     setActive(null);
     setActivePerson(null);
     setActiveService(null);
+    setHoverAccountId(null);
+    setHoverServiceId(null);
 
     const url = new URL(window.location.href);
     url.searchParams.set('category', next);
@@ -482,6 +538,8 @@ const Studio = () => {
     setActive(null);
     setActivePerson(null);
     setActiveService(null);
+    setHoverAccountId(null);
+    setHoverServiceId(null);
 
     const url = new URL(window.location.href);
     url.searchParams.set('view', view);
@@ -548,6 +606,8 @@ const Studio = () => {
           setActive(null);
           setActivePerson(null);
           setActiveService(null);
+          setHoverAccountId(null);
+          setHoverServiceId(null);
         }}
         attributionPosition="bottom-left"
       >

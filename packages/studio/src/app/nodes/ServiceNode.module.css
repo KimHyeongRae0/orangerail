@@ -24,6 +24,12 @@
   box-shadow: 0 0 0 3px var(--primary-overlay-10);
 }
 
+/* Structural context: a place with no edge in the active relationship recedes
+   so the active family reads as the figure. `data-dim` (focus) wins over this. */
+.place[data-muted='true'] {
+  opacity: 0.4;
+}
+
 .place[data-dim='true'] {
   opacity: 0.15;
 }

@@ -55,10 +55,12 @@ const build = ({
   relationship = 'helps',
   weightThreshold = 1,
   activeAccountId = null,
+  activeServiceId = null,
 }: {
   relationship?: Relationship;
   weightThreshold?: number;
   activeAccountId?: string | null;
+  activeServiceId?: string | null;
 }) =>
   buildInstanceGraph({
     snapshot,
@@ -66,7 +68,16 @@ const build = ({
     relationship,
     weightThreshold,
     activeAccountId,
+    activeServiceId,
   });
+
+const dataOf = <T>({
+  nodes,
+  id,
+}: {
+  nodes: ReturnType<typeof buildInstanceGraph>['nodes'];
+  id: string;
+}) => nodes.find((n) => n.id === id)?.data as T;
 
 describe('buildInstanceGraph (plan section 3.2)', () => {
   it('emits only instance node/edge types (no db type leakage)', () => {
@@ -142,6 +153,74 @@ describe('buildInstanceGraph (plan section 3.2)', () => {
 
     expect(nodes.every((n) => (n.data as { dim?: boolean }).dim !== true)).toBe(true);
     expect(edges.every((e) => e.data?.dim !== true)).toBe(true);
+  });
+});
+
+describe('buildInstanceGraph readability channels (degree / muted / focused)', () => {
+  it('sets each person degree from incident edges in the active relationship', () => {
+    // `helps`: acc_a—acc_b counts both endpoints.
+    const helps = build({ relationship: 'helps' }).nodes;
+    expect(dataOf<{ degree: number }>({ nodes: helps, id: 'person:acc_a' }).degree).toBe(1);
+    expect(dataOf<{ degree: number }>({ nodes: helps, id: 'person:acc_b' }).degree).toBe(1);
+
+    // `works_on`: only the person source is counted (acc_a → svc1), acc_b is 0.
+    const worksOn = build({ relationship: 'works_on' }).nodes;
+    expect(dataOf<{ degree: number }>({ nodes: worksOn, id: 'person:acc_a' }).degree).toBe(1);
+    expect(dataOf<{ degree: number }>({ nodes: worksOn, id: 'person:acc_b' }).degree).toBe(0);
+  });
+
+  it('mutes a place with no edge in the active relationship, keeps a connected one', () => {
+    // In `helps` the service and team carry no edge → both muted.
+    const helps = build({ relationship: 'helps' }).nodes;
+    expect(dataOf<{ muted?: boolean }>({ nodes: helps, id: 'svc:svc1' }).muted).toBe(true);
+    expect(dataOf<{ muted?: boolean }>({ nodes: helps, id: 'team:t1' }).muted).toBe(true);
+
+    // In `works_on` the service is connected (not muted); the team still isn't.
+    const worksOn = build({ relationship: 'works_on' }).nodes;
+    expect(dataOf<{ muted?: boolean }>({ nodes: worksOn, id: 'svc:svc1' }).muted).toBe(false);
+    expect(dataOf<{ muted?: boolean }>({ nodes: worksOn, id: 'team:t1' }).muted).toBe(true);
+  });
+
+  it('marks ego edges focused and leaves the rest unfocused', () => {
+    const { edges } = build({ relationship: 'helps', activeAccountId: 'acc_a' });
+
+    // The ego helps edge and the overlaid ego works_on edge are focused.
+    expect(edges.every((e) => e.data?.focused === true)).toBe(true);
+
+    // With no selection nothing is focused.
+    const overview = build({ relationship: 'helps' }).edges;
+    expect(overview.every((e) => e.data?.focused !== true)).toBe(true);
+  });
+});
+
+describe('buildInstanceGraph service focus (Network mirror of Ownership)', () => {
+  it('lights the service and its people, dims the rest, overlays focused works_on', () => {
+    const { nodes, edges } = build({ relationship: 'helps', activeServiceId: 'svc1' });
+
+    // svc1 is the active place; acc_a (works on it) stays lit; acc_b + team dim.
+    expect(dataOf<{ active?: boolean }>({ nodes, id: 'svc:svc1' }).active).toBe(true);
+    expect(dataOf<{ dim?: boolean }>({ nodes, id: 'svc:svc1' }).dim).toBe(false);
+    expect(dataOf<{ dim?: boolean }>({ nodes, id: 'person:acc_a' }).dim).toBe(false);
+    expect(dataOf<{ dim?: boolean }>({ nodes, id: 'person:acc_b' }).dim).toBe(true);
+    expect(dataOf<{ dim?: boolean }>({ nodes, id: 'team:t1' }).dim).toBe(true);
+
+    // The service's works_on edge is overlaid and focused even under `helps`.
+    const svcEdge = edges.find((e) => e.id.startsWith('svc-works_on:'));
+    expect(svcEdge?.data?.focused).toBe(true);
+    expect(svcEdge?.source).toBe('person:acc_a');
+    expect(svcEdge?.target).toBe('svc:svc1');
+  });
+
+  it('lets a person focus win over a service focus', () => {
+    const { nodes } = build({
+      relationship: 'helps',
+      activeAccountId: 'acc_a',
+      activeServiceId: 'svc1',
+    });
+
+    // Person focus wins: acc_a is the active person, the service is not "active".
+    expect(dataOf<{ active?: boolean }>({ nodes, id: 'person:acc_a' }).active).toBe(true);
+    expect(dataOf<{ active?: boolean }>({ nodes, id: 'svc:svc1' }).active).toBe(false);
   });
 });
 
