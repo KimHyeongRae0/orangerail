@@ -27,6 +27,7 @@ import { ParticleOverlay } from './edges/ParticleOverlay';
 import { WorksOnEdge } from './edges/WorksOnEdge';
 import { DetailPanel, PersonScorecard } from './DetailPanel';
 import { EmptyState, isEmptySnapshot } from './EmptyState';
+import { AGENT_VIEW_ENABLED } from './featureFlags';
 import { fitAll } from './fit';
 import { actionEdgeId, buildGraph } from './graph';
 import { HelpMatrix } from './HelpMatrixView';
@@ -270,7 +271,8 @@ const Studio = () => {
     () => ({
       db: (snapshot?.objects.length ?? 0) > 0 || (snapshot?.actions.length ?? 0) > 0,
       human: (instances?.employees.length ?? 0) > 0,
-      agent: (fleet?.agentCount ?? 0) > 0,
+      // Shelved for post-v0 — see AGENT_VIEW_ENABLED in ./featureFlags.
+      agent: AGENT_VIEW_ENABLED && (fleet?.agentCount ?? 0) > 0,
     }),
     [snapshot, instances, fleet],
   );

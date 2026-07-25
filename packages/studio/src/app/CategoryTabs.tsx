@@ -1,3 +1,4 @@
+import { AGENT_VIEW_ENABLED } from './featureFlags';
 import type { Category } from './instanceModel';
 import styles from './CategoryTabs.module.css';
 
@@ -7,11 +8,14 @@ import styles from './CategoryTabs.module.css';
  * renders the fleet governance view. A category with no data renders disabled so
  * a click never lands on an empty broken view (AC-4). The active tab is marked
  * with `data-active="true"` and `aria-selected="true"` (the e2e reads either).
+ *
+ * The `agent` tab is a post-v0 feature (AGENT_VIEW_ENABLED): when off it is not
+ * rendered at all, so a shelved feature never shows even as a greyed tab.
  */
 const TABS: { category: Category; label: string }[] = [
   { category: 'db', label: 'DB' },
   { category: 'human', label: 'Human' },
-  { category: 'agent', label: 'Agent' },
+  ...(AGENT_VIEW_ENABLED ? [{ category: 'agent' as const, label: 'Agent' }] : []),
 ];
 
 export const CategoryTabs = ({
