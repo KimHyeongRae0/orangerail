@@ -14,9 +14,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
+import type { AgentFleetSnapshot } from '../snapshot';
 import type { InstanceSnapshot } from '../snapshot/instances';
 import type { GraphSnapshot } from '../snapshot/types';
 import styles from './App.module.css';
+import { FleetView } from './FleetView';
 import { CardinalityMarkers } from './edges/CardinalityMarkers';
 import { ActionEdge } from './edges/ActionEdge';
 import { HelpsEdge } from './edges/HelpsEdge';
@@ -77,7 +79,7 @@ const initialShowMode = (): ShowMode =>
 /** The category requested via `?category=`, or `null` when the URL is silent. */
 const initialCategory = (): Category | null => {
   const value = new URLSearchParams(window.location.search).get('category');
-  return value === 'db' || value === 'human' ? value : null;
+  return value === 'db' || value === 'human' || value === 'agent' ? value : null;
 };
 
 /** The human view requested via `?view=`, defaulting to `'network'` (AC-1). */
@@ -131,6 +133,7 @@ const Studio = () => {
 
   const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
   const [instances, setInstances] = useState<InstanceSnapshot | null>(null);
+  const [fleet, setFleet] = useState<AgentFleetSnapshot | null>(null);
   const [dbPositions, setDbPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
   const [humanPositions, setHumanPositions] = useState<Map<string, { x: number; y: number }>>(
     new Map(),
@@ -221,6 +224,15 @@ const Studio = () => {
       });
     }
 
+    // The agent fleet is independent again: a project with no `data/fleet.json`
+    // serves the empty snapshot, which just leaves the agent category disabled.
+    try {
+      const fleetData: AgentFleetSnapshot = await (await fetch('/api/fleet')).json();
+      setFleet(fleetData);
+    } catch {
+      setFleet(null);
+    }
+
     setLayoutTick((tick) => tick + 1);
   }, []);
 
@@ -258,8 +270,9 @@ const Studio = () => {
     () => ({
       db: (snapshot?.objects.length ?? 0) > 0 || (snapshot?.actions.length ?? 0) > 0,
       human: (instances?.employees.length ?? 0) > 0,
+      agent: (fleet?.agentCount ?? 0) > 0,
     }),
-    [snapshot, instances],
+    [snapshot, instances, fleet],
   );
 
   // Once both snapshots have loaded, auto-select an available category when the
@@ -282,6 +295,12 @@ const Studio = () => {
   );
 
   const built = useMemo(() => {
+    // The agent category renders the FleetView DOM overlay (like the Matrix), so
+    // the shared React Flow canvas holds nothing for it.
+    if (category === 'agent') {
+      return { nodes: [] as StudioNode[], edges: [] as StudioEdge[] };
+    }
+
     if (category === 'human' && instances) {
       // The Matrix is a plain DOM overlay (not React Flow), so the shared canvas
       // renders nothing in that view; the surface + provider stay mounted.
@@ -618,6 +637,8 @@ const Studio = () => {
       {category === 'human' && viewMode === 'matrix' && helpMatrix ? (
         <HelpMatrix model={helpMatrix} />
       ) : null}
+
+      {category === 'agent' && fleet ? <FleetView snapshot={fleet} /> : null}
 
       <Toolbar
         category={category}

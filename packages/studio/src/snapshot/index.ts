@@ -42,6 +42,33 @@ export type {
   MetricValue,
 } from './instances';
 
+export {
+  buildAgentFleetSnapshot,
+  deriveAuthorityOverlaps,
+  deriveBlastRadius,
+  deriveDelegationCycles,
+  deriveObjectWriters,
+  deriveRecursiveSpawners,
+  deriveUngatedDestructiveActions,
+  emptyAgentFleetSnapshot,
+} from './agentFleet';
+export type {
+  ActionVerb,
+  AgentAction,
+  AgentConfig,
+  AgentFleetSnapshot,
+  AgentPolicy,
+  AgentRole,
+  AuthorityOverlap,
+  BlastRadius,
+  DelegationCycle,
+  FleetManifest,
+  ObjectWriters,
+  RecursiveSpawner,
+  SpawnTemplate,
+  UngatedDestructiveAction,
+} from './agentFleet';
+
 const byName = <T extends { name: string }>(a: T, b: T): number => a.name.localeCompare(b.name);
 
 const buildFields = ({

@@ -39,7 +39,7 @@ export const Toolbar = ({
   onWeightThresholdDec,
 }: {
   category: Category;
-  availability: { db: boolean; human: boolean };
+  availability: { db: boolean; human: boolean; agent: boolean };
   onCategory: ({ category }: { category: Category }) => void;
   showMode: ShowMode;
   onShowMode: ({ mode }: { mode: ShowMode }) => void;
@@ -168,7 +168,7 @@ export const Toolbar = ({
             </>
           ) : null}
         </>
-      ) : (
+      ) : category === 'db' ? (
         <>
           <span className={styles.label}>show</span>
           <select
@@ -182,7 +182,7 @@ export const Toolbar = ({
             <option value="name">Name Only</option>
           </select>
         </>
-      )}
+      ) : null}
     </div>
   );
 };

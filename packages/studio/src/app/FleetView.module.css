@@ -1,0 +1,222 @@
+/* Alert accent — warm orange (the orangerail brand hue), used to mark the
+   governance risks (ungated deletes, divergent/destructive blast radius). It is
+   deliberately the one non-green channel so a risk reads instantly. */
+.fleet {
+  --fleet-alert: #f2994a;
+  --fleet-alert-overlay: rgba(242, 153, 74, 0.14);
+
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--canvas-background);
+  z-index: 2;
+}
+
+.scroll {
+  box-sizing: border-box;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 24px 120px;
+  font-family: var(--ui-font);
+  color: var(--foreground);
+}
+
+.head {
+  margin-bottom: 28px;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: var(--font-size-3);
+  color: var(--overlay-60);
+  line-height: 1.5;
+}
+
+.section {
+  margin-bottom: 28px;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: var(--font-size-5);
+  font-weight: 600;
+}
+
+.note {
+  margin: 0 0 12px;
+  font-size: var(--font-size-3);
+  color: var(--overlay-60);
+  line-height: 1.5;
+}
+
+.alertDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fleet-alert);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card,
+.alertCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--border-radius-md);
+  background: var(--node-muted-background);
+  border: 1px solid var(--node-border);
+  font-size: var(--font-size-3);
+}
+
+.alertCard {
+  background: var(--fleet-alert-overlay);
+  border-color: var(--fleet-alert);
+}
+
+/* --- blast radius table --- */
+.table {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.barEffective,
+.barEffectiveWide,
+.barDirect {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 5px;
+}
+
+.barEffective {
+  background: var(--primary-overlay-15);
+}
+
+.barEffectiveWide {
+  background: var(--fleet-alert-overlay);
+}
+
+.barDirect {
+  background: var(--primary-accent);
+  opacity: 0.85;
+}
+
+.rowMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-1);
+  color: var(--overlay-60);
+}
+
+.direct {
+  color: var(--primary-accent);
+}
+
+.effective {
+  color: var(--overlay-70);
+}
+
+.effectiveWide {
+  color: var(--fleet-alert);
+  font-weight: 600;
+}
+
+.via {
+  color: var(--overlay-60);
+}
+
+/* --- shared inline tokens --- */
+.agentId {
+  font-weight: 600;
+}
+
+.actionName {
+  font-family: var(--code-font);
+  color: var(--foreground);
+}
+
+.objectName {
+  font-family: var(--code-font);
+  color: var(--primary-accent);
+}
+
+.template {
+  font-family: var(--code-font);
+  color: var(--fleet-alert);
+}
+
+.arrow {
+  color: var(--overlay-60);
+}
+
+.agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--pill-chip-background);
+  border: 1px solid var(--pill-border);
+  font-size: var(--font-size-1);
+  color: var(--overlay-70);
+}
+
+.cycleMember {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badgeUnbounded,
+.badgeDestructive {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: var(--font-size-1);
+  font-weight: 600;
+  border: 1px solid var(--fleet-alert);
+  color: var(--fleet-alert);
+  background: var(--fleet-alert-overlay);
+}

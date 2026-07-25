@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { GraphSnapshot, InstanceSnapshot } from 'orangerail-studio/snapshot';
+import type {
+  AgentFleetSnapshot,
+  GraphSnapshot,
+  InstanceSnapshot,
+} from 'orangerail-studio/snapshot';
 
 import { createStudioServer, isAllowedHost, resolveStaticPath } from './server';
 
@@ -37,6 +41,27 @@ const instances: InstanceSnapshot = {
   teams: [],
   incidents: [],
   edges: { helps: [{ from: 'acc_a', to: 'acc_a', weight: 1 }], works_on: [], member_of: [] },
+};
+
+const fleet: AgentFleetSnapshot = {
+  agentCount: 1,
+  authorityOverlaps: [],
+  objectWriters: [],
+  blastRadius: [
+    {
+      agentId: 'solo',
+      directActions: 1,
+      directObjects: ['Order'],
+      effectiveActions: 1,
+      effectiveObjects: ['Order'],
+      reachableAgents: [],
+      destructiveObjects: [],
+      unbounded: false,
+    },
+  ],
+  delegationCycles: [],
+  recursiveSpawners: [],
+  ungatedDestructiveActions: [],
 };
 
 describe('resolveStaticPath (AC-7 containment)', () => {
@@ -110,6 +135,7 @@ describe('createStudioServer (plan section 3.6)', () => {
       appDir,
       getSnapshot: () => snapshot,
       getInstances: () => instances,
+      getFleet: () => fleet,
     });
     server = built.server;
     broadcast = built.broadcast;
@@ -152,6 +178,12 @@ describe('createStudioServer (plan section 3.6)', () => {
     const res = await raw({ method: 'POST', path: '/api/registry' });
     expect(res.status).toBe(405);
     expect(res.headers['allow']).toBe('GET, HEAD');
+  });
+
+  it('serves the agent-fleet snapshot as JSON', async () => {
+    const res = await raw({ method: 'GET', path: '/api/fleet' });
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).blastRadius[0].agentId).toBe('solo');
   });
 
   it('serves the instance snapshot as JSON', async () => {

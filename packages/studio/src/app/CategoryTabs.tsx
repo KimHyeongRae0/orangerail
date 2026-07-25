@@ -3,14 +3,15 @@ import styles from './CategoryTabs.module.css';
 
 /**
  * The source-category segmented control (plan section 3.2 / Decision 2): `db`
- * renders the ONT-005 type map, `human` renders the instance graph. A category
- * with no data renders disabled so a click never lands on an empty broken view
- * (AC-4). The active tab is marked with `data-active="true"` and
- * `aria-selected="true"` (the e2e reads either).
+ * renders the ONT-005 type map, `human` renders the instance graph, `agent`
+ * renders the fleet governance view. A category with no data renders disabled so
+ * a click never lands on an empty broken view (AC-4). The active tab is marked
+ * with `data-active="true"` and `aria-selected="true"` (the e2e reads either).
  */
 const TABS: { category: Category; label: string }[] = [
   { category: 'db', label: 'DB' },
   { category: 'human', label: 'Human' },
+  { category: 'agent', label: 'Agent' },
 ];
 
 export const CategoryTabs = ({
@@ -19,7 +20,7 @@ export const CategoryTabs = ({
   onCategory,
 }: {
   category: Category;
-  availability: { db: boolean; human: boolean };
+  availability: { db: boolean; human: boolean; agent: boolean };
   onCategory: ({ category }: { category: Category }) => void;
 }) => (
   <div className={styles.tabs} role="tablist" data-testid="category-tabs">

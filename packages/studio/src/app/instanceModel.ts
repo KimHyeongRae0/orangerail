@@ -2,8 +2,13 @@ import type { Edge, Node } from '@xyflow/react';
 
 import type { InstanceEmployee, InstanceService, InstanceTeam } from '../snapshot/instances';
 
-/** The studio's two source categories: the ONT-005 type map / the instance graph. */
-export type Category = 'db' | 'human';
+/**
+ * The studio's source categories: the ONT-005 type map (`db`), the people /
+ * services instance graph (`human`), and the agent-fleet governance view
+ * (`agent`). Each is one graph over "my organisation" seen through a different
+ * lens; a category with no data renders disabled.
+ */
+export type Category = 'db' | 'human' | 'agent';
 
 /**
  * The human category's three purpose-built views (plan section 3.1 / AC-1): the
