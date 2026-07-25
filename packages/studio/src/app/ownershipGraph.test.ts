@@ -63,6 +63,63 @@ describe('buildOwnershipGraph (plan Decision 4, AC-4)', () => {
   });
 });
 
+describe('buildOwnershipGraph focus (symmetric person <-> service selection)', () => {
+  const nodeById = ({
+    nodes,
+    id,
+  }: {
+    nodes: ReturnType<typeof buildOwnershipGraph>['nodes'];
+    id: string;
+  }) => nodes.find((n) => n.id === id)!;
+
+  it('person selection lights only that person and the services they own', () => {
+    const { nodes, edges } = buildOwnershipGraph({
+      snapshot,
+      positions: new Map(),
+      selection: { type: 'person', accountId: 'a' },
+    });
+
+    expect(nodeById({ nodes, id: 'person:a' }).data.active).toBe(true);
+    expect(nodeById({ nodes, id: 'person:a' }).data.dim).toBe(false);
+    expect(nodeById({ nodes, id: 'svc:s1' }).data.dim).toBe(false);
+    expect(nodeById({ nodes, id: 'person:b' }).data.dim).toBe(true);
+    expect(nodeById({ nodes, id: 'person:lonely' }).data.dim).toBe(true);
+    expect(nodeById({ nodes, id: 'svc:idle' }).data.dim).toBe(true);
+
+    const aEdge = edges.find((e) => e.source === 'person:a' && e.target === 'svc:s1')!;
+    const bEdge = edges.find((e) => e.source === 'person:b' && e.target === 'svc:s1')!;
+    expect(aEdge.data?.dim).toBe(false);
+    expect(bEdge.data?.dim).toBe(true);
+  });
+
+  it('service selection lights only that service and the people who work on it', () => {
+    const { nodes, edges } = buildOwnershipGraph({
+      snapshot,
+      positions: new Map(),
+      selection: { type: 'service', id: 's1' },
+    });
+
+    expect(nodeById({ nodes, id: 'svc:s1' }).data.active).toBe(true);
+    expect(nodeById({ nodes, id: 'svc:s1' }).data.dim).toBe(false);
+    expect(nodeById({ nodes, id: 'person:a' }).data.dim).toBe(false);
+    expect(nodeById({ nodes, id: 'person:b' }).data.dim).toBe(false);
+    expect(nodeById({ nodes, id: 'person:lonely' }).data.dim).toBe(true);
+    expect(nodeById({ nodes, id: 'svc:idle' }).data.dim).toBe(true);
+
+    expect(edges.filter((e) => e.target === 'svc:s1').every((e) => e.data?.dim === false)).toBe(
+      true,
+    );
+  });
+
+  it('no selection leaves everything neutral', () => {
+    const { nodes, edges } = buildOwnershipGraph({ snapshot, positions: new Map() });
+
+    expect(nodes.every((n) => n.data.dim !== true)).toBe(true);
+    expect(nodes.every((n) => n.data.active !== true)).toBe(true);
+    expect(edges.every((e) => e.data?.dim !== true)).toBe(true);
+  });
+});
+
 describe('computeOwnershipLayout (plan Decision 4 — bipartite partitions)', () => {
   it('places people and services in two disjoint x-ranges', async () => {
     const positions = await computeOwnershipLayout({ snapshot });

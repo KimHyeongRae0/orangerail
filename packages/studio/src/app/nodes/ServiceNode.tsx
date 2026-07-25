@@ -11,13 +11,14 @@ import styles from './ServiceNode.module.css';
  * labels render as React text only (AC-6).
  */
 export const ServiceNode = ({ data }: NodeProps<PlaceNodeType>) => {
-  const { kind, label, service, dim } = data;
+  const { kind, label, service, active, dim } = data;
 
   return (
     <div
       className={styles.place}
       data-instance-kind={kind}
       data-place-kind={kind}
+      data-active={active === true}
       data-dim={dim === true}
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />

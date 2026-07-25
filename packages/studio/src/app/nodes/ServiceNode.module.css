@@ -19,6 +19,11 @@
   opacity: 0.85;
 }
 
+.place[data-active='true'] {
+  border-color: var(--edge-highlighted);
+  box-shadow: 0 0 0 3px var(--primary-overlay-10);
+}
+
 .place[data-dim='true'] {
   opacity: 0.15;
 }
