@@ -17,10 +17,8 @@ const USAGE = `orangerail — governed ontology runtime CLI
 
 Usage:
   orangerail init [--yes] [--preset <p>] [--sources <csv>] [--models <csv>]
-                [--from-jira <export.json>] [--from-slack <export.json>]
                 [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
                                                  scan a repo and assemble the ontology
-                                                 (--from-jira runs the org-artifact scanner instead)
   orangerail sync [--config <path>] [--accept-new] re-scan and report drift (exit 1 on drift)
   orangerail mcp [--config <path>]                 launch the MCP server over stdio
   orangerail studio [--config <path>] [--port <n>] [--no-open]  serve the map-mode studio locally

@@ -1,6 +1,7 @@
 # orangerail
 
-> Declare your domain once — get both the docs and the enforcement for AI agents.
+> Declare your domain once — and every AI agent that touches it is guided,
+> governed, and visible.
 
 **Status: pre-release.** v0 is under active development; the API described below is
 the design target, not a published surface. A version stub is published to npm to
@@ -8,15 +9,22 @@ hold the name.
 
 ## What orangerail will be
 
-The domain rules you've been hand-writing into markdown — product statuses, order
-invariants, "never issue a coupon for a sold-out item" — declared once in TypeScript
-(zod-native), compiled into two rails:
+The domain rules you've been hand-writing into scattered markdown — product
+statuses, order invariants, "never issue a coupon for a sold-out item" — declared
+once in TypeScript (zod-native), and compiled into the three things an AI agent
+working against your system actually needs:
 
-- **Prompt rail** — generated domain docs for `AGENTS.md`, so agents are guided to
-  behave well.
-- **Runtime rail** — a typed MCP server with staged write-actions, human-in-the-loop
-  approval, and a tamper-evident audit log, so agents are physically stopped when
+- **A prompt rail** — generated domain docs for `AGENTS.md`, so agents are *guided*
+  to behave well.
+- **A runtime rail** — a typed MCP server with staged write-actions, human-in-the-loop
+  approval, and a tamper-evident audit log, so agents are physically *stopped* when
   they don't.
+- **A map you can trust** — a live, read-only studio view of your objects, links,
+  and actions, so you can *see* exactly what an agent can reach and confirm it
+  matches your intent.
+
+One declaration is the single source of truth for all three — they cannot drift
+apart, because they are generated, not maintained by hand.
 
 ```ts
 const issueCoupon = defineAction({
@@ -37,11 +45,15 @@ const issueCoupon = defineAction({
 ## v0 scope (in development)
 
 - `orangerail init` — deterministic scanner (Prisma / OpenAPI) that extracts your
-  ontology instead of asking you to type it. No LLM calls, no API keys — ever.
+  ontology from code instead of asking you to type it. No LLM calls, no API keys —
+  ever.
 - `orangerail mcp` — typed MCP server over your declared objects, links, and actions.
 - `orangerail approvals` — CLI approval queue for staged actions.
 - `orangerail audit verify` — hash-chain verification of the audit log.
-- `orangerail studio` — a live, read-only map of your domain graph.
+- `orangerail studio` — the live, read-only map of your domain graph.
+
+Everything here runs from your repository alone — no external exports, no accounts,
+no keys. Point it at your own code and it works.
 
 ## Development
 
