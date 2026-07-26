@@ -189,10 +189,22 @@ const emitPrismaActionFile = ({
   const prisma = action.prisma as IrPrismaAction;
   const accessor = accessorName({ name: prisma.model });
 
+  // An `update`/`delete` acts on an EXISTING row keyed by `idField`, which is a
+  // key of this action's input — so it carries a `target` (the object it
+  // governs) with `targetIdFrom` pointing at that key. This connects the action
+  // to its object in the studio map (a self-loop on the target) and lets a
+  // future `where` policy gate on the row. A `create` has no pre-existing target
+  // instance, so it stays target-less (a free-standing action) — declaring a
+  // target there would demand a targetIdFrom that its input cannot supply.
+  const objectBinding = sanitizeIdentifier({ value: prisma.model });
+  const isTargeted =
+    (prisma.op === 'update' || prisma.op === 'delete') && prisma.idField !== undefined;
+
   const body = [
     "import { z } from 'zod';",
     '',
     "import { registry } from './_registry.mjs';",
+    ...(isTargeted ? [`import { ${objectBinding} } from './${objectBinding}.mjs';`] : []),
     '',
     prismaClientBlock({ diagnosticName: prisma.model }),
     '',
@@ -200,6 +212,12 @@ const emitPrismaActionFile = ({
     `  name: ${escapeStringLiteral({ value: action.name })},`,
     `  input: ${renderInput({ action })},`,
     "  policy: { approval: 'required' },",
+    ...(isTargeted
+      ? [
+          `  target: ${objectBinding},`,
+          `  targetIdFrom: ${escapeStringLiteral({ value: prisma.idField as string })},`,
+        ]
+      : []),
     ...renderPrismaExecute({ prisma, accessor, action }),
     '});',
     '',
