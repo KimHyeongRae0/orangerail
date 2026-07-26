@@ -70,6 +70,22 @@ export const computeLayout = async ({
     }
   }
 
+  // Isolated cards dock in a fixed left column. One that is ALSO an action target
+  // carries self-loop pills bulging RIGHT toward the ELK graph (same geometry as a
+  // connected target), but the isolated branch reserved no channel — a standalone
+  // model with update/delete (e.g. Session, AuditLog, FeatureFlag) had its pills
+  // overrun the first ELK layer. Offset the column far enough left that the widest
+  // isolated target's pill band (cardRight + PILL band ≈ +236, covered by the 260
+  // reserve) stays clear of the graph's left edge (~0). Only ever move the column
+  // further LEFT than its default, never right.
+  const isolatedTargetWidths = isolated
+    .filter((object) => actionTargets.has(object.name))
+    .map((object) => cardWidth({ object }));
+  const isolatedColumnX =
+    isolatedTargetWidths.length > 0
+      ? Math.min(ISOLATED_COLUMN_X, -(Math.max(...isolatedTargetWidths) + SELF_LOOP_PILL_RESERVE))
+      : ISOLATED_COLUMN_X;
+
   const positions = new Map<string, { x: number; y: number }>();
 
   if (connected.length > 0) {
@@ -96,11 +112,11 @@ export const computeLayout = async ({
 
   let y = 0;
   for (const object of isolated) {
-    positions.set(objectId({ name: object.name }), { x: ISOLATED_COLUMN_X, y });
+    positions.set(objectId({ name: object.name }), { x: isolatedColumnX, y });
     y += cardHeight({ object }) + ISOLATED_GAP;
   }
   for (const action of targetless) {
-    positions.set(actionNodeId({ name: action.name }), { x: ISOLATED_COLUMN_X, y });
+    positions.set(actionNodeId({ name: action.name }), { x: isolatedColumnX, y });
     y += ISOLATED_PILL_HEIGHT;
   }
 
