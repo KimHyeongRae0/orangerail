@@ -57,6 +57,31 @@ node proof.mjs
 
 To explore the same ontology visually: `node ../../packages/cli/dist/main.js studio`.
 
+## Is it actually protecting me?
+
+You don't need a live dashboard to tell. `orangerail status` prints the posture —
+how many actions are approval-gated, whether the audit chain verifies, and what is
+waiting on a human:
+
+```
+orangerail status
+  objects:  2
+  actions:  6 approval-gated, 0 auto
+  preset:   approval-for-writes
+  pending:  0 approval(s) awaiting a decision
+  audit:    chain OK — 4 record(s) verified
+```
+
+The MCP server also writes the same confidence line to stderr the moment it starts
+(stdout is the JSON-RPC channel), so your agent host's logs show governance is wired:
+
+```
+orangerail: governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
+```
+
+A broken audit chain is surfaced loudly in both places, and `orangerail status` exits
+non-zero so a script can gate on it.
+
 ## How it is wired
 
 - `prisma/schema.prisma` — the domain (`Article` → `Comment`).
