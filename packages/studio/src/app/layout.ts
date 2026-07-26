@@ -24,6 +24,21 @@ const ISOLATED_GAP = 40;
 const ISOLATED_PILL_HEIGHT = 80;
 
 /**
+ * Horizontal band reserved to the RIGHT of a card that is the target of one or
+ * more actions. Targeted actions render as self-loop pills bulging right of
+ * their target card (ActionEdge: `bulgeX = cardRight + 96`, pill centred at
+ * `+106`, pill `max-width: 260` → half-width 130 → pill right edge ≈
+ * `cardRight + 236`). ELK lays out only the card boxes and is blind to that
+ * band, so a card in the next layer (reached by an outgoing link) gets placed
+ * straight through the pills — the deleteOrder/updateOrder-over-Refund overlap.
+ * Inflating ONLY the ELK width of an action-target card pushes the next layer
+ * clear of the band; the card still renders at its true (content-driven) width,
+ * leaving the reserved span as the empty channel the pills occupy. A target with
+ * nothing to its right just gains harmless empty space.
+ */
+const SELF_LOOP_PILL_RESERVE = 260;
+
+/**
  * Compute node positions with elkjs layered layout using Liam's constants
  * (plan section 3.4). Objects that participate in at least one link are laid
  * out by ELK; objects with no links and target-less action pills are collected
@@ -46,6 +61,15 @@ export const computeLayout = async ({
   const isolated = snapshot.objects.filter((o) => !linked.has(o.name));
   const targetless = snapshot.actions.filter((a) => !a.target);
 
+  // Cards that carry self-loop action pills on their right edge; only these need
+  // the reserved pill band folded into their ELK width (see SELF_LOOP_PILL_RESERVE).
+  const actionTargets = new Set<string>();
+  for (const action of snapshot.actions) {
+    if (action.target) {
+      actionTargets.add(action.target);
+    }
+  }
+
   const positions = new Map<string, { x: number; y: number }>();
 
   if (connected.length > 0) {
@@ -54,7 +78,8 @@ export const computeLayout = async ({
       layoutOptions: ELK_OPTIONS,
       children: connected.map((object) => ({
         id: objectId({ name: object.name }),
-        width: cardWidth({ object }),
+        width:
+          cardWidth({ object }) + (actionTargets.has(object.name) ? SELF_LOOP_PILL_RESERVE : 0),
         height: cardHeight({ object }),
       })),
       edges: snapshot.links.map((link) => ({
