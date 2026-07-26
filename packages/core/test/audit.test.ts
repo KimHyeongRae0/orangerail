@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { GENESIS_HASH } from '../src/audit/chain';
+import { GENESIS_HASH, hashAuditRecord } from '../src/audit/chain';
 import { verifyAudit } from '../src/audit/verify';
 import { createEngine } from '../src/lifecycle/engine';
 import { createMemoryStore } from '../src/store/memory';
@@ -63,6 +63,30 @@ describe('audit chain (AC-7)', () => {
     const verdict = await verifyAudit({ store });
     expect(verdict.ok).toBe(false);
     expect(verdict.issues.some((i) => i.includes('tampered'))).toBe(true);
+  });
+
+  it('hashes a Date-bearing record identically before and after JSON persistence (ONT-023)', () => {
+    // A `succeeded` result commonly carries a Date (e.g. a `createdAt` returned
+    // from the write). The file store persists it as an ISO string, so the hash
+    // MUST be taken over that persisted form — otherwise the in-memory Date (which
+    // canonicalizes to `{}`, having no own keys) is hashed at write time while the
+    // reloaded ISO string is hashed at verify time, and `verifyAudit` falsely
+    // reports tampering on every timestamped write. This asserts hash stability
+    // across the exact JSON round-trip the store performs.
+    const record = {
+      seq: 1,
+      phase: 'succeeded' as const,
+      actionName: 'a',
+      result: { id: 1, createdAt: new Date('2026-07-26T10:00:00.000Z') },
+      prevHash: GENESIS_HASH,
+      timestamp: '2026-07-26T10:00:00.000Z',
+    };
+
+    const atWrite = hashAuditRecord({ record: record as never });
+    const reloaded = JSON.parse(JSON.stringify(record));
+    const atVerify = hashAuditRecord({ record: reloaded });
+
+    expect(atVerify).toBe(atWrite);
   });
 
   it('detects a started-but-unfinished execution (fail-closed detection)', async () => {
