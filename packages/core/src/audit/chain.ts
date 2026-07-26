@@ -16,7 +16,16 @@ export const GENESIS_HASH = '0'.repeat(64);
  * uses to chain records and `verifyAudit` uses to detect tampering.
  */
 export const hashAuditRecord = ({ record }: { record: Omit<AuditRecord, 'hash'> }): string => {
-  const canonical = canonicalJson({ value: record });
+  // Hash over the record's PERSISTED form, not its in-memory form. A record's
+  // `result`/`input` can carry values that JSON serialization normalizes — most
+  // commonly a `Date` (e.g. a `createdAt` returned from a write): in memory
+  // `canonicalJson` reduces it to `{}` (a Date has no own enumerable keys),
+  // while the store persists it as an ISO string. Hashing the in-memory value
+  // would then never match a recomputation over the reloaded record, so
+  // `verifyAudit` would flag every timestamped write as tampered. A JSON
+  // round-trip pins the hashed bytes to exactly what is written and later read.
+  const persisted = JSON.parse(JSON.stringify(record)) as unknown;
+  const canonical = canonicalJson({ value: persisted });
 
   return createHash('sha256').update(canonical).digest('hex');
 };
