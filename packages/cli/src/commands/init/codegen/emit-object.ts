@@ -101,12 +101,22 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
   const accessor = accessorName({ name: object.name });
   const idKey = escapeStringLiteral({ value: object.idField });
 
+  // The `resolve.get` contract hands `id` in as a string (ResolveGetArgs.id:
+  // string — the resolve boundary is string-typed). Prisma, however, keys a
+  // numeric `@id` column by number, so a string primary key is rejected with a
+  // raw validation error. Coerce here, at the one place that knows the scanned
+  // key's scalar: numeric keys (int/float) go through `Number(...)`, everything
+  // else stays a string. This fixes both callers that resolve by id — the MCP
+  // `<Object>_get` tool and the engine's `where`-policy target fetch.
+  const idScalar = object.fields.find((field) => field.name === object.idField)?.scalar;
+  const idExpr = idScalar === 'int' || idScalar === 'float' ? 'Number(id)' : 'id';
+
   return [
     '  resolve: {',
     '    get: async ({ id }) => {',
     '      try {',
     '        const prisma = await getPrisma();',
-    `        return prisma.${accessor}.findUnique({ where: { ${idKey}: id } });`,
+    `        return prisma.${accessor}.findUnique({ where: { ${idKey}: ${idExpr} } });`,
     '      } catch (error) {',
     '        throw wrapPrismaError(error);',
     '      }',

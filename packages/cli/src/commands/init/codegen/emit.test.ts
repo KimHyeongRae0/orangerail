@@ -80,6 +80,35 @@ describe('emitObjectFile', () => {
     expect(content).not.toMatch(/do[ -]?not[ -]?edit/i);
   });
 
+  it('coerces a numeric primary key with Number(id) in resolve.get (ONT-022)', () => {
+    // `ResolveGetArgs.id` is a string at the resolve boundary, but Prisma keys a
+    // numeric `@id` column by number — a bare string is rejected with a raw
+    // validation error. The get resolver must coerce a numeric key so that both
+    // the MCP `<Object>_get` tool and the engine's target fetch resolve by id.
+    const numericKeyed: IrObject = {
+      name: 'Ticket',
+      idField: 'id',
+      relations: [],
+      fields: [
+        { name: 'id', kind: 'scalar', scalar: 'int', optional: false, list: false, isId: true },
+      ],
+    };
+
+    const { content } = emitObjectFile({ object: numericKeyed });
+
+    expect(content).toContain('findUnique({ where: { "id": Number(id) } })');
+    expect(content).not.toContain('findUnique({ where: { "id": id } })');
+  });
+
+  it('leaves a string primary key un-coerced in resolve.get (ONT-022 regression)', () => {
+    // The `product` fixture is string-keyed; coercion must NOT wrap it, or a
+    // uuid/cuid key would be corrupted by Number(...).
+    const { content } = emitObjectFile({ object: product });
+
+    expect(content).toContain('findUnique({ where: { "id": id } })');
+    expect(content).not.toContain('Number(id)');
+  });
+
   it('wraps the resolve in an actionable no-client diagnostic (AC-3 / I4)', () => {
     const { content } = emitObjectFile({ object: product });
 
@@ -245,6 +274,31 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
     expect(content).toContain('prisma.note.delete({ where: { "id": input["id"] } })');
     expect(content).toMatch(/DESTRUCTIVE/);
     expect(content).not.toContain('notImplemented');
+  });
+
+  it('gives update/delete a target + targetIdFrom so the map connects them (ONT-022)', () => {
+    // update/delete act on an existing row keyed by `idField`, so they carry a
+    // `target` (imported from the object file) with `targetIdFrom` pointing at
+    // the input key. This connects the action to its object in the studio map
+    // (a self-loop on the target) and lets a future `where` gate on the row.
+    for (const action of [updateNote, deleteNote]) {
+      const { content } = emitActionFile({ action });
+
+      expect(content).toContain("import { Note } from './Note.mjs';");
+      expect(content).toContain('target: Note,');
+      expect(content).toContain('targetIdFrom: "id",');
+    }
+  });
+
+  it('leaves create target-less — a create has no pre-existing target row (ONT-022)', () => {
+    // Declaring a target on create would demand a targetIdFrom key its input
+    // cannot supply (defineAction would throw at load), and there is no row to
+    // point at yet — so a create stays a free-standing action in the map.
+    const { content } = emitActionFile({ action: createNote });
+
+    expect(content).not.toContain('target:');
+    expect(content).not.toContain('targetIdFrom:');
+    expect(content).not.toContain("from './Note.mjs'");
   });
 
   it('is byte-stable across two emits (NOLLM-01: no Date.now / Math.random)', () => {
