@@ -1,6 +1,12 @@
 import { verifyAudit } from 'orangerail-core';
 
 import type { OrangerailConfig } from '../config';
+import {
+  formatServerLiveness,
+  heartbeatPathForStore,
+  readServerLiveness,
+  type ServerLiveness,
+} from '../server-heartbeat';
 
 /**
  * The runtime governance posture, gathered from the declared registry and the
@@ -24,6 +30,13 @@ export interface StatusReport {
   audit: { ok: boolean; count: number; issues: string[] };
   /** Approvals staged and awaiting a human decision. */
   pendingCount: number;
+  /**
+   * Liveness of an `orangerail mcp` server serving this store. This is a live
+   * signal (a heartbeat file written by the serving process), NOT a re-derived
+   * claim — the other fields describe what governance WOULD do, this one proves
+   * whether a server is actually up to enforce it.
+   */
+  server: ServerLiveness;
 }
 
 /** Gather the current governance posture from the config's registry and store. */
@@ -39,6 +52,8 @@ export const computeStatus = async ({
   const audit = await verifyAudit({ store: config.store });
   const pending = await config.store.listPending();
 
+  const server = readServerLiveness({ path: heartbeatPathForStore({ store: config.store }) });
+
   return {
     objectCount: config.registry.listObjects().length,
     gatedCount,
@@ -47,6 +62,7 @@ export const computeStatus = async ({
     readOnly: preset === 'readonly',
     audit: { ok: audit.ok, count: audit.count, issues: audit.issues },
     pendingCount: pending.length,
+    server,
   };
 };
 
@@ -83,6 +99,7 @@ export const runStatus = async ({ config }: { config: OrangerailConfig }): Promi
   out.write(`  actions:  ${report.gatedCount} approval-gated, ${report.autoCount} auto\n`);
   out.write(`  preset:   ${report.preset}${report.readOnly ? ' (writes not exposed)' : ''}\n`);
   out.write(`  pending:  ${report.pendingCount} approval(s) awaiting a decision\n`);
+  out.write(`  server:   ${formatServerLiveness({ server: report.server })}\n`);
 
   if (report.audit.ok) {
     out.write(`  audit:    chain OK — ${report.audit.count} record(s) verified\n`);

@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import {
   createEngine,
   createMemoryStore,
@@ -5,7 +9,7 @@ import {
   DEV_SUBJECT,
   type Identity,
 } from 'orangerail-core';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import type { OrangerailConfig } from '../src/config';
@@ -15,6 +19,11 @@ import {
   runStatus,
   type StatusReport,
 } from '../src/commands/status';
+import {
+  formatServerLiveness,
+  readServerLiveness,
+  type ServerHeartbeat,
+} from '../src/server-heartbeat';
 
 const devCaller: Identity = { subject: DEV_SUBJECT, roles: [], devMode: true };
 
@@ -45,6 +54,7 @@ const base: StatusReport = {
   readOnly: false,
   audit: { ok: true, count: 5, issues: [] },
   pendingCount: 0,
+  server: { state: 'not_detected' },
 };
 
 describe('computeStatus — governance posture from registry + store', () => {
@@ -126,5 +136,84 @@ describe('runStatus — exit codes', () => {
     await config.store.consumeApproval({ id: created.id });
 
     expect(await runStatus({ config })).not.toBe(0);
+  });
+});
+
+describe('readServerLiveness — running / stale / not detected from a heartbeat file', () => {
+  let dir: string;
+  let path: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'orangerail-hb-'));
+    path = join(dir, 'server.json');
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const writeHeartbeat = ({ heartbeat }: { heartbeat: ServerHeartbeat }): void => {
+    writeFileSync(path, `${JSON.stringify(heartbeat)}\n`);
+  };
+
+  it('reports not detected when no heartbeat file exists', () => {
+    expect(readServerLiveness({ path })).toEqual({ state: 'not_detected' });
+    expect(readServerLiveness({ path: null })).toEqual({ state: 'not_detected' });
+  });
+
+  it('reports running when the pid is alive and the heartbeat is fresh', () => {
+    const now = Date.now();
+    writeHeartbeat({
+      heartbeat: {
+        pid: process.pid,
+        startedAt: new Date(now - 8_000).toISOString(),
+        lastHeartbeatAt: new Date(now - 2_000).toISOString(),
+      },
+    });
+
+    const server = readServerLiveness({ path, now });
+    expect(server.state).toBe('running');
+    if (server.state === 'running') {
+      expect(server.pid).toBe(process.pid);
+      expect(server.startedAgoSec).toBe(8);
+    }
+    expect(formatServerLiveness({ server })).toBe(`running (pid ${process.pid}, started 8s ago)`);
+  });
+
+  it('reports stale when the heartbeat is older than the threshold, even for a live pid', () => {
+    const now = Date.now();
+    writeHeartbeat({
+      heartbeat: {
+        pid: process.pid,
+        startedAt: new Date(now - 60_000).toISOString(),
+        lastHeartbeatAt: new Date(now - 30_000).toISOString(),
+      },
+    });
+
+    const server = readServerLiveness({ path, now });
+    expect(server.state).toBe('stale');
+    expect(formatServerLiveness({ server })).toBe(
+      'stale — last heartbeat 30s ago (it may have crashed)',
+    );
+  });
+
+  it('reports stale when the pid is dead even though the heartbeat is fresh', () => {
+    const now = Date.now();
+    // A pid that is essentially never live in a test runner; process.kill(pid,0)
+    // throws ESRCH, so freshness alone must not upgrade this to "running".
+    writeHeartbeat({
+      heartbeat: {
+        pid: 2_147_483_646,
+        startedAt: new Date(now - 3_000).toISOString(),
+        lastHeartbeatAt: new Date(now - 1_000).toISOString(),
+      },
+    });
+
+    expect(readServerLiveness({ path, now }).state).toBe('stale');
+  });
+
+  it('reports not detected for a malformed heartbeat file (never a false running claim)', () => {
+    writeFileSync(path, 'not json at all');
+    expect(readServerLiveness({ path }).state).toBe('not_detected');
   });
 });
