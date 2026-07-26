@@ -10,6 +10,7 @@ import { runDocs } from './commands/docs';
 import { runInit } from './commands/init';
 import { runMcp } from './commands/mcp';
 import { DEFAULT_STUDIO_PORT, runStudio } from './commands/studio';
+import { runStatus } from './commands/status';
 import { storeUnlock } from './commands/store';
 import { runSync } from './commands/sync';
 
@@ -21,6 +22,7 @@ Usage:
                                                  scan a repo and assemble the ontology
   orangerail sync [--config <path>] [--accept-new] re-scan and report drift (exit 1 on drift)
   orangerail mcp [--config <path>]                 launch the MCP server over stdio
+  orangerail status [--config <path>]              show the governance posture (gated actions, audit, pending)
   orangerail studio [--config <path>] [--port <n>] [--no-open]  serve the map-mode studio locally
   orangerail docs [--config <path>] [--out <dir>]  generate the agent-facing domain doc
   orangerail approvals list [--config <path>]      list pending approvals
@@ -198,6 +200,10 @@ const run = async (): Promise<number> => {
   if (command === 'mcp') {
     await runMcp({ config });
     return 0;
+  }
+
+  if (command === 'status') {
+    return runStatus({ config });
   }
 
   if (command === 'studio') {
