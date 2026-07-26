@@ -1,6 +1,11 @@
 import { createMcpServer } from 'orangerail-mcp';
 
 import type { OrangerailConfig } from '../config';
+import {
+  heartbeatPathForStore,
+  startServerHeartbeat,
+  type HeartbeatHandle,
+} from '../server-heartbeat';
 import { computeStatus, formatStatusLine } from './status';
 
 /**
@@ -17,6 +22,27 @@ import { computeStatus, formatStatusLine } from './status';
 export const runMcp = async ({ config }: { config: OrangerailConfig }): Promise<void> => {
   const report = await computeStatus({ config });
   process.stderr.write(`${formatStatusLine({ report })}\n`);
+
+  // Publish a liveness heartbeat so `orangerail status` can tell a live,
+  // enforcing server from a crashed or never-started one. A no-op path (a
+  // non-file store has no shared on-disk location) leaves `status` reporting
+  // "not detected" honestly. Cleanup is registered once, best-effort, and
+  // stops the refresh timer + removes the file on any terminating signal or a
+  // normal exit so a clean shutdown never lingers as "stale".
+  const heartbeatPath = heartbeatPathForStore({ store: config.store });
+  const heartbeat: HeartbeatHandle | null =
+    heartbeatPath === null ? null : startServerHeartbeat({ path: heartbeatPath });
+
+  if (heartbeat) {
+    const shutdown = ({ signal }: { signal: NodeJS.Signals }): void => {
+      heartbeat.stop();
+      process.kill(process.pid, signal);
+    };
+
+    process.once('exit', () => heartbeat.stop());
+    process.once('SIGINT', () => shutdown({ signal: 'SIGINT' }));
+    process.once('SIGTERM', () => shutdown({ signal: 'SIGTERM' }));
+  }
 
   const { serve } = createMcpServer({
     registry: config.registry,
