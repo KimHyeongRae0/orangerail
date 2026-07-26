@@ -47,7 +47,7 @@ for f in * .[!.]*; do
 done
 
 # ---- ST-07: known top-level directories ----
-KNOWN_DIRS='^(packages|docs|\.docs|scripts|tests|\.git|\.github|\.claude|node_modules)$'
+KNOWN_DIRS='^(packages|examples|docs|\.docs|scripts|tests|\.git|\.github|\.claude|node_modules)$'
 for d in */ .[!.]*/; do
   [[ -d "$d" ]] || continue
   name="${d%/}"

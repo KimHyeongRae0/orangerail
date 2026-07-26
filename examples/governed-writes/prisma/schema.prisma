@@ -1,0 +1,31 @@
+// A tiny content database — two related tables an AI agent might be given
+// tools over. `Article` carries a destructive write (delete) and a
+// state-changing write (unpublish); those are the operations #281 worries
+// about exposing to an agent. See ../README.md for the scenario.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id        Int       @id @default(autoincrement())
+  slug      String    @unique
+  title     String
+  body      String
+  published Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  comments  Comment[]
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  article   Article  @relation(fields: [articleId], references: [id])
+  articleId Int
+  author    String
+  body      String
+  createdAt DateTime @default(now())
+}

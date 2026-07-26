@@ -55,6 +55,15 @@ const issueCoupon = defineAction({
 Everything here runs from your repository alone — no external exports, no accounts,
 no keys. Point it at your own code and it works.
 
+## Examples
+
+Runnable, end-to-end examples live in [`examples/`](./examples). Each runs orangerail
+on a single concept and proves the behaviour with real output:
+
+- [`governed-writes`](./examples/governed-writes) — a destructive write stays
+  available to an agent but is staged for human approval instead of executing, on a
+  verifiable audit chain. Resolves the read-only-vs-write dilemma.
+
 ## Development
 
 This repo is built under a deterministic 9-stage gate harness. Every change runs
