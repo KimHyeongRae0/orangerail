@@ -4,5 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Keep destructive writes available to an agent, but staged for human approval — the #281 read-only-vs-write dilemma, resolved.",
-  "devDependencies": { "prisma": "^6", "@prisma/client": "^6" }
+  "devDependencies": {
+    "prisma": "^6",
+    "@prisma/client": "^6",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
 }

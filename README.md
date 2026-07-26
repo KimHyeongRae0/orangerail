@@ -7,6 +7,42 @@
 the design target, not a published surface. A version stub is published to npm to
 hold the name.
 
+## See it stop an agent
+
+A real MCP client (the same kind an agent host uses) tries a destructive delete. The
+server shows up and blocks it — and the agent cannot force it through. Only after a
+human decides does it run, on a verifiable audit chain.
+
+![orangerail blocks a destructive agent action, then runs it only after a human approves](./examples/governed-writes/demo.gif)
+
+This is one real run of
+[`examples/governed-writes/walkthrough.mjs`](./examples/governed-writes) — run it yourself:
+
+```console
+THE AGENT SIDE — a real MCP client tries to delete, and gets blocked
+[host log]    orangerail: governance active · 6 action(s) approval-gated · audit chain OK
+[agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 7 })
+[orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fee21494…
+[db check]    article 7: STILL THERE ✋
+[agent]       blocked. trying to push it through myself → check_approval (no human yet)
+[orangerail]  ⛔ "pending" — the agent cannot self-approve.
+[db check]    article 7: STILL THERE ✋
+
+THE OPERATOR SIDE — the human sees exactly that, in another terminal
+   status → pending: 1 approval(s) awaiting a decision
+   approvals list → "deleteArticle" by "local-dev" input={"id":7}
+   [human] I recognize this, it's fine → approve
+
+BACK TO THE AGENT — only now does it run
+[agent]       check_approval again → "executed"
+[db check]    article 7: gone
+[human]       audit verify → chain OK — 4 record(s) verified
+```
+
+A read-only switch can't do this: the destructive tool stays **available** (not
+hidden), the agent **cannot force it through**, and the row changes **only after a
+human decided**. Run it yourself → [`examples/governed-writes`](./examples/governed-writes).
+
 ## What orangerail will be
 
 The domain rules you've been hand-writing into scattered markdown — product
