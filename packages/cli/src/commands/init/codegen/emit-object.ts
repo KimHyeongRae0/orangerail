@@ -101,36 +101,69 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
   const accessor = accessorName({ name: object.name });
   const idKey = escapeStringLiteral({ value: object.idField });
 
-  // The `resolve.get` contract hands `id` in as a string (ResolveGetArgs.id:
-  // string — the resolve boundary is string-typed). Prisma, however, keys a
-  // numeric `@id` column by number, so a string primary key is rejected with a
-  // raw validation error. Coerce here, at the one place that knows the scanned
-  // key's scalar: numeric keys (int/float) go through `Number(...)`, everything
-  // else stays a string. This fixes both callers that resolve by id — the MCP
-  // `<Object>_get` tool and the engine's `where`-policy target fetch.
+  // Ids arrive at the resolve boundary as strings (ResolveGetArgs.id), but Prisma
+  // keys a numeric `@id` by number and a string key otherwise. Coerce at the one
+  // place that knows the scanned key's scalar — this fixes both id-resolution
+  // callers (the MCP `<Object>_get` tool and the engine's `where` target fetch).
   const idScalar = object.fields.find((field) => field.name === object.idField)?.scalar;
-  const idExpr = idScalar === 'int' || idScalar === 'float' ? 'Number(id)' : 'id';
+  const numericKey = idScalar === 'int' || idScalar === 'float';
 
-  return [
-    '  resolve: {',
-    '    get: async ({ id }) => {',
+  // `get`: coerce a numeric key with `Number(id)` and fail a non-numeric id to a
+  // clean not-found (`null`) rather than handing Prisma a `NaN` and leaking a raw
+  // validation error; a string key passes through untouched.
+  const getLines = numericKey
+    ? [
+        '    get: async ({ id }) => {',
+        '      try {',
+        '        const prisma = await getPrisma();',
+        '        const key = Number(id);',
+        '        if (Number.isNaN(key)) {',
+        '          return null;',
+        '        }',
+        `        return prisma.${accessor}.findUnique({ where: { ${idKey}: key } });`,
+        '      } catch (error) {',
+        '        throw wrapPrismaError(error);',
+        '      }',
+        '    },',
+      ]
+    : [
+        '    get: async ({ id }) => {',
+        '      try {',
+        '        const prisma = await getPrisma();',
+        `        return prisma.${accessor}.findUnique({ where: { ${idKey}: id } });`,
+        '      } catch (error) {',
+        '        throw wrapPrismaError(error);',
+        '      }',
+        '    },',
+      ];
+
+  // `list`: honor the advertised `filter`/`limit`/`cursor` and return a
+  // `nextCursor` so a table larger than one page stays reachable — the bare
+  // `take: 50` silently dropped every row past the first 50 with no way to page.
+  // Cursor pagination keys on the id (ordered ascending); the opaque cursor is a
+  // string, coerced to the key's scalar just like `get`.
+  const cursorExpr = numericKey ? 'Number(cursor)' : 'cursor';
+  const listLines = [
+    '    list: async ({ filter, cursor, limit } = {}) => {',
     '      try {',
     '        const prisma = await getPrisma();',
-    `        return prisma.${accessor}.findUnique({ where: { ${idKey}: ${idExpr} } });`,
+    "        const take = typeof limit === 'number' && limit > 0 ? Math.min(limit, 200) : 50;",
+    `        const rows = await prisma.${accessor}.findMany({`,
+    '          ...(filter ? { where: filter } : {}),',
+    `          orderBy: { ${idKey}: 'asc' },`,
+    '          take: take + 1,',
+    `          ...(cursor === undefined ? {} : { cursor: { ${idKey}: ${cursorExpr} }, skip: 1 }),`,
+    '        });',
+    '        const hasMore = rows.length > take;',
+    '        const items = hasMore ? rows.slice(0, take) : rows;',
+    `        return hasMore ? { items, nextCursor: String(items[items.length - 1][${idKey}]) } : { items };`,
     '      } catch (error) {',
     '        throw wrapPrismaError(error);',
     '      }',
     '    },',
-    '    list: async () => {',
-    '      try {',
-    '        const prisma = await getPrisma();',
-    `        return { items: await prisma.${accessor}.findMany({ take: 50 }) };`,
-    '      } catch (error) {',
-    '        throw wrapPrismaError(error);',
-    '      }',
-    '    },',
-    '  },',
-  ].join('\n');
+  ];
+
+  return ['  resolve: {', ...getLines, ...listLines, '  },'].join('\n');
 };
 
 /**

@@ -74,7 +74,7 @@ describe('emitObjectFile', () => {
     expect(content).toContain('z.enum(["DRAFT", "ACTIVE"])');
     expect(content).toContain("await import('@prisma/client')");
     expect(content).toContain('prisma.product.findUnique');
-    expect(content).toContain('prisma.product.findMany({ take: 50 })');
+    expect(content).toContain('prisma.product.findMany({');
     // user-owned: ownership line present, do-not-edit ABSENT (AC-6)
     expect(content).toMatch(/orangerail sync/);
     expect(content).not.toMatch(/do[ -]?not[ -]?edit/i);
@@ -96,8 +96,12 @@ describe('emitObjectFile', () => {
 
     const { content } = emitObjectFile({ object: numericKeyed });
 
-    expect(content).toContain('findUnique({ where: { "id": Number(id) } })');
-    expect(content).not.toContain('findUnique({ where: { "id": id } })');
+    // numeric key: coerced via Number(id), keyed by the coerced value.
+    expect(content).toContain('const key = Number(id);');
+    expect(content).toContain('findUnique({ where: { "id": key } })');
+    // ONT-024: a non-numeric id fails to a clean not-found, not a raw Prisma NaN.
+    expect(content).toContain('if (Number.isNaN(key)) {');
+    expect(content).toContain('return null;');
   });
 
   it('leaves a string primary key un-coerced in resolve.get (ONT-022 regression)', () => {
@@ -107,6 +111,38 @@ describe('emitObjectFile', () => {
 
     expect(content).toContain('findUnique({ where: { "id": id } })');
     expect(content).not.toContain('Number(id)');
+    expect(content).not.toContain('Number.isNaN'); // no NaN guard for string keys
+  });
+
+  it('list honors filter / limit / cursor and returns a nextCursor (ONT-024)', () => {
+    // The `<Object>_list` tool advertises filter/limit/cursor and the server
+    // forwards them; the generated resolver must actually apply them and page,
+    // or a table larger than 50 rows is silently truncated with no escape.
+    const { content } = emitObjectFile({ object: product });
+
+    expect(content).toContain('list: async ({ filter, cursor, limit } = {}) => {');
+    expect(content).toContain("typeof limit === 'number' && limit > 0 ? Math.min(limit, 200) : 50");
+    expect(content).toContain('...(filter ? { where: filter } : {})');
+    expect(content).toContain('orderBy: { "id": \'asc\' }');
+    expect(content).toContain('take: take + 1');
+    expect(content).toContain('cursor: { "id": cursor }'); // string key: no coercion
+    expect(content).toContain('nextCursor: String(items[items.length - 1]["id"])');
+    expect(content).not.toContain('findMany({ take: 50 })'); // the old ignore-everything form is gone
+  });
+
+  it('coerces the list cursor for a numeric key (ONT-024)', () => {
+    const numericKeyed: IrObject = {
+      name: 'Ticket',
+      idField: 'id',
+      relations: [],
+      fields: [
+        { name: 'id', kind: 'scalar', scalar: 'int', optional: false, list: false, isId: true },
+      ],
+    };
+
+    const { content } = emitObjectFile({ object: numericKeyed });
+
+    expect(content).toContain('cursor: { "id": Number(cursor) }');
   });
 
   it('wraps the resolve in an actionable no-client diagnostic (AC-3 / I4)', () => {
