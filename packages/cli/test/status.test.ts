@@ -84,9 +84,9 @@ describe('computeStatus — governance posture from registry + store', () => {
 });
 
 describe('formatStatusLine — the MCP startup confidence signal', () => {
-  it('states governance active with the gated count and audit record count', () => {
+  it('states it is serving with governance, the gated count and audit record count', () => {
     expect(formatStatusLine({ report: base })).toBe(
-      'orangerail: governance active · 3 action(s) approval-gated · audit chain OK (5 record(s))',
+      'orangerail mcp: serving · governance active · 3 action(s) approval-gated · audit chain OK (5 record(s))',
     );
   });
 

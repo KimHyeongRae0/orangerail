@@ -20,23 +20,29 @@ This is one real run of
 
 ```console
 THE AGENT SIDE — a real MCP client tries to delete, and gets blocked
-[host log]    orangerail: governance active · 6 action(s) approval-gated · audit chain OK
-[agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 7 })
-[orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fee21494…
-[db check]    article 7: STILL THERE ✋
+[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
+[agent]       connected — 11 tools available, incl. deleteArticle
+[agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 13 })
+[orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fdbb4b96…
+[db check]    article 13: STILL THERE ✋
 [agent]       blocked. trying to push it through myself → check_approval (no human yet)
 [orangerail]  ⛔ "pending" — the agent cannot self-approve.
-[db check]    article 7: STILL THERE ✋
+[db check]    article 13: STILL THERE ✋
 
 THE OPERATOR SIDE — the human sees exactly that, in another terminal
-   status → pending: 1 approval(s) awaiting a decision
-   approvals list → "deleteArticle" by "local-dev" input={"id":7}
-   [human] I recognize this, it's fine → approve
+   orangerail status
+     objects:  2
+     actions:  6 approval-gated, 0 auto
+     preset:   approval-for-writes
+     pending:  1 approval(s) awaiting a decision
+     server:   running (pid 42798, started 0s ago)
+     audit:    chain OK — 5 record(s) verified
+   [human]       $ orangerail approvals approve fdbb4b96…
 
 BACK TO THE AGENT — only now does it run
 [agent]       check_approval again → "executed"
-[db check]    article 7: gone
-[human]       audit verify → chain OK — 4 record(s) verified
+[db check]    article 13: gone
+[human]       $ orangerail audit verify → audit chain OK — 8 record(s) verified.
 ```
 
 A read-only switch can't do this: the destructive tool stays **available** (not
