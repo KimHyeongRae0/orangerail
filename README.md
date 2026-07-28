@@ -7,6 +7,48 @@
 the design target, not a published surface. A version stub is published to npm to
 hold the name.
 
+## See it stop an agent
+
+A real MCP client (the same kind an agent host uses) tries a destructive delete. The
+server shows up and blocks it — and the agent cannot force it through. Only after a
+human decides does it run, on a verifiable audit chain.
+
+![orangerail blocks a destructive agent action, then runs it only after a human approves](./examples/governed-writes/demo.gif)
+
+This is one real run of
+[`examples/governed-writes/walkthrough.mjs`](./examples/governed-writes) — run it yourself:
+
+```console
+THE AGENT SIDE — a real MCP client tries to delete, and gets blocked
+[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
+[agent]       connected — 11 tools available, incl. deleteArticle
+[agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 13 })
+[orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fdbb4b96…
+[db check]    article 13: STILL THERE ✋
+[agent]       blocked. trying to push it through myself → check_approval (no human yet)
+[orangerail]  ⛔ "pending" — the agent cannot self-approve.
+[db check]    article 13: STILL THERE ✋
+
+THE OPERATOR SIDE — the human sees exactly that, in another terminal
+   orangerail status
+     objects:  2
+     actions:  6 approval-gated, 0 auto
+     preset:   approval-for-writes
+     pending:  1 approval(s) awaiting a decision
+     server:   running (pid 42798, started 0s ago)
+     audit:    chain OK — 5 record(s) verified
+   [human]       $ orangerail approvals approve fdbb4b96…
+
+BACK TO THE AGENT — only now does it run
+[agent]       check_approval again → "executed"
+[db check]    article 13: gone
+[human]       $ orangerail audit verify → audit chain OK — 8 record(s) verified.
+```
+
+A read-only switch can't do this: the destructive tool stays **available** (not
+hidden), the agent **cannot force it through**, and the row changes **only after a
+human decided**. Run it yourself → [`examples/governed-writes`](./examples/governed-writes).
+
 ## What orangerail will be
 
 The domain rules you've been hand-writing into scattered markdown — product

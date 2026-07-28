@@ -16,43 +16,62 @@ returns an `approvalId`, a human approves out of band, and only then does it run
 with every executed write recorded on a tamper-evident, hash-chained audit log.
 
 This example is a tiny content database (`Article`, `Comment`). `deleteArticle` is
-the destructive tool. `proof.mjs` drives the whole loop over the **real** MCP server
-(stdio JSON-RPC) and the **real** approval CLI — nothing mocked — and asserts each
-step.
+the destructive tool.
 
-## What it proves
+## Watch the interception (`walkthrough.mjs`)
+
+`walkthrough.mjs` runs the whole story end to end, from both sides of the moment
+governance kicks in — using a **real MCP client** (`@modelcontextprotocol/sdk`, the
+same client an agent host uses) and the **real** approval CLI. Nothing mocked; every
+step is asserted (it exits non-zero on any failure), so it is a real e2e:
+
+![the governed-writes walkthrough running](./demo.gif)
 
 ```
-1. tools/list → the agent CAN see the destructive tool "deleteArticle" (11 tools total). ✓
-2. Article_list → read works ungoverned, 2 rows (writes stay available; no read-only lockdown). ✓
-3. deleteArticle{id:1} → status "approval_pending", approvalId "…"; the row is UNTOUCHED. ✓
-4. orangerail approvals approve <id> → a human authorized it out of band. ✓
-5. check_approval → status "executed"; Article #1 is now deleted, the other survives. ✓
-6. check_approval again → status "consumed"; an approval cannot be replayed. ✓
-7. orangerail audit verify → audit chain OK — 4 record(s) verified. ✓
+THE AGENT SIDE — a real MCP client tries to delete, and gets blocked
+[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
+[agent]       connected — 11 tools available, incl. deleteArticle
+[agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 13 })
+[orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fdbb4b96…
+[db check]    article 13: STILL THERE ✋
+[agent]       blocked. trying to push it through myself → check_approval (no human yet)
+[orangerail]  ⛔ "pending" — the agent cannot self-approve.
+[db check]    article 13: STILL THERE ✋
 
-✅ The destructive write stayed available to the agent, executed only after a human
-   approved, and every step is on a verifiable audit chain.
+THE OPERATOR SIDE — the human sees exactly that, in another terminal
+   orangerail status
+     objects:  2
+     actions:  6 approval-gated, 0 auto
+     preset:   approval-for-writes
+     pending:  1 approval(s) awaiting a decision
+     server:   running (pid 42798, started 0s ago)
+     audit:    chain OK — 5 record(s) verified
+   [human]       $ orangerail approvals list
+   fdbb4b96-…  "deleteArticle"  by "local-dev" [dev]  input={"id":13}
+   [human]       I recognize this, it's fine → approvals approve fdbb4b96…
+
+BACK TO THE AGENT — only now does it run
+[agent]       check_approval again → "executed"
+[db check]    article 13: gone
+[human]       $ orangerail audit verify → audit chain OK — 8 record(s) verified.
 ```
 
-The key line is step 2 next to step 3: reads keep working **and** the destructive
-write is still exposed — you did not go read-only to stay safe. The write is simply
-gated on a human decision.
+Three things this proves that a read-only switch cannot: the destructive tool stays
+**available** (not hidden), the agent **cannot force it through** on its own, and the
+row changes **only after a human decided** — all on a verifiable audit chain.
 
 ## Run it
 
-From the repo root (the example resolves `orangerail-*` from the workspace):
+From a repo checkout (the example resolves `orangerail-*` from the workspace):
 
 ```bash
 cd examples/governed-writes
+npm install                                        # prisma + the MCP client
 export DATABASE_URL="file:./dev.db"
+npx prisma generate --schema prisma/schema.prisma  # generate the client
+npx prisma db push  --schema prisma/schema.prisma  # create the SQLite DB
 
-# 1. generate the Prisma client + create the SQLite DB
-npx prisma generate --schema prisma/schema.prisma
-npx prisma db push  --schema prisma/schema.prisma
-
-# 2. drive the governed loop end to end (seeds, stages, approves, verifies)
-node proof.mjs
+node walkthrough.mjs                               # the full story, asserted
 ```
 
 To explore the same ontology visually: `node ../../packages/cli/dist/main.js studio`.
@@ -69,14 +88,20 @@ orangerail status
   actions:  6 approval-gated, 0 auto
   preset:   approval-for-writes
   pending:  0 approval(s) awaiting a decision
+  server:   running (pid 40321, started 12s ago)
   audit:    chain OK — 4 record(s) verified
 ```
 
-The MCP server also writes the same confidence line to stderr the moment it starts
-(stdout is the JSON-RPC channel), so your agent host's logs show governance is wired:
+The `server:` line is a genuine liveness signal, not a re-derivation from config: it
+reads a heartbeat the serving process writes, so it distinguishes a live, enforcing
+server (`running`) from a crashed one (`stale`) or none at all (`not detected`).
+
+The MCP server also writes a one-line confidence signal to stderr the moment it starts
+(stdout is the JSON-RPC channel), so your agent host's logs show governance is wired
+and the server is up:
 
 ```
-orangerail: governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
+orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
 ```
 
 A broken audit chain is surfaced loudly in both places, and `orangerail status` exits

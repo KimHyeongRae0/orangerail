@@ -68,12 +68,15 @@ export const computeStatus = async ({
 
 /**
  * A single-line confidence signal for the MCP server startup (written to
- * stderr, never stdout — stdout is the JSON-RPC channel). A broken audit chain
- * is surfaced loudly rather than hidden behind an "active" claim.
+ * stderr, never stdout — stdout is the JSON-RPC channel). It leads with
+ * `serving` because the caller prints it once the process is up and the
+ * liveness heartbeat is written, so a first-run operator sees the server is
+ * genuinely running, not just configured. A broken audit chain is surfaced
+ * loudly rather than hidden behind a reassuring claim.
  */
 export const formatStatusLine = ({ report }: { report: StatusReport }): string => {
   if (!report.audit.ok) {
-    return `orangerail: governance active, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'`;
+    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'`;
   }
 
   const gate = report.readOnly
@@ -81,7 +84,7 @@ export const formatStatusLine = ({ report }: { report: StatusReport }): string =
     : `${report.gatedCount} action(s) approval-gated`;
   const pending = report.pendingCount > 0 ? ` · ${report.pendingCount} pending approval(s)` : '';
 
-  return `orangerail: governance active · ${gate} · audit chain OK (${report.audit.count} record(s))${pending}`;
+  return `orangerail mcp: serving · governance active · ${gate} · audit chain OK (${report.audit.count} record(s))${pending}`;
 };
 
 /**

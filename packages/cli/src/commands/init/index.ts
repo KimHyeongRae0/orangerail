@@ -141,9 +141,24 @@ export const runInit = async ({
 
   const objectCount = source.objects.length;
   const actionCount = source.actions.length;
+
+  // A three-beat confirmation of what init just did — scanned, generated, and
+  // (per the chosen preset) how writes are governed. The gate line states the
+  // preset's real behavior rather than a blanket claim: `approval-for-writes`
+  // stages every write for a human, `sandbox` dry-runs them, `readonly` exposes
+  // no write tools at all.
+  const gateLine =
+    options.preset === 'readonly'
+      ? 'read-only — no write tools exposed'
+      : options.preset === 'sandbox'
+        ? `${actionCount} write action(s) — sandbox (dry-run, nothing executes)`
+        : `${actionCount} write action(s) gated behind human approval`;
+
   process.stdout.write(
-    `orangerail init: generated ${objectCount} object(s) and ${actionCount} action(s) under ontology/.\n` +
-      'These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n',
+    `  ✓  scanned your sources — ${objectCount} object(s), ${actionCount} action(s)\n` +
+      '  ✓  generated a governed MCP server under ontology/\n' +
+      `  ✓  ${gateLine}\n\n` +
+      '  These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n',
   );
 
   if (!resolvable) {

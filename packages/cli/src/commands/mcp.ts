@@ -21,14 +21,14 @@ import { computeStatus, formatStatusLine } from './status';
  */
 export const runMcp = async ({ config }: { config: OrangerailConfig }): Promise<void> => {
   const report = await computeStatus({ config });
-  process.stderr.write(`${formatStatusLine({ report })}\n`);
 
-  // Publish a liveness heartbeat so `orangerail status` can tell a live,
-  // enforcing server from a crashed or never-started one. A no-op path (a
-  // non-file store has no shared on-disk location) leaves `status` reporting
-  // "not detected" honestly. Cleanup is registered once, best-effort, and
-  // stops the refresh timer + removes the file on any terminating signal or a
-  // normal exit so a clean shutdown never lingers as "stale".
+  // Publish a liveness heartbeat FIRST, so the `serving` line we print next is
+  // backed by a real on-disk heartbeat a concurrent `orangerail status` can
+  // already observe — not just a hopeful claim. A no-op path (a non-file store
+  // has no shared on-disk location) leaves `status` reporting "not detected"
+  // honestly. Cleanup is registered once, best-effort, and stops the refresh
+  // timer + removes the file on any terminating signal or a normal exit so a
+  // clean shutdown never lingers as "stale".
   const heartbeatPath = heartbeatPathForStore({ store: config.store });
   const heartbeat: HeartbeatHandle | null =
     heartbeatPath === null ? null : startServerHeartbeat({ path: heartbeatPath });
@@ -43,6 +43,8 @@ export const runMcp = async ({ config }: { config: OrangerailConfig }): Promise<
     process.once('SIGINT', () => shutdown({ signal: 'SIGINT' }));
     process.once('SIGTERM', () => shutdown({ signal: 'SIGTERM' }));
   }
+
+  process.stderr.write(`${formatStatusLine({ report })}\n`);
 
   const { serve } = createMcpServer({
     registry: config.registry,
