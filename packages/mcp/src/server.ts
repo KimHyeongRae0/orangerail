@@ -33,6 +33,38 @@ import { deriveInputSchema, type JsonSchema } from './schema';
 export type McpPreset = 'readonly' | 'sandbox' | 'approval-for-writes';
 
 /**
+ * Which action tools ask the HOST to run its own permission prompt (ONT-048).
+ *
+ * This is a hint to the client, not a gate. orangerail's gate lives in this
+ * process and holds whatever the host does with the hint; the hint only lets a
+ * host that has a prompt of its own put it in front of the call as well.
+ *
+ * - `'off'` (default) — nothing is annotated. The `tools/list` payload carries
+ *   no `_meta` at all.
+ * - `'ungoverned-actions'` — annotate exactly the actions declared WITHOUT
+ *   `policy: { approval: 'required' }`. Those execute on call, so they are the
+ *   only tools here where a host prompt removes real risk.
+ * - `'all-actions'` — annotate every action tool. Costs the operator a second
+ *   prompt on the governed path (which only stages), and buys a checkpoint
+ *   before an agent can add to the approval queue at all.
+ *
+ * Read tools and `check_approval` are NEVER annotated. A read has no effect, and
+ * `check_approval` is polled in a loop until a human decides — an unskippable
+ * prompt on every poll is unusable, and in a host mode that never prompts a
+ * flagged call is denied rather than asked, which would break completion.
+ */
+export type HostApprovalPrompt = 'off' | 'ungoverned-actions' | 'all-actions';
+
+/**
+ * The `_meta` key Claude Code v2.1.199+ reads to force its permission prompt on
+ * every call to a tool. Vendor-prefixed per the MCP spec's `_meta` key-name
+ * rules, so a host that does not know it treats it as unknown metadata and
+ * ignores it. The value must be the JSON boolean `true`; anything else is
+ * ignored by the host.
+ */
+const REQUIRES_USER_INTERACTION = 'anthropic/requiresUserInteraction';
+
+/**
  * Operator-side sink for the FULL, unredacted failure text (§3.10). The agent
  * gets the redacted form; this is where the driver message actually survives,
  * keyed by the same `correlationId` the agent was handed.
@@ -86,6 +118,12 @@ export interface CreateMcpServerArgs {
    * zero-`process.env`-reads property is preserved.
    */
   allowDevMode?: boolean;
+  /**
+   * Engage the host's own permission prompt for some action tools (ONT-048).
+   * Defaults to `'off'` — see {@link HostApprovalPrompt} for why this is opt-in
+   * and why it is never a substitute for the gate in this process.
+   */
+  hostApprovalPrompt?: HostApprovalPrompt;
 }
 
 type ToolDef =
@@ -109,6 +147,8 @@ type ToolDef =
       description: string;
       inputSchema: JsonSchema;
       action: RuntimeAction;
+      /** Emit the host's always-prompt annotation for this tool (ONT-048). */
+      requiresUserInteraction: boolean;
     }
   | { kind: 'check'; name: string; description: string; inputSchema: JsonSchema };
 
@@ -142,7 +182,15 @@ const err = ({
 });
 
 /** Build the tool table; validates names and rejects collisions at build time. */
-const buildTools = ({ registry, preset }: { registry: Registry; preset: McpPreset }): ToolDef[] => {
+const buildTools = ({
+  registry,
+  preset,
+  hostApprovalPrompt,
+}: {
+  registry: Registry;
+  preset: McpPreset;
+  hostApprovalPrompt: HostApprovalPrompt;
+}): ToolDef[] => {
   const tools: ToolDef[] = [];
   const seen = new Set<string>();
 
@@ -202,6 +250,14 @@ const buildTools = ({ registry, preset }: { registry: Registry; preset: McpPrese
     for (const action of registry.listActions()) {
       const governed = action.policy?.approval === 'required';
 
+      // Keyed off what the DECLARATION says, not off what the current preset
+      // happens to do with it. `sandbox` still annotates: it exists to rehearse
+      // the live wiring, and silently muting a flag the operator turned on is a
+      // worse surprise than a prompt in front of a dry run.
+      const requiresUserInteraction =
+        hostApprovalPrompt === 'all-actions' ||
+        (hostApprovalPrompt === 'ungoverned-actions' && !governed);
+
       add({
         tool: {
           kind: 'action',
@@ -211,6 +267,7 @@ const buildTools = ({ registry, preset }: { registry: Registry; preset: McpPrese
             : `Run the "${action.name}" action.`,
           inputSchema: deriveInputSchema({ schema: action.input }),
           action,
+          requiresUserInteraction,
         },
       });
     }
@@ -366,6 +423,12 @@ const mapExecute = ({
  * Presets: `readonly` (no action tools, no check_approval), `sandbox` (engine
  * dry-run mode), `approval-for-writes` (default; actions as declared).
  *
+ * `hostApprovalPrompt` (default `'off'`) optionally annotates action tools with
+ * `_meta["anthropic/requiresUserInteraction"]`, which asks a host that supports
+ * it to run its OWN permission prompt before the call. It is enforced by the
+ * client, so it is a second checkpoint on top of this server's gate and never a
+ * replacement for it — see {@link HostApprovalPrompt}.
+ *
  * Failures are redacted before they reach the caller (§3.10): the agent gets a
  * stable status, a domain-level cause, and a `correlationId`; the full driver
  * text goes to {@link ReportFailure} (stderr by default) and, where one exists,
@@ -379,6 +442,7 @@ export const createMcpServer = ({
   redactAudit,
   reportFailure = defaultReportFailure,
   allowDevMode = false,
+  hostApprovalPrompt = 'off',
 }: CreateMcpServerArgs): { server: Server; serve: () => Promise<void> } => {
   const engine = createEngine({
     registry,
@@ -393,7 +457,7 @@ export const createMcpServer = ({
     ...(resolveIdentity ? { resolveIdentity } : {}),
   };
 
-  const tools = buildTools({ registry, preset });
+  const tools = buildTools({ registry, preset, hostApprovalPrompt });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
   const failureFor =
@@ -424,11 +488,17 @@ export const createMcpServer = ({
     { capabilities: { tools: {} } },
   );
 
+  // `_meta` is only ever present when `hostApprovalPrompt` selected this tool, so
+  // the default listing is byte-identical to one built without the feature —
+  // which is what keeps every tool-set comparison in the e2e suite untouched.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
+      ...(tool.kind === 'action' && tool.requiresUserInteraction
+        ? { _meta: { [REQUIRES_USER_INTERACTION]: true } }
+        : {}),
     })),
   }));
 

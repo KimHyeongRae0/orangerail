@@ -1,4 +1,4 @@
-import { createMcpServer } from 'orangerail-mcp';
+import { createMcpServer, type CreateMcpServerArgs } from 'orangerail-mcp';
 
 import type { OrangerailConfig } from '../config';
 import {
@@ -7,6 +7,30 @@ import {
   type HeartbeatHandle,
 } from '../server-heartbeat';
 import { computeStatus, formatStatusLine } from './status';
+
+/**
+ * The `createMcpServer` arguments a loaded config resolves to. Every optional
+ * hook is passed only when the config actually declared it, so an omitted field
+ * gets the server's own default rather than an explicit `undefined`.
+ *
+ * Extracted as a pure function so the suite can assert the threading without
+ * starting a server — `runMcp` connects a stdio transport that never resolves.
+ * A hook that stops being forwarded here is a silent loss of governance config,
+ * which is exactly the class of bug ONT-044 pulled the argv layer out for.
+ */
+export const mcpServerArgsFrom = ({
+  config,
+}: {
+  config: OrangerailConfig;
+}): CreateMcpServerArgs => ({
+  registry: config.registry,
+  store: config.store,
+  ...(config.resolveIdentity ? { resolveIdentity: config.resolveIdentity } : {}),
+  ...(config.preset ? { preset: config.preset } : {}),
+  ...(config.redactAudit ? { redactAudit: config.redactAudit } : {}),
+  ...(config.allowDevMode ? { allowDevMode: config.allowDevMode } : {}),
+  ...(config.hostApprovalPrompt ? { hostApprovalPrompt: config.hostApprovalPrompt } : {}),
+});
 
 /**
  * `orangerail mcp` — launch the governed MCP server over stdio (§3.4). Once
@@ -29,14 +53,7 @@ export const runMcp = async ({ config }: { config: OrangerailConfig }): Promise<
   // crash. ONT-029 ordered the line after the heartbeat write for exactly this
   // reason; the same discipline covers the whole startup path here. Nothing
   // below this point is reachable by a server that failed to start.
-  const { serve } = createMcpServer({
-    registry: config.registry,
-    store: config.store,
-    ...(config.resolveIdentity ? { resolveIdentity: config.resolveIdentity } : {}),
-    ...(config.preset ? { preset: config.preset } : {}),
-    ...(config.redactAudit ? { redactAudit: config.redactAudit } : {}),
-    ...(config.allowDevMode ? { allowDevMode: config.allowDevMode } : {}),
-  });
+  const { serve } = createMcpServer(mcpServerArgsFrom({ config }));
 
   await serve();
 

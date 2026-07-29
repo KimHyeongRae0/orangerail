@@ -5,7 +5,7 @@ ontology registry. This is the **only** orangerail package that depends on
 `@modelcontextprotocol/sdk` (NOLLM-01 scope rule).
 
 `createMcpServer({ registry, store, resolveIdentity?, preset?, redactAudit?,
-reportFailure? })`
+reportFailure?, allowDevMode?, hostApprovalPrompt? })`
 returns `{ server, serve }` and uses the low-level `Server` with explicit
 `tools/list` + `tools/call` handlers (not `McpServer.registerTool`, not the
 experimental tasks API), so input validation stays in exactly one place — the
@@ -36,6 +36,46 @@ collisions at build time (fail fast).
   engine still completes it. The destructive tool stays visible and simply cannot
   cause an effect, which is the same design as an approval gate.
 - `readonly` — no action tools, no `check_approval`.
+
+## The host's own approval prompt (`hostApprovalPrompt`)
+
+Optional, `'off'` by default. When set, selected **action** tools carry
+`_meta: { "anthropic/requiresUserInteraction": true }` in `tools/list`, which
+asks the host to run its own permission prompt on every call to them.
+
+| value                  | annotated tools                                              |
+| ---------------------- | ------------------------------------------------------------ |
+| `'off'` (default)      | none — the listing carries no `_meta` at all                   |
+| `'ungoverned-actions'` | actions with no `policy: { approval: 'required' }`             |
+| `'all-actions'`        | every action tool, governed and ungoverned                     |
+
+Read tools and `check_approval` are **never** annotated, under any value.
+`check_approval` is polled in a loop until a human decides — a prompt on every
+poll is unusable, and a host mode that never prompts denies a flagged call
+rather than asking, which would break completion outright. `readonly` therefore
+emits nothing in any mode: it exposes no action tools to annotate. `sandbox`
+still annotates, because the value describes what the **declaration** says
+rather than what the current preset does with it.
+
+Two things to be exact about.
+
+**It is enforced by the client, so it is not what makes the gate hold.** A
+governed action stages and waits for a human whether the host prompts, does not
+prompt, or ignores the key entirely. This is a second checkpoint on top of the
+rail. The tools it is *for* are the ungoverned ones, which have no rail in front
+of them at all.
+
+**A flagged tool's prompt cannot be turned off by the person answering it.**
+Per the Claude Code documentation the prompt appears in every permission mode
+including `bypassPermissions`, offers no "don't ask again", and is not skipped
+by an allow rule; in `dontAsk` mode the call is denied instead, and under
+`--permission-prompt-tool` an `allow` result is converted to a deny. So turning
+this on can stop a headless pipeline that was working, which is why it is opt-in
+rather than a default.
+
+Claude Code v2.1.199+ is the only host known to honor the key. It is
+vendor-prefixed per the MCP `_meta` key-name rules, so other hosts see metadata
+they do not recognize and ignore it.
 
 ## Identity and dev mode
 

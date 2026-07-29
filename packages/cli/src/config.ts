@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { RedactAudit, Registry, ResolveIdentity, Store } from 'orangerail-core';
-import type { McpPreset } from 'orangerail-mcp';
+import type { HostApprovalPrompt, McpPreset } from 'orangerail-mcp';
 
 /**
  * The shape a user's `orangerail.config.mjs` must default-export. `registry` and
@@ -23,6 +23,16 @@ export interface OrangerailConfig {
    * flag (zero `process.env` reads preserved).
    */
   allowDevMode?: boolean;
+  /**
+   * Ask the agent host to run its OWN permission prompt for some action tools
+   * (ONT-048). Defaults to `'off'`. A config field rather than a flag, exactly
+   * like `preset` — `--preset` belongs to `init` and selects what gets
+   * generated, not how a running server behaves.
+   *
+   * This is a hint the client enforces. It composes with orangerail's gate; it
+   * is never what makes that gate hold.
+   */
+  hostApprovalPrompt?: HostApprovalPrompt;
 }
 
 /**
