@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,6 +23,7 @@ import {
 import {
   formatServerLiveness,
   readServerLiveness,
+  startServerHeartbeat,
   type ServerHeartbeat,
 } from '../src/server-heartbeat';
 
@@ -139,13 +141,13 @@ describe('runStatus — exit codes', () => {
   });
 });
 
-describe('readServerLiveness — running / stale / not detected from a heartbeat file', () => {
+describe('readServerLiveness — running / stale / not detected from heartbeat entries', () => {
   let dir: string;
-  let path: string;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'orangerail-hb-'));
-    path = join(dir, 'server.json');
+    mkdirSync(join(dir, 'servers'), { recursive: true });
+    dir = join(dir, 'servers');
   });
 
   afterEach(() => {
@@ -153,12 +155,12 @@ describe('readServerLiveness — running / stale / not detected from a heartbeat
   });
 
   const writeHeartbeat = ({ heartbeat }: { heartbeat: ServerHeartbeat }): void => {
-    writeFileSync(path, `${JSON.stringify(heartbeat)}\n`);
+    writeFileSync(join(dir, `${heartbeat.pid}.json`), `${JSON.stringify(heartbeat)}\n`);
   };
 
-  it('reports not detected when no heartbeat file exists', () => {
-    expect(readServerLiveness({ path })).toEqual({ state: 'not_detected' });
-    expect(readServerLiveness({ path: null })).toEqual({ state: 'not_detected' });
+  it('reports not detected when no heartbeat entry exists', () => {
+    expect(readServerLiveness({ dir })).toEqual({ state: 'not_detected' });
+    expect(readServerLiveness({ dir: null })).toEqual({ state: 'not_detected' });
   });
 
   it('reports running when the pid is alive and the heartbeat is fresh', () => {
@@ -171,11 +173,11 @@ describe('readServerLiveness — running / stale / not detected from a heartbeat
       },
     });
 
-    const server = readServerLiveness({ path, now });
+    const server = readServerLiveness({ dir, now });
     expect(server.state).toBe('running');
     if (server.state === 'running') {
-      expect(server.pid).toBe(process.pid);
-      expect(server.startedAgoSec).toBe(8);
+      expect(server.servers).toEqual([{ pid: process.pid, startedAgoSec: 8 }]);
+      expect(server.staleCount).toBe(0);
     }
     expect(formatServerLiveness({ server })).toBe(`running (pid ${process.pid}, started 8s ago)`);
   });
@@ -190,7 +192,7 @@ describe('readServerLiveness — running / stale / not detected from a heartbeat
       },
     });
 
-    const server = readServerLiveness({ path, now });
+    const server = readServerLiveness({ dir, now });
     expect(server.state).toBe('stale');
     expect(formatServerLiveness({ server })).toBe(
       'stale — last heartbeat 30s ago (it may have crashed)',
@@ -209,11 +211,164 @@ describe('readServerLiveness — running / stale / not detected from a heartbeat
       },
     });
 
-    expect(readServerLiveness({ path, now }).state).toBe('stale');
+    expect(readServerLiveness({ dir, now }).state).toBe('stale');
   });
 
-  it('reports not detected for a malformed heartbeat file (never a false running claim)', () => {
-    writeFileSync(path, 'not json at all');
-    expect(readServerLiveness({ path }).state).toBe('not_detected');
+  it('reports not detected for a malformed heartbeat entry (never a false running claim)', () => {
+    writeFileSync(join(dir, '999.json'), 'not json at all');
+    expect(readServerLiveness({ dir }).state).toBe('not_detected');
+  });
+
+  it('keeps reporting the live server when a sibling entry is malformed', () => {
+    const now = Date.now();
+    writeFileSync(join(dir, '999.json'), 'not json at all');
+    writeHeartbeat({
+      heartbeat: {
+        pid: process.pid,
+        startedAt: new Date(now - 1_000).toISOString(),
+        lastHeartbeatAt: new Date(now - 1_000).toISOString(),
+      },
+    });
+
+    expect(readServerLiveness({ dir, now }).state).toBe('running');
+  });
+
+  it('surfaces a crashed leftover alongside a live server instead of hiding it', () => {
+    const now = Date.now();
+    writeHeartbeat({
+      heartbeat: {
+        pid: process.pid,
+        startedAt: new Date(now - 4_000).toISOString(),
+        lastHeartbeatAt: new Date(now - 1_000).toISOString(),
+      },
+    });
+    writeHeartbeat({
+      heartbeat: {
+        pid: 2_147_483_646,
+        startedAt: new Date(now - 90_000).toISOString(),
+        lastHeartbeatAt: new Date(now - 40_000).toISOString(),
+      },
+    });
+
+    const server = readServerLiveness({ dir, now });
+    expect(server.state).toBe('running');
+    expect(formatServerLiveness({ server })).toBe(
+      `running (pid ${process.pid}, started 4s ago) · 1 stale entry — a server may have crashed`,
+    );
+  });
+});
+
+/**
+ * ONT-036 — the regression this ticket exists for. Two servers share one store;
+ * the signal must describe BOTH, and one shutting down must never erase the
+ * other. Driven through the real writer with real, distinct, live pids (idle
+ * child processes) rather than hand-written files, so the pid-liveness check and
+ * the shutdown path are genuinely exercised.
+ */
+describe('multi-server liveness — two servers against one store', () => {
+  let dir: string;
+  const children: ChildProcess[] = [];
+
+  /** An idle child whose pid is genuinely live for the duration of the test. */
+  const spawnIdle = (): number => {
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+      stdio: 'ignore',
+    });
+    children.push(child);
+
+    if (child.pid === undefined) {
+      throw new Error('failed to spawn an idle child process');
+    }
+
+    return child.pid;
+  };
+
+  beforeEach(() => {
+    dir = join(mkdtempSync(join(tmpdir(), 'orangerail-hb-')), 'servers');
+  });
+
+  afterEach(() => {
+    for (const child of children.splice(0)) {
+      child.kill('SIGKILL');
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reports both servers, and still reports the survivor after one stops cleanly', () => {
+    const pidA = spawnIdle();
+    const pidB = spawnIdle();
+
+    const a = startServerHeartbeat({ dir, pid: pidA });
+    const b = startServerHeartbeat({ dir, pid: pidB });
+
+    const both = readServerLiveness({ dir });
+    expect(both.state).toBe('running');
+    if (both.state === 'running') {
+      expect(both.servers.map((entry) => entry.pid).sort((x, y) => x - y)).toEqual(
+        [pidA, pidB].sort((x, y) => x - y),
+      );
+    }
+    expect(formatServerLiveness({ server: both })).toContain('2 servers');
+
+    // A shuts down cleanly while B is still serving. Before this fix A's exit
+    // deleted the one shared file and `status` claimed "not detected" of B.
+    a.stop();
+
+    const survivor = readServerLiveness({ dir });
+    expect(survivor.state).toBe('running');
+    if (survivor.state === 'running') {
+      expect(survivor.servers).toEqual([{ pid: pidB, startedAgoSec: 0 }]);
+    }
+    expect(formatServerLiveness({ server: survivor })).toBe(
+      `running (pid ${pidB}, started 0s ago)`,
+    );
+
+    b.stop();
+    expect(readServerLiveness({ dir }).state).toBe('not_detected');
+  });
+
+  it('writes each entry atomically, leaving no partial file for a reader to trip on', () => {
+    const pid = spawnIdle();
+    const handle = startServerHeartbeat({ dir, pid });
+
+    expect(readdirSync(dir)).toEqual([`${pid}.json`]);
+
+    handle.stop();
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('reaps a provably abandoned entry on the next server start, keeping a fresh crash visible', () => {
+    mkdirSync(dir, { recursive: true });
+    const now = Date.now();
+
+    // Dead pid, heartbeat aged past the threshold — garbage.
+    writeFileSync(
+      join(dir, '2147483646.json'),
+      `${JSON.stringify({
+        pid: 2_147_483_646,
+        startedAt: new Date(now - 90_000).toISOString(),
+        lastHeartbeatAt: new Date(now - 40_000).toISOString(),
+      })}\n`,
+    );
+
+    // Dead pid, but only just — the crash evidence must survive so `status` can
+    // still report `stale` rather than quietly forgetting the server.
+    writeFileSync(
+      join(dir, '2147483645.json'),
+      `${JSON.stringify({
+        pid: 2_147_483_645,
+        startedAt: new Date(now - 9_000).toISOString(),
+        lastHeartbeatAt: new Date(now - 1_000).toISOString(),
+      })}\n`,
+    );
+
+    const pid = spawnIdle();
+    const handle = startServerHeartbeat({ dir, pid });
+
+    expect(existsSync(join(dir, '2147483646.json'))).toBe(false);
+    expect(existsSync(join(dir, '2147483645.json'))).toBe(true);
+
+    handle.stop();
+    expect(readServerLiveness({ dir }).state).toBe('stale');
   });
 });

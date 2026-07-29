@@ -2,7 +2,7 @@ import { createMcpServer } from 'orangerail-mcp';
 
 import type { OrangerailConfig } from '../config';
 import {
-  heartbeatPathForStore,
+  heartbeatDirForStore,
   startServerHeartbeat,
   type HeartbeatHandle,
 } from '../server-heartbeat';
@@ -23,15 +23,17 @@ export const runMcp = async ({ config }: { config: OrangerailConfig }): Promise<
   const report = await computeStatus({ config });
 
   // Publish a liveness heartbeat FIRST, so the `serving` line we print next is
-  // backed by a real on-disk heartbeat a concurrent `orangerail status` can
-  // already observe — not just a hopeful claim. A no-op path (a non-file store
-  // has no shared on-disk location) leaves `status` reporting "not detected"
-  // honestly. Cleanup is registered once, best-effort, and stops the refresh
-  // timer + removes the file on any terminating signal or a normal exit so a
-  // clean shutdown never lingers as "stale".
-  const heartbeatPath = heartbeatPathForStore({ store: config.store });
+  // backed by a real on-disk entry a concurrent `orangerail status` can already
+  // observe — not just a hopeful claim. The entry is this process's own
+  // (`servers/<pid>.json`), so any number of servers may share the store and
+  // none of them can erase another. A no-op dir (a non-file store has no shared
+  // on-disk location) leaves `status` reporting "not detected" honestly.
+  // Cleanup is registered once, best-effort, and stops the refresh timer +
+  // removes OUR entry on any terminating signal or a normal exit so a clean
+  // shutdown never lingers as "stale".
+  const heartbeatDir = heartbeatDirForStore({ store: config.store });
   const heartbeat: HeartbeatHandle | null =
-    heartbeatPath === null ? null : startServerHeartbeat({ path: heartbeatPath });
+    heartbeatDir === null ? null : startServerHeartbeat({ dir: heartbeatDir });
 
   if (heartbeat) {
     const shutdown = ({ signal }: { signal: NodeJS.Signals }): void => {

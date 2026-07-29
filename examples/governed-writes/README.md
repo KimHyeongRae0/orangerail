@@ -109,11 +109,19 @@ orangerail status
 ```
 
 The `server:` line is a genuine liveness signal, not a re-derivation from config: it reads
-a heartbeat the serving process writes, so it distinguishes a live, enforcing server
-(`running`) from a crashed one (`stale`) or none at all (`not detected`). It tracks **one
-server at a time** — the most recent `orangerail mcp` to start against this store — so if
-you run two against the same store, the line describes only that one, and `not detected`
-means "the tracked server is gone", not "no server is enforcing".
+a heartbeat each serving process writes, so it distinguishes a live, enforcing server
+(`running`) from a crashed one (`stale`) or none at all (`not detected`). It tracks **every
+server sharing this store**, one heartbeat entry per process, so running two against the
+same store reports both — and one of them shutting down never erases the other:
+
+```
+  server:   running (2 servers — pid 77724 started 1s ago, pid 77725 started 0s ago)
+  server:   running (pid 77725, started 1s ago)          # after the first one exits
+```
+
+`running` requires a live pid **and** a fresh heartbeat, so a crashed server's leftover
+entry can only ever downgrade the line (to `stale`, alongside any server still serving) —
+it can never manufacture a `running` claim for a process that is gone.
 
 The MCP server also writes a one-line confidence signal to stderr the moment it starts
 (stdout is the JSON-RPC channel), so your agent host's logs show governance is wired

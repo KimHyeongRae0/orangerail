@@ -3,7 +3,7 @@ import { verifyAudit } from 'orangerail-core';
 import type { OrangerailConfig } from '../config';
 import {
   formatServerLiveness,
-  heartbeatPathForStore,
+  heartbeatDirForStore,
   readServerLiveness,
   type ServerLiveness,
 } from '../server-heartbeat';
@@ -31,10 +31,12 @@ export interface StatusReport {
   /** Approvals staged and awaiting a human decision. */
   pendingCount: number;
   /**
-   * Liveness of an `orangerail mcp` server serving this store. This is a live
-   * signal (a heartbeat file written by the serving process), NOT a re-derived
-   * claim — the other fields describe what governance WOULD do, this one proves
-   * whether a server is actually up to enforce it.
+   * Liveness of the `orangerail mcp` server(s) serving this store. This is a
+   * live signal (a per-server heartbeat entry written by each serving process),
+   * NOT a re-derived claim — the other fields describe what governance WOULD
+   * do, this one proves whether a server is actually up to enforce it. It
+   * aggregates every server sharing the store, so one shutting down never hides
+   * another that is still enforcing.
    */
   server: ServerLiveness;
 }
@@ -52,7 +54,7 @@ export const computeStatus = async ({
   const audit = await verifyAudit({ store: config.store });
   const pending = await config.store.listPending();
 
-  const server = readServerLiveness({ path: heartbeatPathForStore({ store: config.store }) });
+  const server = readServerLiveness({ dir: heartbeatDirForStore({ store: config.store }) });
 
   return {
     objectCount: config.registry.listObjects().length,
