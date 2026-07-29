@@ -3,11 +3,12 @@
 > Declare your domain once — and every AI agent that touches it is guided,
 > governed, and visible.
 
-**Status: pre-release.** v0 is under active development; the API described below is
-the design target, not a published surface. **Nothing is published to npm yet** —
-`npx orangerail` will 404, and so will every `orangerail-*` package. The only way to
-run it today is to build it from source in a checkout (see
-[Wire it into your agent host](#wire-it-into-your-agent-host)).
+**Status: pre-release, and installable.** v0 is on npm at `0.1.0` — `orangerail` (the
+CLI) plus `orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and
+`orangerail-studio`. `npx orangerail init` runs against your own project today, with no
+checkout of this repo ([Quickstart](#quickstart)). It is still v0 and under active
+development: the API described further down is the design target, and it will move before
+1.0.
 
 ## See it stop an agent
 
@@ -50,6 +51,103 @@ BACK TO THE AGENT — only now does it run
 A read-only switch can't do this: the destructive tool stays **available** (not
 hidden), the agent **cannot force it through**, and the row changes **only after a
 human decided**. Run it yourself → [`examples/governed-writes`](./examples/governed-writes).
+
+## Quickstart
+
+The shortest true path from zero to watching an agent get blocked. Every output below is
+verbatim from one run against the published `0.1.0` packages, in a scratch project holding
+nothing but a two-model Prisma schema (`Customer`, `Order`) — no checkout of this repo,
+nothing built from source.
+
+**1. Scan your project.** Run this in a repo that has a `prisma/schema.prisma` or an
+OpenAPI spec. The scanner is deterministic: it reads your files, makes no LLM calls, and
+needs no API key. `--yes` takes the defaults instead of prompting, and `--no-studio` keeps
+the run in the terminal.
+
+```console
+$ npx orangerail init --yes --preset approval-for-writes --no-studio
+  ✓  scanned your sources — 2 object(s), 6 action(s)
+  ✓  generated a governed MCP server under ontology/
+  ✓  6 write action(s) gated behind human approval
+
+  These files are yours — re-scans never modify them; `orangerail sync` reports drift.
+
+Next step: install the runtime deps so the generated code can load:
+  npm install orangerail-core zod
+Then run `orangerail studio` or `orangerail mcp`.
+```
+
+**2. Install the runtime the generated code loads.**
+
+```bash
+npm install orangerail-core zod
+```
+
+**3. Read the posture.** `orangerail status` is the one screen that answers "is this
+actually protecting me" — how many actions are gated, what is waiting on a human, and
+whether the audit chain still verifies.
+
+```console
+$ npx orangerail status
+orangerail status
+  objects:  2
+  actions:  6 approval-gated, 0 auto
+  preset:   approval-for-writes
+  pending:  0 approval(s) awaiting a decision
+  server:   not detected — no orangerail mcp is running against this store
+  audit:    chain OK — 0 record(s) verified
+```
+
+**4. Point your agent host at it.** Drop this in your project root as `.mcp.json`. The
+lifecycle, the `claude mcp add` one-liner and the `--config` argument for hosts that start
+elsewhere are all in [Wire it into your agent host](#wire-it-into-your-agent-host).
+
+```json
+{
+  "mcpServers": {
+    "orangerail": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "orangerail", "mcp"],
+      "env": { "DATABASE_URL": "file:./dev.db" }
+    }
+  }
+}
+```
+
+**5. Ask the agent to destroy something.** Here a real host, wired exactly as above,
+called the destructive tool. It came back holding an approval id instead of a deleted row:
+
+```console
+[agent]  deleteCustomer({ id: 2 })
+         → {"status":"approval_pending","approvalId":"dff95d9d-8237-407a-b80b-c47252d56a1f"}
+```
+
+**6. You decide, in your own terminal.** The `server:` line reads a live heartbeat, and
+the host's server had already exited by the time this ran — that is the stdio lifecycle,
+not a fault.
+
+```console
+$ npx orangerail approvals list
+dff95d9d-8237-407a-b80b-c47252d56a1f  "deleteCustomer"  by "local-dev" [dev]  5s ago  input={"id":2}
+
+1 pending approval(s).
+
+$ npx orangerail status
+orangerail status
+  objects:  2
+  actions:  6 approval-gated, 0 auto
+  preset:   approval-for-writes
+  pending:  1 approval(s) awaiting a decision
+  server:   not detected — no orangerail mcp is running against this store
+  audit:    chain OK — 1 record(s) verified
+
+$ npx orangerail approvals approve dff95d9d-8237-407a-b80b-c47252d56a1f
+approve ok (approved)
+```
+
+The agent's next `check_approval` is the first moment the row can change. Nothing ran
+before you said so, and every step is on the hash chain.
 
 ## See your whole domain as a map
 
@@ -145,7 +243,52 @@ it, and the host does the rest. (`orangerail status`, `approvals`, and `audit ve
 ordinary commands you run in your own terminal, against the same store, while the host's
 server is up.)
 
-Build it first — nothing is on npm, and `dist/` is not committed:
+Nothing to install and nothing to build: the package is on npm, so the host can fetch and
+run it on demand. For Claude Code, a `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "orangerail": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "orangerail", "mcp"],
+      "env": { "DATABASE_URL": "file:./dev.db" }
+    }
+  }
+}
+```
+
+Or the equivalent one-liner, which writes exactly that file:
+
+```bash
+claude mcp add -s project orangerail -e DATABASE_URL="file:./dev.db" \
+  -- npx -y orangerail mcp
+```
+
+`env` carries whatever your own `orangerail.config.mjs` needs to reach your backend — the
+`DATABASE_URL` above is what the Prisma example uses. The server resolves the config from
+the host's working directory; when that is not your project root, name it explicitly by
+appending `"--config", "/abs/path/to/orangerail.config.mjs"` to `args`. Verify with
+`claude mcp list`:
+
+```console
+$ claude mcp list
+orangerail: npx -y orangerail mcp - ✔ Connected
+```
+
+A project-scoped `.mcp.json` is only connected to once you have trusted the directory in
+the host; until then the same line reads `⏸ Pending approval`, which is the host asking,
+not the config being wrong. As the server comes up it writes one line to stderr (stdout is
+the JSON-RPC channel), which lands in your host's log:
+
+```console
+orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (0 record(s))
+```
+
+**From source instead.** If you are working on orangerail itself, or want to run an
+unreleased change, point the host at your build rather than at npm. `dist/` is not
+committed, so build first:
 
 ```bash
 git clone https://github.com/KimHyeongRae0/orangerail.git
@@ -153,41 +296,15 @@ cd orangerail
 pnpm install && pnpm -r run build     # produces packages/cli/dist/main.js
 ```
 
-Then point the host at that file. For Claude Code, a `.mcp.json` in your project root:
+Then swap the server object's `command` and `args` for that file — everything else stays
+the same:
 
 ```json
 {
-  "mcpServers": {
-    "orangerail": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["/abs/path/to/orangerail/packages/cli/dist/main.js", "mcp"],
-      "env": { "DATABASE_URL": "file:./dev.db" }
-    }
-  }
+  "command": "node",
+  "args": ["/abs/path/to/orangerail/packages/cli/dist/main.js", "mcp"]
 }
 ```
-
-Or the equivalent one-liner:
-
-```bash
-claude mcp add -s project orangerail -e DATABASE_URL="file:./dev.db" \
-  -- node /abs/path/to/orangerail/packages/cli/dist/main.js mcp
-```
-
-`env` carries whatever your own `orangerail.config.mjs` needs to reach your backend — the
-`DATABASE_URL` above is what the Prisma example uses. The server resolves the config from
-the host's working directory; when that is not your project root, name it explicitly by
-appending `"--config", "/abs/path/to/orangerail.config.mjs"` to `args`. Verify with
-`claude mcp list` — a healthy wiring reports `✔ Connected`, and the server writes one line
-to stderr as it comes up (stdout is the JSON-RPC channel), which lands in your host's log:
-
-```console
-orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
-```
-
-Once packages are published this becomes `"command": "npx"`, `"args": ["-y",
-"orangerail", "mcp"]` — **that form does not work yet**; nothing is on npm.
 
 ## What orangerail does not govern
 

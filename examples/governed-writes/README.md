@@ -62,7 +62,11 @@ row changes **only after a human decided** — all on a verifiable audit chain.
 
 ## Run it
 
-From a repo checkout (the example resolves `orangerail-*` from the workspace).
+From a repo checkout. This folder resolves `orangerail-*` from the monorepo workspace
+rather than from npm, so it runs against your working tree — that is deliberate, it is how
+a change to `packages/` shows up in the walkthrough immediately. (To run orangerail on your
+own project instead, no checkout is involved: see the
+[Quickstart](../../README.md#quickstart).)
 
 **Build the workspace first.** The walkthrough spawns the real CLI at
 `packages/cli/dist/main.js`, and `dist/` is not committed — on a fresh clone it does not
@@ -89,8 +93,10 @@ node walkthrough.mjs                               # the full story, asserted
 To explore the same ontology visually: `node ../../packages/cli/dist/main.js studio`.
 
 To drive this ontology from a real agent host instead of the scripted walkthrough, see
-[Wire it into your agent host](../../README.md#wire-it-into-your-agent-host) — the same
-`dist/main.js` from the build above, spawned over stdio by the host.
+[Wire it into your agent host](../../README.md#wire-it-into-your-agent-host) and take its
+from-source form — the same `dist/main.js` from the build above, spawned over stdio by the
+host. The `npx` form there is for your own project, which resolves the packages from npm;
+this folder resolves them from the workspace.
 
 ## Is it actually protecting me?
 
@@ -147,9 +153,13 @@ non-zero so a script can gate on it.
 
 ## Honest caveat
 
-This example resolves `orangerail-core` / the CLI from the monorepo workspace, so it only
-runs inside a checkout of this repo. Nothing is published to npm yet — `orangerail`,
-`orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio` all
-404 on the registry — so cloning this folder on its own will not work, and neither will
-`npx orangerail`. The governance mechanism it demonstrates is exactly what those packages
-will ship.
+This folder is wired to the monorepo, not to the registry: it resolves `orangerail-core`
+and the CLI from the workspace and spawns `packages/cli/dist/main.js` by path. So copying
+the folder somewhere on its own will not work — the walkthrough needs a built checkout
+around it.
+
+That is a property of the example, not of orangerail. The packages are published
+(`orangerail`, `orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen`,
+`orangerail-studio`, all at `0.1.0`), and `npx orangerail init` sets the same governance up
+on your own project without cloning anything — the
+[Quickstart](../../README.md#quickstart) is that path end to end.

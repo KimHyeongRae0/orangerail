@@ -1,4 +1,7 @@
-.docs/scratch/
-.docs/state/
+# Working notes, tickets, drafts and handoffs are local-only by convention.
+# This is what enforces it: a stray `git add -A` must never publish them.
+.docs/
+# Agent worktrees and local agent settings.
+.claude/
 node_modules/
 dist/
