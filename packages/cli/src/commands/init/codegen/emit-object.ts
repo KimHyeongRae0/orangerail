@@ -367,8 +367,17 @@ const clientConstruction = ({ construction }: { construction: PrismaConstruction
   });
   const argument = adapter.argument === 'url-object' ? '{ url }' : 'url';
 
+  // `urlEnv` is scanned from the user's schema (`url = env("…")`), so it is
+  // user-controlled text and gets the same treatment `prismaMember` gives a
+  // model name (D10): the dot form only for a plain identifier, an ESCAPED
+  // bracket index otherwise. Interpolating it raw would let a crafted variable
+  // name — `X; process.exit(1)` — become statements in the generated file.
+  const envAccess = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(urlEnv)
+    ? `process.env.${urlEnv}`
+    : `process.env[${escapeStringLiteral({ value: urlEnv })}]`;
+
   return [
-    `      const url = process.env.${urlEnv};`,
+    `      const url = ${envAccess};`,
     "      if (url === undefined || url === '') {",
     `        throw new Error(${missingUrl});`,
     '      }',

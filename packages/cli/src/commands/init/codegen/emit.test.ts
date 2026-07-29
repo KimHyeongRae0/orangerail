@@ -810,6 +810,19 @@ describe('emitted Prisma client construction (ONT-049)', () => {
     expect(content).toContain('orangerail: PG_URL is not set.');
   });
 
+  it('escapes a hostile connection-variable name instead of interpolating it', () => {
+    // The variable name is scanned from the user's schema (`url = env("…")`),
+    // so it is user-controlled text. Raw interpolation would turn a crafted
+    // name into STATEMENTS in the generated file (D10).
+    const content = emitObjectFile({
+      object: product,
+      construction: { ...pg, urlEnv: 'X; process.exit(1); //' },
+    }).content;
+
+    expect(content).not.toContain('process.env.X; process.exit(1)');
+    expect(content).toContain('const url = process.env["X; process.exit(1); //"];');
+  });
+
   it('names the adapter package in the module-not-found diagnostic', () => {
     // Both imports can be the one that failed. Sending a Prisma 7 user to
     // `prisma generate` for a missing @prisma/adapter-pg is advice that cannot
