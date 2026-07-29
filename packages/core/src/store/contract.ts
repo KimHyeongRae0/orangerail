@@ -9,6 +9,21 @@ export interface ApprovalRecord {
   actionName: string;
   input: unknown;
   signatureHash: string;
+  /**
+   * `hashApprovalInput(input)` as of creation — the approve-what-you-execute
+   * binding (§3.4 / ONT-040). `signatureHash` covers the action's DECLARED
+   * shape only, so without this an input edited in the store between approval
+   * and execution runs unchallenged. Stores MUST stamp it in `createApproval`;
+   * `execute` recomputes it over the input it is about to run and fails closed
+   * on a mismatch.
+   *
+   * Optional ONLY because a record persisted by 0.1.0 carries none. `execute`
+   * treats an absent hash as unverifiable and refuses (a 0.1.0 approval still
+   * pending across an upgrade must be re-staged); `verifyAudit` does NOT treat
+   * absence as tampering, because it cannot tell a 0.1.0 record from a stripped
+   * one — that swap is caught by the staged-vs-executed input cross-check.
+   */
+  inputHash?: string;
   status: ApprovalStatus;
   requestedBy: string;
   /**
@@ -113,6 +128,9 @@ export type ConsumeApprovalResult =
  * in-memory reference relies on JS single-threading; ONT-003's cross-process
  * file store must reproduce these (e.g. via a file lock):
  *
+ * - `createApproval` stamps {@link ApprovalRecord.inputHash} over the supplied
+ *   `input` (§3.4 / ONT-040) — a store that skips it makes every approval it
+ *   creates unexecutable, because `execute` fails closed on an absent hash.
  * - `resolveApproval` is a single-winner CAS on `pending -> approved|rejected`:
  *   under concurrent calls exactly one succeeds, the rest get `already_resolved`.
  * - `consumeApproval` is a single-winner CAS on `approved -> consumed`: it

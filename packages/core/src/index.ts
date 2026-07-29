@@ -60,7 +60,7 @@ export type {
 
 export { verifyAudit } from './audit/verify';
 export type { AuditVerifyResult } from './audit/verify';
-export { GENESIS_HASH, hashAuditRecord } from './audit/chain';
+export { GENESIS_HASH, hashApprovalInput, hashAuditRecord } from './audit/chain';
 
 export { authorizeApprover, DEV_SUBJECT, resolveCaller } from './identity/contract';
 export type { IdentityConfig, ResolveIdentity, ResolveIdentityContext } from './identity/contract';

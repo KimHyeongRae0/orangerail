@@ -304,6 +304,14 @@ const mapExecute = ({
         message: JSON.stringify(result.result),
         structured: { status: 'executed', result: result.result },
       });
+    case 'dry_run':
+      // Sandbox preset (§3.6 / ONT-040): the approval is left untouched — not
+      // consumed, not executed — so a live server sharing the store can still
+      // complete it.
+      return ok({
+        message: 'Dry-run recorded (sandbox preset) — the approval was not executed.',
+        structured: { status: 'dry_run' },
+      });
     case 'consume_failed':
       return result.reason === 'already_consumed'
         ? ok({ message: 'Already executed (consumed).', structured: { status: 'consumed' } })
