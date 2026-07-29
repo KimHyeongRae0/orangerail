@@ -48,7 +48,11 @@ npx orangerail sync --accept-governance   # then commit orangerail.governance.js
 
 `init` scans a `prisma/schema.prisma` or an OpenAPI spec, generates
 `ontology/*.mjs` plus an `orangerail.config.mjs`, and gates every write action
-behind human approval. The scanner is deterministic: it reads your files, makes no
+behind human approval. No schema file yet, just a live database? `prisma db pull`
+writes one — see
+[Adopting orangerail against an existing database](../../docs/existing-database.md),
+which also covers what Prisma 7 changes (the generated client needs a driver
+adapter, and `init` refuses rather than emitting one that cannot construct). The scanner is deterministic: it reads your files, makes no
 LLM calls, and needs no API key. **The generated files are yours** — `init`
 refuses to run again over them, and `orangerail sync` reports drift rather than
 editing them.

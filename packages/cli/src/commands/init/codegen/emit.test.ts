@@ -14,6 +14,7 @@ import {
   wrapResolveError,
 } from './emit-object';
 import { emitActionFile } from './emit-action';
+import { type PrismaAdapter, type PrismaConstruction, SUPPORTED_ADAPTERS } from './prisma-runtime';
 
 const product: IrObject = {
   name: 'Product',
@@ -748,5 +749,109 @@ describe('buildFileSet', () => {
     expect(paths).toContain('ontology/_links.mjs');
     expect(paths).toContain('ontology/Product.mjs');
     expect(paths).toContain('ontology/grant_import_fs_coupon.mjs');
+  });
+});
+
+describe('emitted Prisma client construction (ONT-049)', () => {
+  // These pin the SHAPE of the constructor call, which is the thing that broke.
+  // Prisma 7 rejects `new PrismaClient()` outright, so whichever of these two
+  // lines the emitter writes silently decides whether a whole generation of
+  // users can run its output at all.
+
+  const prismaAction: IrAction = {
+    name: 'createProduct',
+    source: 'prisma',
+    prisma: { model: 'Product', sourceModel: 'Product', op: 'create' },
+    write: true,
+    input: [{ name: 'title', kind: 'scalar', scalar: 'string', optional: false }],
+  };
+
+  const adapterNamed = ({ module }: { module: string }): PrismaAdapter =>
+    SUPPORTED_ADAPTERS.find((adapter) => adapter.module === module) as PrismaAdapter;
+
+  const pg: PrismaConstruction = {
+    kind: 'adapter',
+    adapter: adapterNamed({ module: '@prisma/adapter-pg' }),
+    urlEnv: 'DATABASE_URL',
+  };
+
+  it('defaults to the pre-7 bare constructor, byte for byte', () => {
+    const content = emitObjectFile({ object: product }).content;
+
+    expect(content).toContain("const { PrismaClient } = await import('@prisma/client');");
+    expect(content).toContain('client = new PrismaClient();');
+    expect(content).not.toContain('adapter');
+  });
+
+  it('emits the identical bare construction into a Prisma action file', () => {
+    const content = emitActionFile({ action: prismaAction }).content;
+
+    expect(content).toContain('client = new PrismaClient();');
+  });
+
+  it('passes a driver adapter when the target repo is on Prisma 7', () => {
+    const content = emitObjectFile({ object: product, construction: pg }).content;
+
+    expect(content).toContain('client = new PrismaClient({ adapter: new PrismaPg(url) });');
+    expect(content).toContain('const { PrismaPg } = await import("@prisma/adapter-pg");');
+    expect(content).not.toContain('new PrismaClient();');
+  });
+
+  it("reads the project's own URL variable and refuses an unset one", () => {
+    const content = emitObjectFile({
+      object: product,
+      construction: { ...pg, urlEnv: 'PG_URL' },
+    }).content;
+
+    expect(content).toContain('const url = process.env.PG_URL;');
+    // The guard fires before any driver is touched, so an unset variable reads
+    // as orangerail's own sentence rather than an opaque connection failure.
+    expect(content).toContain("if (url === undefined || url === '') {");
+    expect(content).toContain('orangerail: PG_URL is not set.');
+  });
+
+  it('names the adapter package in the module-not-found diagnostic', () => {
+    // Both imports can be the one that failed. Sending a Prisma 7 user to
+    // `prisma generate` for a missing @prisma/adapter-pg is advice that cannot
+    // work, so the adapter build names both packages in its fix.
+    const content = emitObjectFile({ object: product, construction: pg }).content;
+
+    expect(content).toContain('Cannot resolve @prisma/client or @prisma/adapter-pg');
+    expect(content).toContain('npm install @prisma/client @prisma/adapter-pg');
+  });
+
+  it('wraps the URL for an adapter whose constructor takes an object', () => {
+    const content = emitObjectFile({
+      object: product,
+      construction: {
+        kind: 'adapter',
+        adapter: adapterNamed({ module: '@prisma/adapter-better-sqlite3' }),
+        urlEnv: 'DATABASE_URL',
+      },
+    }).content;
+
+    expect(content).toContain(
+      'client = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });',
+    );
+  });
+
+  it('threads the construction through the whole file set, objects and actions alike', () => {
+    const source = sourceOf({ objects: [product], actions: [prismaAction] });
+
+    const files = buildFileSet({ source, preset: 'approval-for-writes', construction: pg });
+    const prismaFiles = files.filter((file) => file.content.includes('const getPrisma'));
+
+    expect(prismaFiles.length).toBeGreaterThanOrEqual(2);
+    for (const file of prismaFiles) {
+      expect(file.content).toContain('adapter: new PrismaPg(url)');
+    }
+  });
+
+  it('stays byte-deterministic under an adapter construction', () => {
+    const source = sourceOf({ objects: [product], actions: [prismaAction] });
+
+    expect(buildFileSet({ source, preset: 'sandbox', construction: pg })).toEqual(
+      buildFileSet({ source, preset: 'sandbox', construction: pg }),
+    );
   });
 });

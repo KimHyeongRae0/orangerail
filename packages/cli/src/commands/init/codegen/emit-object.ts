@@ -2,6 +2,7 @@ import type { PublicDiagnosticCode } from 'orangerail-core';
 
 import type { IrObject } from '../ir';
 import { escapeBlockComment, escapeStringLiteral, sanitizeIdentifier } from './escape';
+import { BARE_CONSTRUCTION, type PrismaConstruction } from './prisma-runtime';
 import { fieldExpr } from './zod';
 
 /**
@@ -75,9 +76,24 @@ const renderSchema = ({ object }: { object: IrObject }): string => {
  * and gives the exact remediation commands plus the DATABASE_URL note. The
  * runtime module-resolution error message is appended as detail at throw time.
  */
-export const buildResolveDiagnostic = ({ objectName }: { objectName: string }): string =>
-  `Cannot resolve @prisma/client for object "${objectName}": the Prisma client is not generated or installed. ` +
-  'Fix: run `npm install @prisma/client && npx prisma generate`, and make sure DATABASE_URL is set.';
+export const buildResolveDiagnostic = ({
+  objectName,
+  adapterModule,
+}: {
+  objectName: string;
+  /**
+   * The driver-adapter package this file also imports, on a Prisma 7 target
+   * (ONT-049). Either import can be the one that failed to resolve, and sending
+   * a user to `prisma generate` for a missing adapter package is advice that
+   * cannot work — so when there is an adapter, the fix names both.
+   */
+  adapterModule?: string;
+}): string =>
+  adapterModule === undefined
+    ? `Cannot resolve @prisma/client for object "${objectName}": the Prisma client is not generated or installed. ` +
+      'Fix: run `npm install @prisma/client && npx prisma generate`, and make sure DATABASE_URL is set.'
+    : `Cannot resolve @prisma/client or ${adapterModule} for object "${objectName}": the Prisma client or its driver adapter is not generated or installed. ` +
+      `Fix: run \`npm install @prisma/client ${adapterModule} && npx prisma generate\`.`;
 
 /**
  * The diagnostic for a client that resolved but exposes no such model — the
@@ -319,15 +335,63 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
  * revalidates the code and the subject on read, so this line is a hint, never a
  * trusted payload.
  */
+/**
+ * The lazy client constructor lines, per Prisma major (ONT-049).
+ *
+ * `bare` is the pre-7 form and is emitted byte-for-byte as it always was — a
+ * Prisma 6 project's generated ontology does not move.
+ *
+ * `adapter` is what Prisma 7 requires: the no-argument constructor throws
+ * `PrismaClientInitializationError` ("A driver adapter is required"), so the
+ * client is built from a driver adapter over the project's connection URL. The
+ * URL is read from the environment because Prisma 7 removed `url` from the
+ * schema's `datasource` block entirely — it lives in `prisma.config.ts` now, and
+ * the environment is the one place both the CLI and this generated code can
+ * read it from. An unset variable is refused HERE, with a sentence naming the
+ * variable and the adapter, rather than being handed to a driver that reports it
+ * as an opaque connection failure.
+ */
+const clientConstruction = ({ construction }: { construction: PrismaConstruction }): string[] => {
+  if (construction.kind === 'bare') {
+    return [
+      "      const { PrismaClient } = await import('@prisma/client');",
+      '      client = new PrismaClient();',
+    ];
+  }
+
+  const { adapter, urlEnv } = construction;
+  const missingUrl = escapeStringLiteral({
+    value:
+      `orangerail: ${urlEnv} is not set. Prisma 7 builds its client from a driver adapter, and ` +
+      `${adapter.module} needs a connection URL. Set ${urlEnv} in this process's environment.`,
+  });
+  const argument = adapter.argument === 'url-object' ? '{ url }' : 'url';
+
+  return [
+    `      const url = process.env.${urlEnv};`,
+    "      if (url === undefined || url === '') {",
+    `        throw new Error(${missingUrl});`,
+    '      }',
+    "      const { PrismaClient } = await import('@prisma/client');",
+    `      const { ${adapter.className} } = await import(${escapeStringLiteral({ value: adapter.module })});`,
+    `      client = new PrismaClient({ adapter: new ${adapter.className}(${argument}) });`,
+  ];
+};
+
 export const prismaClientBlock = ({
   diagnosticName,
   sourceModel,
+  construction = BARE_CONSTRUCTION,
 }: {
   diagnosticName: string;
   sourceModel: string;
+  construction?: PrismaConstruction;
 }): string => {
   const missingClient = escapeStringLiteral({
-    value: buildResolveDiagnostic({ objectName: diagnosticName }),
+    value: buildResolveDiagnostic({
+      objectName: diagnosticName,
+      ...(construction.kind === 'adapter' ? { adapterModule: construction.adapter.module } : {}),
+    }),
   });
   const missingAccessor = escapeStringLiteral({
     value: buildAccessorDiagnostic({
@@ -342,8 +406,7 @@ export const prismaClientBlock = ({
     '  let client;',
     '  return async () => {',
     '    if (client === undefined) {',
-    "      const { PrismaClient } = await import('@prisma/client');",
-    '      client = new PrismaClient();',
+    ...clientConstruction({ construction }),
     '    }',
     '    return client;',
     '  };',
@@ -386,8 +449,10 @@ export const prismaClientBlock = ({
 /** Render the `.mjs` file for one scanned object. */
 export const emitObjectFile = ({
   object,
+  construction = BARE_CONSTRUCTION,
 }: {
   object: IrObject;
+  construction?: PrismaConstruction;
 }): { filename: string; content: string } => {
   const binding = sanitizeIdentifier({ value: object.name });
   const provenance = object.provenance ?? `object ${object.name}`;
@@ -412,6 +477,7 @@ export const emitObjectFile = ({
           prismaClientBlock({
             diagnosticName: object.name,
             sourceModel: objectSourceModel({ object }),
+            construction,
           }),
         ]),
     '',

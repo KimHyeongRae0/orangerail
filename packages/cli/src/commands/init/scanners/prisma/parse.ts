@@ -38,10 +38,28 @@ export interface RawEnum {
   values: string[];
 }
 
+/**
+ * The schema's `datasource` block, reduced to the two facts codegen needs
+ * (ONT-049): which database it is, and which environment variable holds the
+ * connection URL.
+ *
+ * Both are optional because both are optional in practice. Prisma 7 removed
+ * `url` from the datasource block entirely (it moved to `prisma.config.ts`), so
+ * a Prisma 7 schema declares a provider and nothing else; and a schema that
+ * inlines a literal URL declares no environment variable to read.
+ */
+export interface RawDatasource {
+  provider?: string;
+  /** The name inside `url = env("…")`, when the URL comes from the environment. */
+  urlEnv?: string;
+}
+
 /** The full raw parse result. */
 export interface ParsedSchema {
   models: RawModel[];
   enums: RawEnum[];
+  /** The first `datasource` block, when the schema declares one. */
+  datasource?: RawDatasource;
   /** Names of declared `view` blocks, in source order (bodies never parsed). */
   views: string[];
   /**
@@ -261,6 +279,29 @@ const parseEnumBody = ({ body }: { body: string }): string[] => {
   return values;
 };
 
+/**
+ * Parse the body of a `datasource` block. Only `provider` and `url = env("…")`
+ * are read; every other key (`directUrl`, `shadowDatabaseUrl`, `relationMode`,
+ * `extensions`) is left alone, and a `url` that is a literal string rather than
+ * an `env(…)` call yields no variable name — the schema is stating the URL, not
+ * naming a place to read it from.
+ */
+const parseDatasourceBody = ({ body }: { body: string }): RawDatasource => {
+  const datasource: RawDatasource = {};
+
+  const provider = /(^|\n)\s*provider\s*=\s*"([^"]*)"/.exec(body);
+  if (provider !== null && provider[2] !== undefined && provider[2] !== '') {
+    datasource.provider = provider[2];
+  }
+
+  const urlEnv = /(^|\n)\s*url\s*=\s*env\(\s*"([^"]*)"\s*\)/.exec(body);
+  if (urlEnv !== null && urlEnv[2] !== undefined && urlEnv[2] !== '') {
+    datasource.urlEnv = urlEnv[2];
+  }
+
+  return datasource;
+};
+
 /** Parse a Prisma schema string into raw models and enums (plan D3). */
 export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema => {
   const cleaned = stripComments({ source });
@@ -269,9 +310,14 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
   const models: RawModel[] = [];
   const enums: RawEnum[] = [];
   const views: string[] = [];
+  let datasource: RawDatasource | undefined;
 
   for (const block of blocks) {
-    if (block.keyword === 'model') {
+    if (block.keyword === 'datasource') {
+      // First one wins: Prisma allows exactly one datasource, so a second is a
+      // schema the CLI would reject anyway — no reason to model a merge here.
+      datasource ??= parseDatasourceBody({ body: block.body });
+    } else if (block.keyword === 'model') {
       models.push({ name: block.name, fields: parseModelBody({ body: block.body }) });
     } else if (block.keyword === 'enum') {
       enums.push({ name: block.name, values: parseEnumBody({ body: block.body }) });
@@ -283,5 +329,11 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
     }
   }
 
-  return { models, enums, views, invalidBlocks };
+  return {
+    models,
+    enums,
+    views,
+    invalidBlocks,
+    ...(datasource === undefined ? {} : { datasource }),
+  };
 };

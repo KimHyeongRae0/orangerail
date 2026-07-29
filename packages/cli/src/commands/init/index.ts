@@ -6,7 +6,7 @@ import { DEFAULT_CONFIG_NAMES, type OrangerailConfig } from '../../config';
 import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
 import { runInitFromArtifacts } from './artifacts';
-import { buildFileSet } from './codegen';
+import { buildFileSet, resolvePrismaConstruction } from './codegen';
 import {
   clobberRefusal,
   degradeNotice,
@@ -14,6 +14,7 @@ import {
   verifyStaged,
   writeFileSet,
 } from './atomic';
+import type { ScannedSource } from './ir';
 import { hasScannedContent, scanRepo } from './scan';
 import { hasYamlSpec, YAML_HINT } from './scanners/openapi/scan';
 import { applyFilters, assertSelection } from './select';
@@ -26,6 +27,26 @@ import { runWizard, type InitFlags } from './wizard';
  */
 const configExists = ({ cwd }: { cwd: string }): boolean =>
   DEFAULT_CONFIG_NAMES.some((name) => existsSync(join(cwd, name)));
+
+/**
+ * Where a user with a live database and no schema file is sent. Named once and
+ * carried into both the "nothing found" refusal and the Prisma-major refusal, so
+ * the two most likely dead ends point at the same walkthrough.
+ */
+const EXISTING_DB_DOC = 'docs/existing-database.md';
+
+/**
+ * Whether the file set will contain any `@prisma/client` call site (ONT-049).
+ *
+ * The conditions are the emitters' own, restated: `emitObjectFile` emits the
+ * lazy client only for an object that has an `idField` (that is what gates
+ * `renderResolve`), and `emitActionFile` only for a `source: 'prisma'` action.
+ * An OpenAPI-only scan therefore imports no client at all and must never be
+ * refused over the repo's Prisma version.
+ */
+const hasPrismaOutput = ({ source }: { source: ScannedSource }): boolean =>
+  source.objects.some((object) => object.idField !== undefined) ||
+  source.actions.some((action) => action.source === 'prisma');
 
 /**
  * `orangerail init` (plan D1/D9/D12). Dispatches WITHOUT a config (it creates
@@ -72,16 +93,25 @@ export const runInit = async ({
   }
 
   if (!hasScannedContent({ source: scanned })) {
-    process.stdout.write(
+    // A refusal, not a result — so it goes to stderr and exits non-zero
+    // (ONT-049). It used to print on stdout and exit 0, which told every
+    // scripted caller that init had succeeded over a repo it never touched.
+    //
+    // The message now also names the on-ramp. Most people adopting a governance
+    // tool already have a database and no schema file, so "add a
+    // prisma/schema.prisma" is an instruction they cannot follow without first
+    // being told that `prisma db pull` writes one for them.
+    process.stderr.write(
       'orangerail init: no Prisma schema or OpenAPI JSON found in this repo.\n' +
-        'Add a `prisma/schema.prisma` and/or an `openapi.json`, then re-run.\n',
+        'Add a `prisma/schema.prisma` and/or an `openapi.json`, then re-run.\n' +
+        `Already have a live database and no schema file? \`prisma db pull\` writes one — see ${EXISTING_DB_DOC}.\n`,
     );
 
     if (hasYamlSpec({ cwd })) {
-      process.stdout.write(`Hint: ${YAML_HINT}\n`);
+      process.stderr.write(`Hint: ${YAML_HINT}\n`);
     }
 
-    return 0;
+    return 1;
   }
 
   const result = await runWizard({
@@ -103,7 +133,27 @@ export const runInit = async ({
   assertSelection({ source: scanned, options });
 
   const source = applyFilters({ source: scanned, options });
-  const files = buildFileSet({ source, preset: options.preset });
+
+  // Which Prisma the generated code will run against decides how it must
+  // construct its client (ONT-049). On Prisma 7+ with no driver adapter
+  // installed there is no construction that works, so init refuses HERE —
+  // before the file set is rendered, and long before the success banner — rather
+  // than writing an ontology whose every Prisma call site throws.
+  const prisma = resolvePrismaConstruction({
+    cwd,
+    provider: source.datasource?.provider,
+    urlEnv: source.datasource?.urlEnv,
+    hasPrismaCallSites: hasPrismaOutput({ source }),
+    docPath: EXISTING_DB_DOC,
+  });
+
+  if (!prisma.ok) {
+    process.stderr.write(prisma.refusal);
+
+    return 1;
+  }
+
+  const files = buildFileSet({ source, preset: options.preset, construction: prisma.construction });
 
   // Nothing is written until every generated path is known to be free. Without
   // a config, a populated `ontology/` is the only trace of a previous init —
