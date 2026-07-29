@@ -24,7 +24,7 @@ This is one real run of
 
 ```console
 THE AGENT SIDE — a real MCP client tries to delete, and gets blocked
-[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
+[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (4 record(s))
 [agent]       connected — 11 tools available, incl. deleteArticle
 [agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 13 })
 [orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fdbb4b96…
@@ -37,6 +37,7 @@ THE OPERATOR SIDE — the human sees exactly that, in another terminal
    orangerail status
      objects:  2
      actions:  6 approval-gated, 0 auto
+     baseline: 6 action(s) match orangerail.governance.json
      preset:   approval-for-writes
      pending:  1 approval(s) awaiting a decision
      server:   running (pid 42798, started 0s ago)
@@ -70,13 +71,23 @@ $ npx orangerail init --yes --preset approval-for-writes --no-studio
   ✓  scanned your sources — 2 object(s), 6 action(s)
   ✓  generated a governed MCP server under ontology/
   ✓  6 write action(s) gated behind human approval
+  ⚠  no governance baseline recorded — the generated config did not load
 
   These files are yours — re-scans never modify them; `orangerail sync` reports drift.
+  orangerail.governance.json is what makes a later "someone deleted an approval gate" visible.
+  Recording it needs the config to load, so run `orangerail sync --accept-governance`
+  once the step below is done, and commit the file.
 
 Next step: install the runtime deps so the generated code can load:
   npm install orangerail-core zod
 Then run `orangerail studio` or `orangerail mcp`.
 ```
+
+That warning is the first run's shape, not a failure: `orangerail-core` is not installed
+yet, so the config init just wrote cannot be imported, and the governance baseline is read
+off the **live registry** — never off the generated text. In a project that already has
+the runtime installed, init records the file itself and the line reads `✓ recorded that
+posture in orangerail.governance.json`. Either way step 7 below is where it is settled.
 
 **2. Install the runtime the generated code loads.**
 
@@ -93,11 +104,17 @@ $ npx orangerail status
 orangerail status
   objects:  2
   actions:  6 approval-gated, 0 auto
+  baseline: NONE — orangerail.governance.json does not exist, so nothing on disk says which of the
+            gates above were ever intended. Run `orangerail sync --accept-governance`.
   preset:   approval-for-writes
   pending:  0 approval(s) awaiting a decision
   server:   not detected — no orangerail mcp is running against this store
   audit:    chain OK — 0 record(s) verified
 ```
+
+`6 approval-gated, 0 auto` is a true sentence about an ontology someone has just un-gated,
+too. The `baseline:` line is the only one that can tell the difference, which is why it
+sits directly under the counts and why it is loud while it is missing.
 
 **4. Point your agent host at it.** Drop this in your project root as `.mcp.json`. The
 lifecycle, the `claude mcp add` one-liner and the `--config` argument for hosts that start
@@ -138,6 +155,8 @@ $ npx orangerail status
 orangerail status
   objects:  2
   actions:  6 approval-gated, 0 auto
+  baseline: NONE — orangerail.governance.json does not exist, so nothing on disk says which of the
+            gates above were ever intended. Run `orangerail sync --accept-governance`.
   preset:   approval-for-writes
   pending:  1 approval(s) awaiting a decision
   server:   not detected — no orangerail mcp is running against this store
@@ -150,34 +169,62 @@ approve ok (approved)
 The agent's next `check_approval` is the first moment the row can change. Nothing ran
 before you said so, and every step is on the hash chain.
 
-**7. Record the governance baseline — and commit it.** `ontology/` is yours to edit,
+**7. Review the governance baseline — and commit it.** `ontology/` is yours to edit,
 which means the one line that disarms this whole flow (`policy: { approval: 'required' }`)
 is one careless deletion away, and a re-scan cannot notice: the scanner has no opinion on
-policy. So the posture is compared against a file you record deliberately.
+policy. So the posture is compared against a recorded file.
+
+That file is `orangerail.governance.json`, at your repo root: one row per action holding
+its approval gate, approver roles, `where` guard and target. **Commit it.** Its whole
+value is that a pull request removing an approval gate shows `"approval": "required"`
+turning into `null` in its own diff, in front of a human reviewer, before CI runs at all.
 
 ```bash
 npx orangerail sync --accept-governance
 ```
 
-That writes `orangerail.governance.json` at your repo root — one row per action holding
-its approval gate, approver roles, `where` guard and target. **Commit it.** Its whole
-value is that a pull request removing an approval gate shows `"approval": "required"`
-turning into `null` in its own diff, in front of a human reviewer, before CI runs at all.
-From then on `orangerail sync` fails (exit 1) when the posture *weakens* — a gate removed,
-a `where` guard removed or rewritten, approver roles widened, an action retargeted, or a
-new action that is not gated — and passes quietly when it tightens. `--accept-governance`
-re-records the file, which is how you acknowledge a change you meant to make.
+The file records **who wrote it**. `init` writes one itself whenever the generated config
+loads, stamped `"recordedBy": "init"` — the posture init *generated*, before anyone
+reviewed it, so that drift is detectable from the first minute without anybody's approval
+being faked. `--accept-governance` re-records it as `"recordedBy": "sync"`, which is the
+human assertion, and stops the "not yet reviewed" notice. It is also how you acknowledge a
+posture change you meant to make later on.
 
-Two things to expect, both deliberate:
+From then on:
 
-- **A project with at least one action and no baseline exits 1** until you have run
-  `--accept-governance` once. Every existing project goes red exactly once, on purpose:
-  the alternative is that deleting the file buys silence. A project with zero actions has
-  no posture to vouch for and is never nagged.
+- **`orangerail sync` exits 1** when the posture *weakens* — a gate removed, a `where`
+  guard removed or rewritten, approver roles widened, an action retargeted, or a new
+  action that is not gated — and passes quietly when it tightens.
+- **`orangerail mcp` refuses to serve the weakened action.** It is not in `tools/list`
+  and the engine will not resolve it by name, so it cannot be staged or executed. Every
+  other action and every read tool is served normally, and the startup line names what it
+  withheld. Reporting alone was not enough: an un-gated action is *legitimately* un-gated,
+  so it runs, and the audit chain records nothing anomalous — `audit verify` stays green.
+- **`orangerail status` shows the baseline** next to the action counts and exits 1 when
+  the posture is weaker than it, because `18 approval-gated, 1 auto` is a true sentence
+  about an ontology somebody just un-gated.
+
+Three things to expect, all deliberate:
+
+- **A project with at least one action and no baseline at all exits 1** from `sync` until
+  you have run `--accept-governance` once. Projects created before this existed go red
+  exactly once, on purpose: the alternative is that deleting the file buys silence. A
+  project with zero actions has no posture to vouch for and is never nagged. The *server*
+  still starts in that state — locking you out of a project that predates the file would
+  be punishment, not protection.
+- **A missing or unreadable baseline never stops the server.** Deleting the file is always
+  an available downgrade, so failing closed on a corrupt one would buy no safety and cost
+  you your server over a JSON typo. Both states are reported loudly and neither reads as
+  verified.
 - **A functional `where` predicate is opaque to the check.** It records as the constant
   `functional`, exactly as it does to the action signature hash, so rewriting the body of
   one is invisible here. Sync says so in its own output rather than implying coverage it
   does not have.
+
+What this defends against, stated plainly: *unnoticed* change — a bad merge, a careless
+refactor, or the governed agent itself editing the repo it has file tools over. It is not
+a defense against someone with write access to your repo who means it; they can edit
+`orangerail.config.mjs` and own everything regardless.
 
 (`orangerail.governance.json` and `--accept-governance` are new since `0.1.0` — the
 [CHANGELOG](./CHANGELOG.md) maps every user-visible change to its release.)
@@ -263,9 +310,14 @@ it cannot rot into something that never compiled.
 - `orangerail sync` — re-scan your sources and report drift, including a change in
   the governance posture itself. It compares the approval gates, approver roles,
   `where` guards and targets against `orangerail.governance.json` (a committed
-  baseline you record with `orangerail sync --accept-governance`), so a removed
-  approval gate fails the run instead of passing as "in sync". Exit 1 on drift.
+  baseline `init` records and `orangerail sync --accept-governance` re-records), so a
+  removed approval gate fails the run instead of passing as "in sync". Exit **0** when
+  there is nothing to act on, **1** for any unresolved drift — a proposal, a changed
+  field, an ontology file the loader never imports, a weakened posture — and **2** when
+  it could not answer at all (the config would not load, the baseline could not be read).
 - `orangerail mcp` — typed MCP server over your declared objects, links, and actions.
+  It withholds any action whose posture is weaker than the recorded baseline: not listed,
+  not resolvable, not executable, while everything else is served.
 - `orangerail approvals` — CLI approval queue for staged actions.
 - `orangerail audit verify` — hash-chain verification of the audit log, cross-checked
   against the approvals store. Read [What the audit log proves](#what-the-audit-log-proves)
@@ -324,7 +376,7 @@ not the config being wrong. As the server comes up it writes one line to stderr 
 the JSON-RPC channel), which lands in your host's log:
 
 ```console
-orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (0 record(s))
+orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (0 record(s))
 ```
 
 **From source instead.** If you are working on orangerail itself, or want to run an

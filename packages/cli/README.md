@@ -43,7 +43,7 @@ npm install orangerail-core zod
 npx orangerail init --yes --preset approval-for-writes --no-studio
 npm install orangerail-core zod
 npx orangerail status
-npx orangerail sync --accept-governance   # then commit orangerail.governance.json
+npx orangerail sync --accept-governance   # review + vouch for orangerail.governance.json
 ```
 
 `init` scans a `prisma/schema.prisma` or an OpenAPI spec, generates
@@ -81,10 +81,13 @@ orangerail init [--yes] [--preset <p>] [--sources <csv>] [--models <csv>]
               [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
                                                scan a repo and assemble the ontology
 orangerail sync [--config <path>] [--accept-new] [--accept-governance]
-                                               re-scan and report drift (exit 1 on drift);
+                                               re-scan and report drift
+                                               exit 0 nothing to act on / 1 unresolved drift /
+                                                    2 could not check
                                                --accept-governance re-records the baseline
 orangerail mcp [--config <path>]               launch the MCP server over stdio
-orangerail status [--config <path>]            show the governance posture
+                                               (withholds actions weaker than the baseline)
+orangerail status [--config <path>]            show the governance posture (exit 1 on drift)
 orangerail studio [--config <path>] [--port <n>] [--no-open]
                                                serve the read-only domain map locally
 orangerail docs [--config <path>] [--out <dir>]
@@ -129,20 +132,36 @@ scroll it away. The truncation states exactly how much was withheld; pass
 `orangerail sync` re-scans your sources and reports drift, and it also reviews the
 **governance posture** — something the scan structurally cannot do, because the
 scanner has no opinion on policy. The posture is read from the live registry and
-compared against `orangerail.governance.json`, a baseline you record deliberately
-with `orangerail sync --accept-governance`.
+compared against `orangerail.governance.json`, the baseline `init` records and
+`orangerail sync --accept-governance` re-records.
 
 Commit that file. Its whole value is that a pull request removing an approval gate
 shows `"approval": "required"` turning into `null` in its own diff, in front of a
-reviewer, before CI runs. `sync` exits 1 when the posture *weakens* — a gate
-removed, a `where` guard removed or rewritten, approver roles widened, an action
-retargeted, or a new action that is not gated — and reports a tightening quietly.
+reviewer, before CI runs.
 
-Two deliberate behaviors: a project with at least one action and **no** baseline
-exits 1 until you record one, and a **functional** `where` predicate records as
-the constant `functional`, so a rewrite of its body is invisible to the diff.
-`sync` states that limit in its own output rather than implying coverage it does
-not have.
+The baseline records **who wrote it**. `"recordedBy": "init"` is the posture init
+generated, before anyone reviewed it — a starting point, not an approval, and every
+`sync` and `status` says so until you run `--accept-governance`, which stamps it
+`"recordedBy": "sync"`. A file written before this field existed reads as `"sync"`,
+since only `--accept-governance` could have written it.
+
+When the posture *weakens* — a gate removed, a `where` guard removed or rewritten,
+approver roles widened, an action retargeted, or a new action that is not gated —
+`sync` exits 1, `status` exits 1, and **`orangerail mcp` withholds that action**:
+it is absent from `tools/list` and the engine will not resolve it by name, so it
+cannot be staged or executed. Everything else is served. A tightening is reported
+quietly and changes nothing.
+
+Deliberate behaviors worth knowing:
+
+- A project with at least one action and **no** baseline exits 1 from `sync` until
+  you record one. The server still starts; it says the posture is unverified.
+- A missing or unreadable baseline never stops the server. Deleting the file is
+  always available, so failing closed on a corrupt one would buy nothing and cost
+  you a server over a typo.
+- A **functional** `where` predicate records as the constant `functional`, so a
+  rewrite of its body is invisible to the diff. `sync` states that limit in its own
+  output rather than implying coverage it does not have.
 
 ## Configuration
 
@@ -214,7 +233,8 @@ Two things an upgrade asks of you. The full list is in the
   tampering.
 - **Run `orangerail sync --accept-governance` once, and commit the file.** Until
   you do, a project with at least one action exits 1 with `governance: no recorded
-  baseline`. That first red run is intentional.
+  baseline`. That first red run is intentional. Your server keeps starting in the
+  meantime — it just reports that it cannot verify the posture it is enforcing.
 
 ## License
 

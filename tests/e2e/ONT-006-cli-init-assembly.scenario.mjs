@@ -18,7 +18,10 @@
  *   5. `orangerail sync` is clean right after init, reports drift (new model
  *      proposal + field drift) after the schema mutates, creates ONLY the new
  *      file under --accept-new, and warns about unregistered ontology files
- *      (AC-7) — never editing an existing file.
+ *      (AC-7) — never editing an existing file. ONT-050 adds the governance
+ *      half: init records the baseline, deleting an approval gate from a
+ *      generated action makes `sync` name it and exit 1, and `orangerail mcp`
+ *      then refuses to serve that one action while serving the rest.
  *
  * RED (pre-implementation): `main.ts` loads the config before dispatch, so in
  * the config-less fixture copy `orangerail init --yes ...` exits 1 with the
@@ -445,21 +448,21 @@ console.log('[phase 4] OK');
 
 console.log('[phase 5] sync: clean, drift, --accept-new, unregistered warning');
 
-// ONT-043 (#50) added a governance baseline: `sync` refuses to call a project
-// clean while nothing on disk records the gates a human vouched for, and a
-// freshly `init`ed project has no such file yet. `init` deliberately does not
-// write one — the point of the baseline is that a HUMAN reviewed the generated
-// posture, and a scanner asserting that on the human's behalf would make the
-// file worthless. So the first step of a real project's life is to record it,
-// and this scenario now does exactly that before asking whether sync is clean.
-const record = runCli({ args: ['sync', '--accept-governance'], cwd: RUN_A });
+// ONT-043 (#50) added a governance baseline; ONT-050 (#N) made `init` write it.
+// ONT-043 declined to, on the grounds that a baseline asserts a human reviewed
+// the posture — sound, and the reason the file now records WHO wrote it. An
+// init-provenance baseline is a starting point, not an approval, so it is
+// detected against from the first run while every readout keeps saying it is
+// unreviewed. This scenario used to run `--accept-governance` by hand here to
+// work around the missing file; it now asserts the file is simply there.
+const baselinePath = join(RUN_A, 'orangerail.governance.json');
 assert({
-  ok: record.status === 0,
-  message: `sync --accept-governance must record the baseline (exit 0), got ${record.status}:\n${record.stdout}\n${record.stderr}`,
+  ok: existsSync(baselinePath),
+  message: '`orangerail init` must record orangerail.governance.json at the project root',
 });
 assert({
-  ok: existsSync(join(RUN_A, 'orangerail.governance.json')),
-  message: 'sync --accept-governance must write orangerail.governance.json at the project root',
+  ok: JSON.parse(readFileSync(baselinePath, 'utf8')).recordedBy === 'init',
+  message: 'the baseline init writes must be stamped `recordedBy: "init"`, never as reviewed',
 });
 
 const clean = runCli({ args: ['sync'], cwd: RUN_A });
@@ -470,6 +473,69 @@ assert({
 assert({
   ok: !/no recorded baseline/.test(clean.stdout + clean.stderr),
   message: `a recorded baseline must silence the governance nag:\n${clean.stdout}\n${clean.stderr}`,
+});
+assert({
+  ok: /recorded by `orangerail init`/.test(clean.stdout + clean.stderr),
+  message: `an unreviewed baseline must keep saying so:\n${clean.stdout}\n${clean.stderr}`,
+});
+
+// ── ONT-050: the adoption tester's exact reproduction, on the shipped binary ──
+// Delete the approval gate from a generated action. Pre-ONT-050 there was no
+// baseline here at all, so `sync` could only report that it could not tell, and
+// `orangerail mcp` then served the un-gated action to an agent with a green
+// audit chain behind it.
+const gatedFile = join(ontologyDir, 'deleteOrder.mjs');
+const gatedSource = readFileSync(gatedFile, 'utf8');
+assert({
+  ok: gatedSource.includes("policy: { approval: 'required' },"),
+  message: 'the generated deleteOrder action must carry an approval gate to begin with',
+});
+writeFileSync(gatedFile, gatedSource.replace("  policy: { approval: 'required' },\n", ''));
+
+const ungated = runCli({ args: ['sync'], cwd: RUN_A });
+assert({
+  ok: ungated.status === 1,
+  message: `sync must exit 1 on a removed approval gate, got ${ungated.status}:\n${ungated.stdout}\n${ungated.stderr}`,
+});
+assert({
+  ok: /governance: deleteOrder — approval gate removed/.test(ungated.stdout + ungated.stderr),
+  message: `sync must name the action whose gate was removed:\n${ungated.stdout}\n${ungated.stderr}`,
+});
+
+// And the server refuses to serve exactly that action, while serving the rest.
+{
+  const session = await openMcpSession({ cwd: RUN_A });
+  try {
+    const listed = await session.request({ method: 'tools/list', params: {} });
+    const names = new Set(listed.tools.map((tool) => tool.name));
+
+    assert({
+      ok: !names.has('deleteOrder'),
+      message: 'a weakened action must not be exposed in tools/list',
+    });
+    assert({
+      ok: names.has('deleteCustomer') && names.has('Order_get'),
+      message: 'withholding one action must not take the rest of the ontology down with it',
+    });
+
+    const called = await session.request({
+      method: 'tools/call',
+      params: { name: 'deleteOrder', arguments: { id: '8' } },
+    });
+    assert({
+      ok: called.isError === true && /[Uu]nknown tool/.test(JSON.stringify(called)),
+      message: `calling a withheld action must not execute it: ${JSON.stringify(called)}`,
+    });
+  } finally {
+    await session.close();
+  }
+}
+
+writeFileSync(gatedFile, gatedSource);
+const restored = runCli({ args: ['sync'], cwd: RUN_A });
+assert({
+  ok: restored.status === 0,
+  message: `restoring the gate must make sync clean again, got ${restored.status}:\n${restored.stdout}\n${restored.stderr}`,
 });
 
 cpSync(join(FIXTURE, 'prisma', 'schema-drifted.prisma'), join(RUN_A, 'prisma', 'schema.prisma'));
@@ -530,6 +596,14 @@ assert({
     /unregistered/i.test(unregistered.stdout + unregistered.stderr) &&
     /stray\.ts/.test(unregistered.stdout + unregistered.stderr),
   message: 'sync must warn about the unregistered ontology/stray.ts file',
+});
+// ONT-050: an ontology file the loader never imports can hold a whole set of
+// governed actions the user believes are live. Reporting it and then exiting 0
+// is the report and the exit code disagreeing in the one command whose job is
+// to make change visible.
+assert({
+  ok: unregistered.status === 1,
+  message: `an unregistered ontology file is drift and must exit 1, got ${unregistered.status}`,
 });
 
 console.log('[phase 5] OK');

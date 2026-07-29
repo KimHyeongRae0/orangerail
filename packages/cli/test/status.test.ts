@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import type { OrangerailConfig } from '../src/config';
+import { actionPostures, writeBaseline } from '../src/governance';
 import {
   computeStatus,
   formatStatusLine,
@@ -48,6 +49,48 @@ const buildConfig = (): OrangerailConfig => {
   return { registry, store: createMemoryStore() };
 };
 
+/** Capture both streams; `runStatus` writes to them directly. */
+const captureStreams = (): { out: () => string; err: () => string; restore: () => void } => {
+  let out = '';
+  let err = '';
+  const realOut = process.stdout.write.bind(process.stdout);
+  const realErr = process.stderr.write.bind(process.stderr);
+
+  process.stdout.write = ((chunk: string) => {
+    out += chunk;
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string) => {
+    err += chunk;
+    return true;
+  }) as typeof process.stderr.write;
+
+  return {
+    out: () => out,
+    err: () => err,
+    restore: () => {
+      process.stdout.write = realOut;
+      process.stderr.write = realErr;
+    },
+  };
+};
+
+/** A project root with no baseline in it, so `computeStatus` is not cwd-dependent. */
+const emptyRoot = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'orangerail-status-'));
+  roots.push(dir);
+
+  return dir;
+};
+
+const roots: string[] = [];
+
+afterEach(() => {
+  for (const dir of roots.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 const base: StatusReport = {
   objectCount: 2,
   gatedCount: 3,
@@ -57,11 +100,19 @@ const base: StatusReport = {
   audit: { ok: true, count: 5, issues: [] },
   pendingCount: 0,
   server: { state: 'not_detected' },
+  governance: {
+    state: 'verified',
+    recordedBy: 'sync',
+    postures: [],
+    changes: [],
+    weakenedActions: [],
+  },
+  withheld: [],
 };
 
 describe('computeStatus — governance posture from registry + store', () => {
   it('counts gated vs auto actions and objects, with a clean chain and no pending', async () => {
-    const report = await computeStatus({ config: buildConfig() });
+    const report = await computeStatus({ config: buildConfig(), projectRoot: emptyRoot() });
 
     expect(report.gatedCount).toBe(1);
     expect(report.autoCount).toBe(1);
@@ -80,14 +131,112 @@ describe('computeStatus — governance posture from registry + store', () => {
     });
     expect(staged.status).toBe('approval_pending');
 
-    const report = await computeStatus({ config });
+    const report = await computeStatus({ config, projectRoot: emptyRoot() });
     expect(report.pendingCount).toBe(1);
+  });
+
+  /**
+   * ONT-050 — the counts above are self-reported and unfalsifiable on their own.
+   * An ontology whose gate someone deleted reports them with total confidence
+   * and every word is true; only the baseline can say one of them moved.
+   */
+  it('carries the baseline verdict and the withheld set', async () => {
+    const config = buildConfig();
+    const root = emptyRoot();
+
+    const unrecorded = await computeStatus({ config, projectRoot: root });
+    expect(unrecorded.governance.state).toBe('unrecorded');
+    expect(unrecorded.withheld).toEqual([]);
+
+    writeBaseline({
+      projectRoot: root,
+      postures: actionPostures({ registry: config.registry }).map((posture) =>
+        posture.name === 'pingWidget' ? { ...posture, approval: 'required' as const } : posture,
+      ),
+      recordedBy: 'sync',
+    });
+
+    const weakened = await computeStatus({ config, projectRoot: root });
+    expect(weakened.governance.state).toBe('weakened');
+    expect(weakened.withheld).toEqual(['pingWidget']);
   });
 });
 
 describe('formatStatusLine — the MCP startup confidence signal', () => {
   it('states it is serving with governance, the gated count and audit record count', () => {
     expect(formatStatusLine({ report: base })).toBe(
+      'orangerail mcp: serving · governance active · 3 action(s) approval-gated · matches the recorded baseline · audit chain OK (5 record(s))',
+    );
+  });
+
+  /**
+   * The line the reproduction caught: `serving · governance active · 18
+   * action(s) approval-gated` printed by a server that had just been handed an
+   * ontology with a gate removed. It is not allowed to describe a posture the
+   * baseline contradicts without saying so.
+   */
+  it('names the drift and the withheld actions instead of a clean gated count', () => {
+    const line = formatStatusLine({
+      report: {
+        ...base,
+        governance: {
+          state: 'weakened',
+          recordedBy: 'sync',
+          postures: [],
+          changes: [],
+          weakenedActions: ['deleteOrder'],
+        },
+        withheld: ['deleteOrder'],
+      },
+    });
+
+    expect(line).toContain('GOVERNANCE DRIFT');
+    expect(line).toContain('1 action(s) WITHHELD');
+    expect(line).toContain('deleteOrder');
+  });
+
+  it('says the posture is unverified when no baseline is recorded, and when one cannot be read', () => {
+    const unrecorded = formatStatusLine({
+      report: {
+        ...base,
+        governance: { state: 'unrecorded', postures: [], changes: [], weakenedActions: [] },
+      },
+    });
+    expect(unrecorded).toContain('no governance baseline recorded');
+    expect(unrecorded).toContain('unverified');
+
+    const unreadable = formatStatusLine({
+      report: {
+        ...base,
+        governance: {
+          state: 'unreadable',
+          detail: 'not valid JSON',
+          postures: [],
+          changes: [],
+          weakenedActions: [],
+        },
+      },
+    });
+    expect(unreadable).toContain('UNREADABLE');
+  });
+
+  it('flags an init-recorded baseline as not yet reviewed', () => {
+    expect(
+      formatStatusLine({
+        report: { ...base, governance: { ...base.governance, recordedBy: 'init' } },
+      }),
+    ).toContain('recorded by init, not yet reviewed');
+  });
+
+  it('says nothing about a baseline for an ontology with no actions', () => {
+    expect(
+      formatStatusLine({
+        report: {
+          ...base,
+          governance: { state: 'no-actions', postures: [], changes: [], weakenedActions: [] },
+        },
+      }),
+    ).toBe(
       'orangerail mcp: serving · governance active · 3 action(s) approval-gated · audit chain OK (5 record(s))',
     );
   });
@@ -115,7 +264,47 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
 
 describe('runStatus — exit codes', () => {
   it('exits 0 on a clean chain', async () => {
-    expect(await runStatus({ config: buildConfig() })).toBe(0);
+    expect(await runStatus({ config: buildConfig(), projectRoot: emptyRoot() })).toBe(0);
+  });
+
+  it('exits 1 when the posture is weaker than the recorded baseline, and names it', async () => {
+    const config = buildConfig();
+    const root = emptyRoot();
+
+    writeBaseline({
+      projectRoot: root,
+      postures: actionPostures({ registry: config.registry }).map((posture) =>
+        posture.name === 'pingWidget' ? { ...posture, approval: 'required' as const } : posture,
+      ),
+      recordedBy: 'sync',
+    });
+
+    const streams = captureStreams();
+    let code: number;
+    try {
+      code = await runStatus({ config, projectRoot: root });
+    } finally {
+      streams.restore();
+    }
+
+    // Pre-fix this readout printed `1 approval-gated, 1 auto` and exited 0.
+    expect(code).toBe(1);
+    expect(streams.out()).toContain('baseline: DRIFTED');
+    expect(streams.out()).toContain('pingWidget');
+    expect(streams.out()).toContain('withholds these');
+  });
+
+  it('reports an absent baseline on the readout but does not call it an error', async () => {
+    const streams = captureStreams();
+    let code: number;
+    try {
+      code = await runStatus({ config: buildConfig(), projectRoot: emptyRoot() });
+    } finally {
+      streams.restore();
+    }
+
+    expect(code).toBe(0);
+    expect(streams.out()).toContain('baseline: NONE');
   });
 
   it('exits non-zero when the audit chain is broken (orphan consumed approval)', async () => {
@@ -137,37 +326,11 @@ describe('runStatus — exit codes', () => {
     });
     await config.store.consumeApproval({ id: created.id });
 
-    expect(await runStatus({ config })).not.toBe(0);
+    expect(await runStatus({ config, projectRoot: emptyRoot() })).not.toBe(0);
   });
 });
 
 describe('runStatus — the audit FAILURE goes to stderr (ONT-044 H)', () => {
-  /** Capture both streams; `runStatus` writes to them directly. */
-  const captureStreams = (): { out: () => string; err: () => string; restore: () => void } => {
-    let out = '';
-    let err = '';
-    const realOut = process.stdout.write.bind(process.stdout);
-    const realErr = process.stderr.write.bind(process.stderr);
-
-    process.stdout.write = ((chunk: string) => {
-      out += chunk;
-      return true;
-    }) as typeof process.stdout.write;
-    process.stderr.write = ((chunk: string) => {
-      err += chunk;
-      return true;
-    }) as typeof process.stderr.write;
-
-    return {
-      out: () => out,
-      err: () => err,
-      restore: () => {
-        process.stdout.write = realOut;
-        process.stderr.write = realErr;
-      },
-    };
-  };
-
   /** A config whose chain is broken by an approved-then-consumed orphan record. */
   const brokenChainConfig = async (): Promise<OrangerailConfig> => {
     const config = buildConfig();
@@ -197,7 +360,7 @@ describe('runStatus — the audit FAILURE goes to stderr (ONT-044 H)', () => {
 
     let code: number;
     try {
-      code = await runStatus({ config });
+      code = await runStatus({ config, projectRoot: emptyRoot() });
     } finally {
       streams.restore();
     }
@@ -214,7 +377,7 @@ describe('runStatus — the audit FAILURE goes to stderr (ONT-044 H)', () => {
 
     let code: number;
     try {
-      code = await runStatus({ config: buildConfig() });
+      code = await runStatus({ config: buildConfig(), projectRoot: emptyRoot() });
     } finally {
       streams.restore();
     }

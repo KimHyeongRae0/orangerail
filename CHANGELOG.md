@@ -42,7 +42,22 @@ baseline` and exits 1 until you run `orangerail sync --accept-governance` one
 time and commit the file it writes. This is deliberate: the alternative — warn
 and exit 0 — means deleting the baseline buys silence, which is the whole thing
 the check exists to prevent. A project with zero actions has no posture to vouch
-for and stays green.
+for and stays green. Your **server keeps starting** in the meantime; it reports
+that it cannot verify the posture it is enforcing, and withholds nothing. Locking
+a project out of its own tooling for predating a file would be punishment, not
+protection.
+
+**`orangerail sync` now exits 1 on an unregistered ontology file.** It always
+warned about one — a file in `ontology/` that the discovery convention does not
+pick up and the config does not import, so nothing in it is registered — and then
+printed `ontology is in sync with your sources` and exited 0. That file can hold
+a whole set of governed actions you believe are live. If your CI runs `sync`, a
+project carrying one goes red until you rename it to `.mjs` or import it
+explicitly.
+
+**`orangerail status` now exits 1 when the posture is weaker than the baseline**,
+the same way it already does for a broken audit chain. An absent or unreviewed
+baseline is reported on the readout but is not an error.
 
 **A `sandbox` server no longer completes approvals.** If you were running one
 against a store shared with a live server, it was executing real approvals; it
@@ -98,6 +113,27 @@ both logs consistently and pass verification. See
   change in its own diff. Limit: a functional `where` predicate records as the
   constant `functional`, so a rewrite of its body is invisible to the diff, and
   `sync` says so in its own output.
+- **`orangerail init` records that baseline**, so drift detection works in a
+  default install instead of only after someone remembers a second command. It is
+  stamped `"recordedBy": "init"` and its own note says what it is: the posture
+  init *generated*, before anyone reviewed it. `sync` and `status` keep saying
+  "not yet reviewed" until you run `--accept-governance`, which re-records it as
+  `"recordedBy": "sync"`. A baseline written before this field existed reads as
+  `"sync"` — only `--accept-governance` could have written one — so nothing about
+  an existing project changes.
+- **`orangerail mcp` refuses to serve an action whose posture weakened.** The
+  action is absent from `tools/list` and the engine will not resolve it by name,
+  so it can be neither staged nor executed; every other action and every read
+  tool is served normally, and the startup line names what was withheld. Sync
+  reporting the drift was not enough on its own: an un-gated action is
+  *legitimately* un-gated, so it ran, and the audit chain recorded nothing
+  anomalous — `audit verify` stayed green. Recovery is
+  `orangerail sync --accept-governance`, which leaves a diff in a committed file;
+  there is deliberately no `--force`.
+- **`orangerail status` shows a `baseline:` block** next to the action counts:
+  matching, unreviewed, absent, unreadable, or drifted with each weakened action
+  named. `18 approval-gated, 1 auto` is a true sentence about an ontology someone
+  just un-gated, and on its own it reads like health.
 - **`orangerail approvals show <id> --full`** prints the staged input uncapped.
   Without it the input is capped at 40 lines / 2000 characters so the decision
   context (`id`, `action`, `status`, `requestedBy`) always stays on screen; the
@@ -120,6 +156,14 @@ both logs consistently and pass verification. See
   drift, a proposal whose target file already existed, or weakened governance).
   It used to return 0 unconditionally, so a CI step that auto-adopted new models
   passed green with drift on the board.
+- **One exit-code contract for `sync`, derived in one place.** **0** — nothing to
+  act on, only `info:` lines printed. **1** — any unresolved finding: a proposal,
+  field drift, an unregistered ontology file, a weakened posture, or a project
+  with actions and no baseline. **2** — the run could not answer at all: the
+  config would not load, the baseline could not be read, or the baseline could not
+  be written. `--accept-new` and `--accept-governance` lower the code only for
+  what they actually resolved, and `sync --help` states all three instead of
+  promising "exit 1 on drift" while one path exited 0.
 - **Unknown flags and missing flag values are hard errors.** An unrecognized flag
   used to be ignored, so `orangerail status --confg /path/to/prod.config.mjs`
   printed a confident green report for the *local* project. A value flag whose

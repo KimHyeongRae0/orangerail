@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "recordedBy": "sync",
+  "note": "Governance baseline recorded by `orangerail sync --accept-governance`: a human reviewed this posture. `orangerail sync` reports and fails when the posture of an action weakens against these rows, and `orangerail mcp` refuses to serve an action that weakened. Commit this file; re-record it after an intentional policy change.",
+  "actions": [
+    {
+      "name": "createArticle",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "createComment",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "deleteArticle",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Article#id"
+    },
+    {
+      "name": "deleteComment",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Comment#id"
+    },
+    {
+      "name": "updateArticle",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Article#id"
+    },
+    {
+      "name": "updateComment",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Comment#id"
+    }
+  ]
+}

@@ -33,7 +33,7 @@ step is asserted (it exits non-zero on any failure), so it is a real e2e:
 
 ```
 THE AGENT SIDE — a real MCP client tries to delete, and gets blocked
-[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
+[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (4 record(s))
 [agent]       connected — 11 tools available, incl. deleteArticle
 [agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 13 })
 [orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fdbb4b96…
@@ -46,6 +46,7 @@ THE OPERATOR SIDE — the human sees exactly that, in another terminal
    orangerail status
      objects:  2
      actions:  6 approval-gated, 0 auto
+     baseline: 6 action(s) match orangerail.governance.json
      preset:   approval-for-writes
      pending:  1 approval(s) awaiting a decision
      server:   running (pid 42798, started 0s ago)
@@ -112,6 +113,7 @@ waiting on a human:
 orangerail status
   objects:  2
   actions:  6 approval-gated, 0 auto
+  baseline: 6 action(s) match orangerail.governance.json
   preset:   approval-for-writes
   pending:  0 approval(s) awaiting a decision
   server:   running (pid 40321, started 12s ago)
@@ -138,7 +140,7 @@ The MCP server also writes a one-line confidence signal to stderr the moment it 
 and the server is up:
 
 ```
-orangerail mcp: serving · governance active · 6 action(s) approval-gated · audit chain OK (4 record(s))
+orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (4 record(s))
 ```
 
 A broken audit chain is surfaced loudly in both places, and `orangerail status` exits

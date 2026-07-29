@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import { diffSync } from '../../sync/diff';
-import { actionPostures, diffGovernance } from '../../sync/governance';
+import { actionPostures, diffGovernance } from '../../../governance';
 import type { IrAction, IrActionField, IrField } from '../ir';
 import { scanOpenApiJson } from '../scanners/openapi/scan';
 import { emitActionFile } from './emit-action';
