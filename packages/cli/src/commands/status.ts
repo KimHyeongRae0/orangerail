@@ -111,11 +111,18 @@ export const runStatus = async ({ config }: { config: OrangerailConfig }): Promi
     return 0;
   }
 
-  out.write(
+  // The FAILURE goes to STDERR, not stdout: `orangerail status >/dev/null` used
+  // to erase the one finding on this readout that must never be missed, leaving
+  // only a silent exit 1. A diagnostic an operator can silence by redirecting is
+  // a diagnostic they will miss. The healthy readout above stays on stdout so
+  // scripts that capture it are unaffected.
+  const err = process.stderr;
+
+  err.write(
     `  audit:    FAILED — ${report.audit.count} record(s), ${report.audit.issues.length} issue(s):\n`,
   );
   for (const issue of report.audit.issues) {
-    out.write(`              - ${issue}\n`);
+    err.write(`              - ${issue}\n`);
   }
 
   return 1;

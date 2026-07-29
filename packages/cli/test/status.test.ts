@@ -141,6 +141,91 @@ describe('runStatus — exit codes', () => {
   });
 });
 
+describe('runStatus — the audit FAILURE goes to stderr (ONT-044 H)', () => {
+  /** Capture both streams; `runStatus` writes to them directly. */
+  const captureStreams = (): { out: () => string; err: () => string; restore: () => void } => {
+    let out = '';
+    let err = '';
+    const realOut = process.stdout.write.bind(process.stdout);
+    const realErr = process.stderr.write.bind(process.stderr);
+
+    process.stdout.write = ((chunk: string) => {
+      out += chunk;
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => {
+      err += chunk;
+      return true;
+    }) as typeof process.stderr.write;
+
+    return {
+      out: () => out,
+      err: () => err,
+      restore: () => {
+        process.stdout.write = realOut;
+        process.stderr.write = realErr;
+      },
+    };
+  };
+
+  /** A config whose chain is broken by an approved-then-consumed orphan record. */
+  const brokenChainConfig = async (): Promise<OrangerailConfig> => {
+    const config = buildConfig();
+    const created = await config.store.createApproval({
+      record: {
+        actionName: 'deleteWidget',
+        input: { id: 1 },
+        signatureHash: 'sig',
+        requestedBy: 'agent',
+        requestedByRoles: [],
+        devMode: false,
+      },
+    });
+    await config.store.resolveApproval({
+      id: created.id,
+      decision: 'approved',
+      approver: { subject: 'alice', roles: [] },
+    });
+    await config.store.consumeApproval({ id: created.id });
+
+    return config;
+  };
+
+  it('survives `orangerail status >/dev/null` — the finding is on stderr, exit 1', async () => {
+    const config = await brokenChainConfig();
+    const streams = captureStreams();
+
+    let code: number;
+    try {
+      code = await runStatus({ config });
+    } finally {
+      streams.restore();
+    }
+
+    expect(code).toBe(1);
+    // Redirecting stdout away must not erase the one line that matters.
+    expect(streams.err()).toContain('audit:    FAILED');
+    expect(streams.err()).toMatch(/- /);
+    expect(streams.out()).not.toContain('FAILED');
+  });
+
+  it('leaves the healthy readout on stdout', async () => {
+    const streams = captureStreams();
+
+    let code: number;
+    try {
+      code = await runStatus({ config: buildConfig() });
+    } finally {
+      streams.restore();
+    }
+
+    expect(code).toBe(0);
+    expect(streams.out()).toContain('orangerail status');
+    expect(streams.out()).toContain('audit:    chain OK');
+    expect(streams.err()).toBe('');
+  });
+});
+
 describe('readServerLiveness — running / stale / not detected from heartbeat entries', () => {
   let dir: string;
 

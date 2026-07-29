@@ -18,6 +18,26 @@ import { watchConfig } from './watch';
 export const DEFAULT_STUDIO_PORT = 4820;
 
 /**
+ * The port the OS actually BOUND, not the one we asked for. `--port 0` means
+ * "pick a free one", so echoing the request back printed
+ * `http://127.0.0.1:0` — an unopenable URL for a server that really was
+ * listening, on an ephemeral port the operator was never told. The requested
+ * port is the fallback only for the pipe/unix-socket address shapes, which this
+ * server never uses.
+ */
+export const boundPortOf = ({
+  server,
+  requested,
+}: {
+  server: { address: () => string | { port: number } | null };
+  requested: number;
+}): number => {
+  const address = server.address();
+
+  return typeof address === 'object' && address !== null ? address.port : requested;
+};
+
+/**
  * Best-effort platform browser open, fire-and-forget. Any failure (headless CI,
  * missing opener) is swallowed — auto-open must never kill the server (ticket
  * edge case). `--no-open` skips this entirely (agent/CI parity, plan 3.6).
@@ -97,7 +117,7 @@ export const runStudio = async ({
 
   await new Promise<void>((resolveListen) => {
     server.listen(port, '127.0.0.1', () => {
-      const url = `http://127.0.0.1:${port}`;
+      const url = `http://127.0.0.1:${boundPortOf({ server, requested: port })}`;
       process.stderr.write(`orangerail studio: serving on ${url} — open it in your browser\n`);
 
       stopWatch = watchConfig({
