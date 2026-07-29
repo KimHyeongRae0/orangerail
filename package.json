@@ -9,7 +9,7 @@
     "typecheck": "pnpm -r run typecheck",
     "lint": "eslint . && prettier --check .",
     "test": "pnpm -r run test",
-    "build": "pnpm -r run build"
+    "build": "pnpm -r run build && node scripts/check-published-artifact.mjs"
   },
   "devDependencies": {
     "orangerail-core": "workspace:*",

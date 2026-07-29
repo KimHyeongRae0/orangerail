@@ -122,6 +122,11 @@ both logs consistently and pass verification. See
   command now reads the same four names — `.mjs`, `.js`, `.ts`, `.mts`. TypeScript
   configs load through your own TS-capable runtime (`tsx`, or
   `node --experimental-strip-types`); orangerail bundles no loader.
+- **Every package declares `engines.node`.** `orangerail` and `orangerail-mcp`
+  require Node `>=20.0.0`; `orangerail-core`, `orangerail-docs-gen` and
+  `orangerail-studio` require `>=18.0.0`. None of them declared anything before,
+  so npm installed them onto a runtime that could not load them without a word.
+  It now warns at install time (`EBADENGINE`) instead.
 
 ### Changed
 
@@ -143,6 +148,15 @@ both logs consistently and pass verification. See
 
 ### Fixed
 
+- **The published bundles stripped the `node:` prefix off every builtin import.**
+  Source uses `node:fs`, `node:readline/promises` and so on throughout, but tsup
+  rewrites them to bare specifiers unless told not to, and `0.1.0` shipped with
+  the rewrite on. A bare name resolves against `node_modules` first, so any
+  package of that name shadows the builtin; and on a runtime without the bare
+  builtin the loader answered `Cannot find package 'readline'` — pointing the
+  user of a governance tool at a long-abandoned third-party package on npm. All
+  five packages now keep the prefix, and the build fails if one ever loses it
+  again.
 - `orangerail init` failed outright under pnpm: the pre-flight dependency probe
   used CJS resolution, which honors `NODE_PATH`, while the ESM loader that
   actually imports the generated code does not. The probe is now the ESM loader
