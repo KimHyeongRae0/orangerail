@@ -391,7 +391,7 @@ export const createMcpServer = ({
     };
 
   const server = new Server(
-    { name: 'orangerail', version: '0.0.0' },
+    { name: 'orangerail', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
 

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { loadConfig } from './config';
 import {
   approvalsApprove,
@@ -31,7 +33,21 @@ Usage:
   orangerail approvals reject <id> [--config …]    reject a staged action
   orangerail audit verify [--config <path>]        verify the audit chain
   orangerail store unlock [--config <path>]        clear a provably-dead store lock
+
+  --help, -h     print this usage (accepted anywhere, e.g. \`orangerail init --help\`)
+  --version, -v  print the CLI version
 `;
+
+/**
+ * The shipped version, read from the package manifest so it can never drift
+ * from what npm would install. `dist/main.js` sits one level under the package
+ * root in both the repo and the published tarball, so the relative path holds.
+ */
+const readVersion = (): string => {
+  const manifest = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+
+  return (JSON.parse(manifest) as { version: string }).version;
+};
 
 /** Parsed CLI arguments (§3.4 — hand-rolled, zero runtime deps). */
 interface ParsedArgs {
@@ -49,6 +65,10 @@ interface ParsedArgs {
   acceptNew: boolean;
   fromJira?: string;
   fromSlack?: string;
+  /** `--help` / `-h` seen anywhere in argv, including after a subcommand. */
+  help: boolean;
+  /** `--version` / `-v` seen anywhere in argv. */
+  showVersion: boolean;
 }
 
 const splitCsv = ({ value }: { value: string | undefined }): string[] =>
@@ -73,11 +93,17 @@ const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
   let acceptNew = false;
   let fromJira: string | undefined;
   let fromSlack: string | undefined;
+  let help = false;
+  let showVersion = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
 
-    if (token === '--from-jira') {
+    if (token === '--help' || token === '-h' || token === 'help') {
+      help = true;
+    } else if (token === '--version' || token === '-v') {
+      showVersion = true;
+    } else if (token === '--from-jira') {
       fromJira = argv[i + 1];
       i += 1;
     } else if (token?.startsWith('--from-jira=')) {
@@ -135,6 +161,8 @@ const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
     open,
     yes,
     acceptNew,
+    help,
+    showVersion,
     ...(configPath === undefined ? {} : { configPath }),
     ...(outPath === undefined ? {} : { outPath }),
     ...(port === undefined ? {} : { port }),
@@ -166,9 +194,21 @@ const run = async (): Promise<number> => {
   const { positional, configPath, outPath, port, open } = args;
   const [command, sub, arg] = positional;
 
-  if (command === undefined || command === 'help' || command === '--help') {
+  // `--version` / `--help` are answered before any dispatch, so they never fall
+  // through to a command that would load a config or start scanning the repo.
+  if (args.showVersion) {
+    process.stdout.write(`${readVersion()}\n`);
+    return 0;
+  }
+
+  if (args.help) {
     process.stdout.write(USAGE);
-    return command === undefined ? 2 : 0;
+    return 0;
+  }
+
+  if (command === undefined) {
+    process.stdout.write(USAGE);
+    return 2;
   }
 
   // `init` dispatches WITHOUT loading a config — it creates one (plan D1).

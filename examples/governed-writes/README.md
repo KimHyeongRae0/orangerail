@@ -62,7 +62,19 @@ row changes **only after a human decided** — all on a verifiable audit chain.
 
 ## Run it
 
-From a repo checkout (the example resolves `orangerail-*` from the workspace):
+From a repo checkout (the example resolves `orangerail-*` from the workspace).
+
+**Build the workspace first.** The walkthrough spawns the real CLI at
+`packages/cli/dist/main.js`, and `dist/` is not committed — on a fresh clone it does not
+exist yet. Skip this and the walkthrough dies on an opaque
+`McpError: MCP error -32000: Connection closed`, because the server it spawned was a
+missing file:
+
+```bash
+pnpm install && pnpm -r run build                  # at the REPO ROOT
+```
+
+Then the example itself:
 
 ```bash
 cd examples/governed-writes
@@ -75,6 +87,10 @@ node walkthrough.mjs                               # the full story, asserted
 ```
 
 To explore the same ontology visually: `node ../../packages/cli/dist/main.js studio`.
+
+To drive this ontology from a real agent host instead of the scripted walkthrough, see
+[Wire it into your agent host](../../README.md#wire-it-into-your-agent-host) — the same
+`dist/main.js` from the build above, spawned over stdio by the host.
 
 ## Is it actually protecting me?
 
@@ -92,9 +108,12 @@ orangerail status
   audit:    chain OK — 4 record(s) verified
 ```
 
-The `server:` line is a genuine liveness signal, not a re-derivation from config: it
-reads a heartbeat the serving process writes, so it distinguishes a live, enforcing
-server (`running`) from a crashed one (`stale`) or none at all (`not detected`).
+The `server:` line is a genuine liveness signal, not a re-derivation from config: it reads
+a heartbeat the serving process writes, so it distinguishes a live, enforcing server
+(`running`) from a crashed one (`stale`) or none at all (`not detected`). It tracks **one
+server at a time** — the most recent `orangerail mcp` to start against this store — so if
+you run two against the same store, the line describes only that one, and `not detected`
+means "the tracked server is gone", not "no server is enforcing".
 
 The MCP server also writes a one-line confidence signal to stderr the moment it starts
 (stdout is the JSON-RPC channel), so your agent host's logs show governance is wired
@@ -120,6 +139,9 @@ non-zero so a script can gate on it.
 
 ## Honest caveat
 
-This example resolves `orangerail-core` / the CLI from the monorepo workspace. A
-stranger cloning only this folder would need the packages published to npm first.
-The governance mechanism it demonstrates is exactly what ships in those packages.
+This example resolves `orangerail-core` / the CLI from the monorepo workspace, so it only
+runs inside a checkout of this repo. Nothing is published to npm yet — `orangerail`,
+`orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio` all
+404 on the registry — so cloning this folder on its own will not work, and neither will
+`npx orangerail`. The governance mechanism it demonstrates is exactly what those packages
+will ship.
