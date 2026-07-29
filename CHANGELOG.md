@@ -88,6 +88,22 @@ both logs consistently and pass verification. See
 
 ### Added
 
+- **`hostApprovalPrompt` — engage the agent host's own permission prompt.**
+  Off by default. Set it in `orangerail.config.mjs` to
+  `'ungoverned-actions'` and the actions you declared *without*
+  `policy: { approval: 'required' }` — the ones that execute on call, with no
+  orangerail gate in front of them — carry
+  `_meta: { "anthropic/requiresUserInteraction": true }` in `tools/list`, which
+  makes Claude Code v2.1.199+ prompt on every call to them. `'all-actions'`
+  extends it to governed actions too (which only stage, so it buys a checkpoint
+  before the approval queue rather than before a write). Read tools and
+  `check_approval` are never annotated: `check_approval` is polled in a loop.
+  The key is vendor-prefixed per the MCP `_meta` rules, so every other host
+  ignores it and nothing changes there. It is enforced by the **client**, so it
+  is a second checkpoint on top of orangerail's gate and never what makes that
+  gate hold. Turn it on deliberately — a flagged tool's prompt survives
+  `bypassPermissions`, offers no "don't ask again", is not skipped by an allow
+  rule, and in `dontAsk` mode the call is denied instead of asked.
 - **`orangerail.governance.json` and `orangerail sync --accept-governance`.**
   `sync` now compares the live registry's governance posture — approval gate,
   approver roles, `where` guard, target — against a recorded baseline at your repo
