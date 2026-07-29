@@ -13,5 +13,8 @@ export type { CreateMcpServerArgs, HostApprovalPrompt, McpPreset, ReportFailure 
 export { redactFailure } from './redact';
 export type { FailureChannel, FailureStatus, RedactedFailure } from './redact';
 export { validateToolName } from './names';
+export { relationLines } from './relations';
+export { deriveFilterSchema, deriveFilterSpec, validateFilter } from './filter';
+export type { FilterField, FilterSpec } from './filter';
 export { deriveInputSchema } from './schema';
-export type { JsonSchema } from './schema';
+export type { JsonSchema, JsonSchemaProperty } from './schema';

@@ -58,9 +58,12 @@ copied from the `orangerail docs` output for that generated project:
 
 There is no `execute_sql` on that list, and nothing on it takes a query. Each action's input
 is a zod schema derived from your own columns, so `deletePayment` accepts an `id` and refuses
-everything else; each read is a `findUnique` by id or a paged `findMany`. The set is fixed at
-generation time, it is the same on every run over the same schema, and you can read all of it
-in `ontology/` before an agent ever connects.
+everything else; each read is a `findUnique` by id or a paged `findMany`. The `filter` on that
+`findMany` is derived from your columns the same way — each declared field as a value or a
+bounded set of operators (`gte`, `contains`, `in`), published in `tools/list` and **enforced
+before it reaches the database**, so it is a fixed set of predicates rather than a query
+language wearing a schema. The set is fixed at generation time, it is the same on every run
+over the same schema, and you can read all of it in `ontology/` before an agent ever connects.
 
 **Be exact about what that costs.** A fixed surface is a narrow one. There is no aggregation,
 no join and no free-form query here, so a question this surface cannot express has to be
@@ -314,11 +317,17 @@ governs it (`deleteProduct` → approval required).
 
 The relations drawn there come from `ontology/_links.mjs`, which `orangerail init` derives
 from your Prisma relations — one `defineLink` per relation pair, carrying a `cardinality` of
-`one` or `many`. **Be clear about where that graph goes today: to `orangerail studio` and to
-`orangerail docs`, and nowhere else.** `orangerail mcp` never reads it. An agent talking to
-the server is not told which of your relations are one-to-many, because no tool on the surface
-exposes them. That is a gap, not a design position, and it is why nothing else in this README
-calls the generated surface relation-aware.
+`one` or `many`. `orangerail studio` and `orangerail docs` both read that graph, and so does
+`orangerail mcp`: each read tool states its object's relations in one clause of its
+description, so `Customer_list` reads `List Customer records. Relations: has many Order.`
+
+**Be exact about what that is worth, because it is easy to over-read.** The agent is *told*
+that a Customer has many Orders. It still cannot follow the edge: there is no traversal tool,
+no join, no aggregate, and `Customer_list` will refuse a filter that reaches into `Order` —
+that refusal is the point, not a limitation of it. What the sentence buys is that an agent
+holding `Customer_list` and `Order_list` knows the two are connected and which way the
+cardinality runs, instead of inferring it from column names. Knowing the shape of the domain
+and being able to query across it are different things, and only the first one is here.
 
 ## What orangerail will be
 
@@ -391,10 +400,12 @@ it cannot rot into something that never compiled.
   there is nothing to act on, **1** for any unresolved drift — a proposal, a changed
   field, an ontology file the loader never imports, a weakened posture — and **2** when
   it could not answer at all (the config would not load, the baseline could not be read).
-- `orangerail mcp` — typed MCP server over your declared objects and actions. (Not your
-  links: the server does not read the link graph, so relations are not on the tool surface.)
-  It withholds any action whose posture is weaker than the recorded baseline: not listed,
-  not resolvable, not executable, while everything else is served.
+- `orangerail mcp` — typed MCP server over your declared objects and actions. Each read
+  tool names its object's links and publishes a closed `filter` over that object's own
+  fields, which the server enforces before the value reaches a resolver — the tools are
+  relation-*aware*, never relation-traversing. It withholds any action whose posture is
+  weaker than the recorded baseline: not listed, not resolvable, not executable, while
+  everything else is served.
 - `orangerail docs` — the agent-facing domain document (the prompt rail): the tool table,
   the object fields, the link table with its cardinality column, and every action with the
   policy that governs it. Written to `.orangerail/generated/AGENTS.md`.
@@ -411,9 +422,11 @@ no keys. Point it at your own code and it works.
 
 Deterministic codegen from a spec into MCP tools is not new, and neither is a database MCP
 server. What is specific here is the pair: typed per-entity tools generated from your schema
-instead of a generic query tool, and a per-action approval gate with a recorded baseline that
-`sync` and `mcp` both enforce. Each claim below was checked against the shipped package or the
-vendor's own documentation on 2026-07-29.
+instead of a generic query tool — including the read `filter`, which is a closed set of
+predicates over declared fields that the server enforces, rather than a `where` clause the
+agent composes — and a per-action approval gate with a recorded baseline that `sync` and `mcp`
+both enforce. Each claim below was checked against the shipped package or the vendor's own
+documentation on 2026-07-29.
 
 - **[`openapi-mcp-generator`](https://github.com/harsha-iiiv/openapi-mcp-generator)** (627
   stars; 16,389 npm downloads in the week ending 2026-07-28) is real prior art on the
@@ -421,10 +434,11 @@ vendor's own documentation on 2026-07-29.
   exactly one tool per operation — deterministic, zod-validated, no LLM anywhere in it, with
   content-hash name de-collision so a reordered spec produces the same output. What it does
   not have is any approval policy: an operation that deletes becomes a tool that deletes, and
-  it runs when the agent calls it. That is the whole of the difference — it is not behind
-  orangerail on relations, because orangerail does not put relations on the tool surface
-  either. If one tool per REST operation is all you want, it is more mature at that than
-  orangerail is.
+  it runs when the agent calls it. That is the substance of the difference, and it is about
+  the write path; on relations orangerail is now ahead by one clause of prose per read tool,
+  which is worth about what that sounds like — an OpenAPI spec has no relation graph to
+  derive one from in the first place. If one tool per REST operation is all you want, it is
+  more mature at that than orangerail is.
 - **Prisma's own MCP servers** are CLI and platform operations, not per-model tools. The
   local server in `prisma@7.9.1` (`npx prisma mcp`) registers three tools — `migrate-status`,
   `migrate-dev` and `Prisma-Studio` — each shelling out to the Prisma CLI. The
@@ -436,9 +450,14 @@ vendor's own documentation on 2026-07-29.
   carry a `foreign_key_constraints` array of constraint rows (name, source and target table,
   source and target columns), but only when the call passes `verbose: true`; without it the
   handler returns the compact table and drops them. That is an introspection payload for the
-  agent to interpret, not a declared relation carrying a cardinality — though orangerail is
-  not ahead here in the way it might sound: it derives cardinality at scan time and then does
-  not put it on the MCP surface either.
+  agent to interpret, not a declared relation carrying a cardinality; orangerail puts the
+  cardinality on the surface, in the read tool's own description
+  (`Relations: has many Order.`). Be clear about the size of that difference: it is one
+  sentence per tool. It saves an agent a `verbose: true` round trip and the work of turning
+  constraint rows into a direction, and it buys nothing else — orangerail cannot follow the
+  relation either, and unlike `execute_sql` it cannot express the join that would. Compared
+  against Supabase the honest summary is a narrower surface with a clearer label on it, not a
+  more capable one.
 
 ## Wire it into your agent host
 
@@ -583,10 +602,11 @@ page the rows and do the arithmetic itself, or the question goes somewhere else 
 One consequence is worth naming, because it is easy to mistake for a feature. An aggregate
 spanning two one-to-many relations off the same parent — the classic *fan trap*, where the
 number comes back silently multiplied and no error is raised — cannot be asked through
-orangerail. That is the absence of a capability, not a guard against a mistake. Nothing in
-`orangerail mcp` knows your cardinalities; the relation graph exists but is only read by
-`orangerail studio` and `orangerail docs`. If the agent has any other route to SQL, it can
-still write that query, and orangerail will neither see it nor say anything about it.
+orangerail. That is the absence of a capability, not a guard against a mistake. The read
+tools do state each object's cardinalities in their descriptions, and that changes nothing
+here: there is no aggregate to get wrong, so there is nothing for the cardinality to protect.
+If the agent has any other route to SQL, it can still write that query, and orangerail will
+neither see it nor say anything about it.
 
 **There is no DDL.** From a Prisma schema the scanner emits row-level writes only — create,
 update and delete per model, one row at a time, and create alone for a model with no single

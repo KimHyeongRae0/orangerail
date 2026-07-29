@@ -14,6 +14,46 @@ The first release after `0.1.0`. Everything below is merged on `main`.
 
 ### Upgrading from 0.1.0
 
+**`<Object>_list` no longer accepts an arbitrary Prisma `where`.** This is the
+breaking half of a security fix — read the Security section first for why. The
+`filter` argument is now a **closed** JSON Schema built from the object's own
+declared fields, published in `tools/list` and enforced by the server before the
+value reaches your resolver. A rejected filter comes back as
+`{ status: 'invalid_input', issues: [...] }` naming the offending keys.
+
+Still accepted, on any field the object declares:
+
+```jsonc
+{ "status": "PAID" }                             // bare value = equality
+{ "name": null }                                 // a nullable column
+{ "total": { "gte": 10, "lt": 100 } }            // gt gte lt lte
+{ "email": { "contains": "@example.com" } }      // contains startsWith endsWith
+{ "id": { "in": ["c1", "c2"] }, "done": true }   // in, and a flat conjunction
+```
+
+No longer accepted:
+
+- **Relation predicates** (`{ orders: { some: … } }`) — the vulnerability.
+- **`AND` / `OR` / `NOT`.** A filter is a flat conjunction of field predicates;
+  two bounds on one field still combine (`{ total: { gte: 10, lt: 100 } }`).
+  `OR` has no replacement — issue two calls.
+- **Any key that is not a declared field of that object.** If you removed a
+  column from an object's zod schema, it is no longer filterable either — which
+  is the point.
+- **Operators outside the published set**, including Prisma's `mode:
+  'insensitive'`, `notIn`, and the JSON-column operators.
+- **`Json`, list and `BigInt` columns.** They are absent from the schema and
+  refused: none has a leaf JSON type this server is willing to state, and a
+  `z.bigint()` rejects a JSON number, so a `BigInt` filter could never have
+  worked over this transport regardless.
+
+The check runs in `orangerail-mcp`, not in generated code, so **you do not need
+to re-run `orangerail init`** — upgrade the package and it applies. It also
+covers hand-written resolvers: an object whose schema is not a `z.object`, or
+whose fields are all undescribable, now publishes an empty closed filter and
+refuses every filter sent to it. If you have a resolver with its own filter
+language, declare those fields in the object's zod schema.
+
 **An approval that was still `pending` when you upgrade must be re-staged.**
 `createApproval` now stamps an `inputHash` over the approved payload, and
 `execute` recomputes it before running anything. A record written by `0.1.0`
@@ -66,6 +106,27 @@ complete. See Security below.
 
 ### Security
 
+- **A `<Object>_list` filter could read an object type the server never
+  exposed.** `filter` was advertised as `{ "type": "object" }` and handed to the
+  object's `resolve.list` untouched, which for a generated Prisma resolver is
+  `findMany({ where: filter })`. That is not an untyped parameter — it is
+  Prisma's whole `where` grammar, including relation predicates. Against a
+  two-model SQLite project generated with `orangerail init --models Customer`,
+  so that `Order` was never in `ontology/` and `tools/list` carried **no Order
+  tool at all**, this call:
+
+  ```json
+  { "name": "Customer_list",
+    "arguments": { "filter": { "orders": { "some": { "secret": { "startsWith": "h" } } } } } }
+  ```
+
+  returned exactly the customers whose (unexposed) order secret began with `h`.
+  Walking that prefix over a 36-symbol alphabet recovered the seven-character
+  column in full in 151 `Customer_list` calls, using no other tool. Any object
+  type reachable by a relation from an exposed one was readable this way,
+  including one the operator had deliberately kept out of `ontology/`. `filter`
+  is now checked against the object's own declared fields before it reaches any
+  resolver; see **Upgrading**.
 - **`execute` binds the approved payload.** `signatureHash` only ever covered an
   action's *declared* shape, so an input edited in the store between approval and
   execution ran unchallenged — an operator could approve `harmless-test-widget`
@@ -166,6 +227,22 @@ both logs consistently and pass verification. See
 
 ### Changed
 
+- **`<Object>_list` publishes the filter it will actually accept.** The schema is
+  built from the object's own declared fields — each one as a bare value or a
+  bounded operator object, with an enum column's members enumerated — and it is
+  closed. The same derived spec renders the schema and gates the call, so the
+  published grammar and the accepted grammar cannot drift apart: a caller that
+  obeys the schema is never refused, and a caller that ignores it never reaches a
+  resolver. See **Upgrading** for what that removes and **Security** for why.
+- **Both read tools name the object's relations.**
+  `List Customer records. Relations: has many Order.` The links come from
+  `registry.listLinks()`, which the server had never called — so the graph
+  `orangerail init` derives from your Prisma relations reached `orangerail
+  studio` and `orangerail docs` and stopped there. This is knowledge and nothing
+  else: there is no join, no aggregate and no traversal tool, the read surface is
+  still get-by-id plus a filtered, paginated list capped at 200 rows, and naming
+  a relation does not let an agent follow one. An object with no links is
+  byte-identical to before.
 - **`orangerail init` refuses rather than overwrites.** It never writes over an
   existing generated path, and it treats any of the four config names as "already
   initialized" — a project that had migrated to `orangerail.config.ts` used to

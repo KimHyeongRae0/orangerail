@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
 import {
+  baseNode,
   canonicalJson,
+  enumValues,
   inputShape,
   isOptionalField,
   shapeKeys,
@@ -37,6 +39,66 @@ describe('zod introspection (version-tolerant)', () => {
 
   it('yields an empty shape for a non-object schema', () => {
     expect(shapeKeys({ schema: z.string() })).toEqual([]);
+  });
+});
+
+describe('baseNode — past the wrappers a scanned field carries (ONT-053)', () => {
+  it('unwraps optional, nullable and default down to the decorated node', () => {
+    expect(typeNameOf({ node: baseNode({ node: z.string().optional() }) })).toBe('string');
+    expect(typeNameOf({ node: baseNode({ node: z.number().nullable() }) })).toBe('number');
+    expect(typeNameOf({ node: baseNode({ node: z.boolean().default(false) }) })).toBe('boolean');
+  });
+
+  it('unwraps a stack of wrappers', () => {
+    // Every nullable Prisma column is emitted `.optional()`, and a hand-written
+    // ontology may add more; one layer of unwrapping would not be enough.
+    expect(typeNameOf({ node: baseNode({ node: z.string().nullable().optional() }) })).toBe(
+      'string',
+    );
+  });
+
+  it('returns an unwrapped node untouched', () => {
+    const node = z.string();
+
+    expect(baseNode({ node })).toBe(node);
+  });
+
+  it('returns non-zod input rather than throwing', () => {
+    expect(baseNode({ node: undefined })).toBeUndefined();
+    expect(baseNode({ node: 'not a node' })).toBe('not a node');
+  });
+});
+
+describe('enumValues (ONT-053)', () => {
+  it('reads a string enum in declared order', () => {
+    expect(enumValues({ node: z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']) })).toEqual([
+      'DRAFT',
+      'ACTIVE',
+      'ARCHIVED',
+    ]);
+  });
+
+  it('reads a native string enum', () => {
+    expect(enumValues({ node: z.nativeEnum({ A: 'a', B: 'b' }) })).toEqual(['a', 'b']);
+  });
+
+  it('is undefined for anything that is not an enum', () => {
+    expect(enumValues({ node: z.string() })).toBeUndefined();
+    expect(enumValues({ node: z.number() })).toBeUndefined();
+    expect(enumValues({ node: undefined })).toBeUndefined();
+  });
+
+  it('does not see through a wrapper — the caller unwraps first', () => {
+    const optional = z.enum(['A', 'B']).optional();
+
+    expect(enumValues({ node: optional })).toBeUndefined();
+    expect(enumValues({ node: baseNode({ node: optional }) })).toEqual(['A', 'B']);
+  });
+
+  it('drops non-string members rather than coercing them', () => {
+    // A JSON Schema `enum` built from these would otherwise advertise "1" as a
+    // legal value for a field that only accepts the number 1.
+    expect(enumValues({ node: z.nativeEnum({ A: 1, B: 2 }) })).toBeUndefined();
   });
 });
 

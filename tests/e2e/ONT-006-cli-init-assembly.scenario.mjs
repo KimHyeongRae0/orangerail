@@ -13,7 +13,10 @@
  *   3. `orangerail mcp` boots on the generated output unmodified and tools/list
  *      matches the fixture (AC-5) — read tools for every model, governed
  *      action tools for every write operation, hostile names sanitized well
- *      enough that the server's build-time tool-name validation passes;
+ *      enough that the server's build-time tool-name validation passes, and
+ *      (ONT-053) each read tool describing the object it reads — the scanned
+ *      columns and the ProductStatus members as the `filter` schema, the
+ *      derived links as a relation sentence;
  *   4. generation is byte-deterministic across two fresh runs (AC-9);
  *   5. `orangerail sync` is clean right after init, reports drift (new model
  *      proposal + field drift) after the schema mutates, creates ONLY the new
@@ -440,6 +443,100 @@ const actionTools = toolNames.filter((n) => !EXPECTED_READ_TOOLS.has(n) && n !==
 assert({
   ok: actionTools.length === EXPECTED_ACTION_COUNT,
   message: `expected ${EXPECTED_ACTION_COUNT} generated action tools, got ${actionTools.length}: ${actionTools.join(', ')}`,
+});
+
+// ONT-053: the read tools carry the domain, end to end from the Prisma schema.
+// Everything below is derived from `prisma/schema.prisma` through the IR, the
+// emitted zod, `ontology/_links.mjs` and the live registry — nothing in the
+// server is hard-coded per object, so this is the only place the whole chain is
+// proven at once.
+const toolByName = new Map(toolsResult.tools.map((t) => [t.name, t]));
+
+const customerFilter = toolByName.get('Customer_list')?.inputSchema?.properties?.filter ?? {};
+assert({
+  ok:
+    JSON.stringify(Object.keys(customerFilter.properties ?? {})) ===
+    JSON.stringify(['email', 'id', 'name']),
+  message: `Customer_list filter must name exactly the scanned columns, got ${JSON.stringify(customerFilter)}`,
+});
+assert({
+  ok: customerFilter.additionalProperties === false,
+  message: 'the filter object must be CLOSED — the server refuses what it does not advertise',
+});
+// The OPTIONAL `name String?` column is unwrapped past `.optional()` and admits null.
+assert({
+  ok:
+    JSON.stringify(customerFilter.properties?.name?.anyOf?.[0]?.type) ===
+    JSON.stringify(['string', 'null']),
+  message: `Customer_list must type the nullable "name" column as string|null, got ${JSON.stringify(customerFilter.properties?.name)}`,
+});
+
+// `enum ProductStatus { DRAFT ACTIVE ARCHIVED }` reaches the agent as legal values.
+const productStatus =
+  toolByName.get('Product_list')?.inputSchema?.properties?.filter?.properties?.status ?? {};
+assert({
+  ok:
+    JSON.stringify(productStatus.anyOf?.[0]?.enum) ===
+    JSON.stringify(['DRAFT', 'ACTIVE', 'ARCHIVED']),
+  message: `Product_list filter must publish the ProductStatus members in declared order, got ${JSON.stringify(productStatus)}`,
+});
+
+// The gate, on the real generated Prisma resolver. `Order` IS exposed here, so
+// this is not an exfiltration — it is the proof that the shape is refused at the
+// transport before it can ever become a `where` clause.
+const relationFilter = await session.request({
+  method: 'tools/call',
+  params: {
+    name: 'Customer_list',
+    arguments: { filter: { orders: { some: { total: { gt: 0 } } } } },
+  },
+});
+assert({
+  ok:
+    relationFilter.isError === true && relationFilter.structuredContent?.status === 'invalid_input',
+  message: `a relation filter must be REFUSED, got ${JSON.stringify(relationFilter).slice(0, 300)}`,
+});
+assert({
+  ok: (relationFilter.structuredContent?.issues ?? []).some((issue) =>
+    issue.includes('"orders" is not a filterable field'),
+  ),
+  message: `the refusal must name the offending key, got ${JSON.stringify(relationFilter.structuredContent)}`,
+});
+
+// ...and the grammar it DOES advertise gets PAST the gate, so the schema is true
+// in both directions rather than merely restrictive. This fixture has no
+// database — it is a codegen + tools/list scenario — so the call then fails in
+// the resolver on a missing Prisma client. That is the proof: reaching the
+// resolver at all means the filter was admitted, and the status distinguishes
+// the two outcomes precisely (`invalid_input` is the gate, `resolve_error` is
+// everything past it).
+const scalarFilter = await session.request({
+  method: 'tools/call',
+  params: {
+    name: 'Product_list',
+    arguments: { filter: { status: 'DRAFT', price: { gte: 0 }, title: { contains: '' } } },
+  },
+});
+assert({
+  ok: scalarFilter.structuredContent?.status !== 'invalid_input',
+  message: `a filter the schema advertises must reach the resolver, got ${JSON.stringify(scalarFilter.structuredContent)}`,
+});
+
+// `model Customer { orders Order[] }` -> a link -> a sentence on BOTH read tools.
+for (const readTool of ['Customer_get', 'Customer_list']) {
+  assert({
+    ok: (toolByName.get(readTool)?.description ?? '').includes('Relations: has many Order.'),
+    message: `${readTool} must name the Customer -> Order relation, got "${toolByName.get(readTool)?.description}"`,
+  });
+}
+assert({
+  ok: (toolByName.get('Order_list')?.description ?? '').includes('belongs to Customer'),
+  message: 'Order_list must name the inbound side of the same relation',
+});
+// AuditNote has no relations, so it pays nothing and reads exactly as before.
+assert({
+  ok: toolByName.get('AuditNote_get')?.description === 'Fetch a single AuditNote by id.',
+  message: `an object with no links must keep its original description, got "${toolByName.get('AuditNote_get')?.description}"`,
 });
 
 // the server booted at all => build-time tool-name validation passed => the

@@ -25,8 +25,10 @@ import {
   type Store,
 } from 'orangerail-core';
 
+import { deriveFilterSchema, deriveFilterSpec, validateFilter, type FilterSpec } from './filter';
 import { validateToolName } from './names';
 import { redactFailure, type FailureChannel, type FailureStatus } from './redact';
+import { relationLines } from './relations';
 import { deriveInputSchema, type JsonSchema } from './schema';
 
 /** Runtime preset controlling which tools are exposed and the engine mode (§3.6). */
@@ -140,6 +142,12 @@ type ToolDef =
       description: string;
       inputSchema: JsonSchema;
       object: ObjectDefinition;
+      /**
+       * The fields this object may be filtered on, derived once at build time.
+       * The SAME value renders the advertised schema and gates the call, so the
+       * two cannot drift apart.
+       */
+      filterSpec: FilterSpec;
     }
   | {
       kind: 'action';
@@ -194,6 +202,11 @@ const buildTools = ({
   const tools: ToolDef[] = [];
   const seen = new Set<string>();
 
+  // Read once, up front: the sentence is identical for both of an object's read
+  // tools, and `listLinks()` is a snapshot the tool table is built from exactly
+  // like `listObjects()` is.
+  const relations = relationLines({ links: registry.listLinks() });
+
   const add = ({ tool }: { tool: ToolDef }): void => {
     validateToolName({ name: tool.name });
 
@@ -210,11 +223,20 @@ const buildTools = ({
       continue;
     }
 
+    // Both read tools carry the object's relation sentence, not just `_list`.
+    // They are independent entries in `tools/list` and a host that surfaces one
+    // without the other — tool search, a filtered tool set — must not be the
+    // reason an agent never learns the domain has edges. The cost is one short
+    // clause repeated once per object; an object with no links pays nothing.
+    const relation = relations.get(object.name);
+    const describe = ({ base }: { base: string }): string =>
+      relation === undefined ? base : `${base} ${relation}`;
+
     add({
       tool: {
         kind: 'get',
         name: `${object.name}_get`,
-        description: `Fetch a single ${object.name} by id.`,
+        description: describe({ base: `Fetch a single ${object.name} by id.` }),
         inputSchema: {
           type: 'object',
           properties: { id: { type: 'string' } },
@@ -226,21 +248,24 @@ const buildTools = ({
     });
 
     if (object.resolve.list) {
+      const filterSpec = deriveFilterSpec({ schema: object.schema });
+      const { filter, defs } = deriveFilterSchema({ spec: filterSpec });
+
       add({
         tool: {
           kind: 'list',
           name: `${object.name}_list`,
-          description: `List ${object.name} records.`,
+          description: describe({ base: `List ${object.name} records.` }),
           inputSchema: {
             type: 'object',
-            properties: {
-              filter: { type: 'object' },
-              cursor: { type: 'string' },
-              limit: { type: 'number' },
-            },
+            properties: { filter, cursor: { type: 'string' }, limit: { type: 'number' } },
             additionalProperties: false,
+            // Absent entirely when the object has no filterable scalar field, so
+            // a filter-less object's payload gains no empty container.
+            ...(Object.keys(defs).length === 0 ? {} : { $defs: defs }),
           },
           object,
+          filterSpec,
         },
       });
     }
@@ -420,6 +445,16 @@ const mapExecute = ({
  * action becomes a tool that stages through the engine; `check_approval` is the
  * re-check surface that runs `engine.execute` IN THIS PROCESS once approved.
  *
+ * A read tool is described FROM the registry, not from a template, and the
+ * description is BINDING. `_list` publishes the object's own declared fields as
+ * a closed `filter` schema, and `handleList` refuses anything that schema does
+ * not admit — a `filter` used to reach `resolve.list` untouched, which for a
+ * generated Prisma resolver made it a `where` clause and let a caller traverse
+ * into an object type the operator never exposed (see `filter.ts`). Both read
+ * tools also name the object's links, which is knowledge and nothing more: the
+ * read surface is still get-by-id plus a filtered, paginated list, with no join,
+ * aggregate or traversal tool, and it must not grow one.
+ *
  * Presets: `readonly` (no action tools, no check_approval), `sandbox` (engine
  * dry-run mode), `approval-for-writes` (default; actions as declared).
  *
@@ -545,17 +580,37 @@ export const createMcpServer = ({
 
   const handleList = async ({
     object,
+    filterSpec,
     args,
     caller,
     failure,
   }: {
     object: ObjectDefinition;
+    filterSpec: FilterSpec;
     args: Record<string, unknown>;
     caller: Identity | null;
     failure: FailureMapper;
   }): Promise<ToolResult> => {
     if (object.readAccess === 'authenticated' && caller === null) {
       return err({ status: 'denied', message: 'Authentication required to list this object.' });
+    }
+
+    // The gate that makes the advertised filter schema true. `filter` used to go
+    // to the resolver untouched, and for a generated Prisma resolver that is
+    // `findMany({ where: filter })` — a relation predicate reached straight into
+    // an object type the operator never exposed. Checked HERE rather than in
+    // generated code so a hand-written resolver is covered identically, and so
+    // the check sits on the same boundary as the schema that describes it.
+    if (args['filter'] !== undefined) {
+      const issues = validateFilter({ filter: args['filter'], spec: filterSpec });
+
+      if (issues.length > 0) {
+        return err({
+          status: 'invalid_input',
+          message: `Filter rejected: ${issues.join('; ')}.`,
+          extra: { issues },
+        });
+      }
     }
 
     const listArgs = {
@@ -605,7 +660,13 @@ export const createMcpServer = ({
       return handleGet({ object: tool.object, args, caller, failure });
     }
     if (tool.kind === 'list') {
-      return handleList({ object: tool.object, args, caller, failure });
+      return handleList({
+        object: tool.object,
+        filterSpec: tool.filterSpec,
+        args,
+        caller,
+        failure,
+      });
     }
     if (tool.kind === 'action') {
       return mapStage({
