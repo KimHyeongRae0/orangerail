@@ -271,10 +271,13 @@ export const adapterRefusal = ({
   evidence,
   provider,
   docPath,
+  command = 'orangerail init',
 }: {
   evidence: string;
   provider: string | undefined;
   docPath: string;
+  /** The command that refused — `sync --accept-new` writes generated files too. */
+  command?: string;
 }): string => {
   const match = adapterForProvider({ provider });
 
@@ -291,16 +294,22 @@ export const adapterRefusal = ({
       : `Your datasource provider is \`${provider}\`, so install:\n`;
 
   return (
-    `orangerail init: this repo is on Prisma ${ADAPTER_REQUIRED_MAJOR}+ (${evidence}) and no supported driver adapter is installed.\n` +
+    `${command}: this repo is on Prisma ${ADAPTER_REQUIRED_MAJOR}+ (${evidence}) and no supported driver adapter is installed.\n` +
     'Prisma 7 removed the no-argument client constructor — generated code must pass a driver\n' +
     'adapter, and orangerail will not write an ontology that cannot construct a client.\n\n' +
     providerLine +
     install +
-    '\nThen re-run `orangerail init`.\n' +
+    `\nThen re-run \`${command}\`.\n` +
     `Staying on Prisma 6 also works: \`npm install prisma@6 @prisma/client@6\`.\n` +
     `See ${docPath} for the full existing-database walkthrough.\n`
   );
 };
+
+/**
+ * Where a user with a live database and no schema file is sent. Named once and
+ * carried into every refusal that could be the dead end they hit.
+ */
+export const EXISTING_DB_DOC = 'docs/existing-database.md';
 
 /**
  * Decide how the generated code should construct its client, or refuse.
@@ -315,12 +324,15 @@ export const resolvePrismaConstruction = ({
   urlEnv,
   hasPrismaCallSites,
   docPath,
+  command,
 }: {
   cwd: string;
   provider: string | undefined;
   urlEnv: string | undefined;
   hasPrismaCallSites: boolean;
   docPath: string;
+  /** The command shown in the refusal; defaults to `orangerail init`. */
+  command?: string;
 }): { ok: true; construction: PrismaConstruction } | { ok: false; refusal: string } => {
   if (!hasPrismaCallSites) {
     return { ok: true, construction: BARE_CONSTRUCTION };
@@ -335,7 +347,15 @@ export const resolvePrismaConstruction = ({
   const adapter = detectInstalledAdapter({ cwd });
 
   if (adapter === undefined) {
-    return { ok: false, refusal: adapterRefusal({ evidence, provider, docPath }) };
+    return {
+      ok: false,
+      refusal: adapterRefusal({
+        evidence,
+        provider,
+        docPath,
+        ...(command === undefined ? {} : { command }),
+      }),
+    };
   }
 
   return {

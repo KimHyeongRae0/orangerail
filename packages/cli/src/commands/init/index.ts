@@ -6,7 +6,7 @@ import { DEFAULT_CONFIG_NAMES, type OrangerailConfig } from '../../config';
 import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
 import { runInitFromArtifacts } from './artifacts';
-import { buildFileSet, resolvePrismaConstruction } from './codegen';
+import { buildFileSet, EXISTING_DB_DOC, resolvePrismaConstruction } from './codegen';
 import {
   clobberRefusal,
   degradeNotice,
@@ -27,13 +27,6 @@ import { runWizard, type InitFlags } from './wizard';
  */
 const configExists = ({ cwd }: { cwd: string }): boolean =>
   DEFAULT_CONFIG_NAMES.some((name) => existsSync(join(cwd, name)));
-
-/**
- * Where a user with a live database and no schema file is sent. Named once and
- * carried into both the "nothing found" refusal and the Prisma-major refusal, so
- * the two most likely dead ends point at the same walkthrough.
- */
-const EXISTING_DB_DOC = 'docs/existing-database.md';
 
 /**
  * Whether the file set will contain any `@prisma/client` call site (ONT-049).

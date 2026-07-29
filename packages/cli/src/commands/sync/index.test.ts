@@ -197,6 +197,18 @@ model Refund {
     writeFileSync(join(cwd, 'prisma', 'schema.prisma'), PRISMA_SCHEMA, 'utf8');
   };
 
+  /**
+   * Plant a package manifest in the repo's OWN node_modules (ONT-049). The
+   * Prisma-major probe walks upward and takes the nearest hit, so this outranks
+   * the workspace's Prisma 6 without touching it.
+   */
+  const installPackage = ({ pkg, version }: { pkg: string; version: string }): void => {
+    const dir = join(cwd, 'node_modules', ...pkg.split('/'));
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: pkg, version }), 'utf8');
+  };
+
   it('names the real origin of a Prisma-derived proposal', async () => {
     writeConfig({ actions: GATED_DELETE });
     withPrismaSource();
@@ -237,5 +249,40 @@ model Refund {
 
     expect(existsSync(join(cwd, 'ontology', 'Refund.mjs'))).toBe(true);
     expect(code).toBe(0);
+    // The pre-7 construction, unchanged (ONT-049 AC-1). This repo resolves the
+    // workspace's own Prisma 6 by walking up.
+    expect(readFileSync(join(cwd, 'ontology', 'Refund.mjs'), 'utf8')).toContain(
+      'client = new PrismaClient();',
+    );
+  });
+
+  it('refuses --accept-new on Prisma 7 with no driver adapter (ONT-049)', async () => {
+    // `--accept-new` is the second doorway that writes generated Prisma call
+    // sites. Without this it would hand a Prisma 7 project a file carrying a
+    // constructor Prisma 7 rejects — from a command that reported success.
+    writeConfig({ actions: GATED_DELETE });
+    withPrismaSource();
+    installPackage({ pkg: '@prisma/client', version: '7.9.1' });
+
+    const code = await sync({ acceptNew: true, acceptGovernance: true });
+
+    expect(code).toBe(1);
+    expect(printed()).toContain('orangerail sync --accept-new:');
+    expect(printed()).toContain('no supported driver adapter is installed');
+    expect(existsSync(join(cwd, 'ontology', 'Refund.mjs'))).toBe(false);
+  });
+
+  it('writes the adapter construction from --accept-new on Prisma 7 (ONT-049)', async () => {
+    writeConfig({ actions: GATED_DELETE });
+    withPrismaSource();
+    installPackage({ pkg: '@prisma/client', version: '7.9.1' });
+    installPackage({ pkg: '@prisma/adapter-pg', version: '7.9.1' });
+
+    const code = await sync({ acceptNew: true, acceptGovernance: true });
+
+    expect(code).toBe(0);
+    expect(readFileSync(join(cwd, 'ontology', 'Refund.mjs'), 'utf8')).toContain(
+      'new PrismaClient({ adapter: new PrismaPg(url) })',
+    );
   });
 });
