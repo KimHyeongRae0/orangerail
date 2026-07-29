@@ -17,6 +17,10 @@ direct SDK dependency.
 
 ## Install
 
+Requires **Node 20 or newer** (`engines.node: ">=20.0.0"`). On an older runtime the
+CLI cannot load: it imports `node:readline/promises`, which does not exist before
+Node 17, and `orangerail-mcp`'s dependency tree requires Node 20.
+
 Nothing to install to try it — the agent host and your terminal can both fetch it
 on demand:
 

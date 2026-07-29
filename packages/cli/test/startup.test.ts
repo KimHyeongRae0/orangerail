@@ -9,7 +9,7 @@ import { z } from 'zod';
 
 import type { OrangerailConfig } from '../src/config';
 import { actionPostures, GOVERNANCE_FILE, writeBaseline } from '../src/governance';
-import { runMcp } from '../src/commands/mcp';
+import { mcpServerArgsFrom, runMcp } from '../src/commands/mcp';
 import { boundPortOf } from '../src/commands/studio';
 
 describe('studio — the URL reports the port actually bound (ONT-044 D)', () => {
@@ -51,6 +51,47 @@ describe('studio — the URL reports the port actually bound (ONT-044 D)', () =>
   it('falls back to the requested port for a non-inet address shape', () => {
     expect(boundPortOf({ server: { address: () => '/tmp/sock' }, requested: 4820 })).toBe(4820);
     expect(boundPortOf({ server: { address: () => null }, requested: 4820 })).toBe(4820);
+  });
+});
+
+describe('mcp — config hooks reach createMcpServer (ONT-048 AC-7)', () => {
+  const baseConfig = (): OrangerailConfig => ({
+    registry: createRegistry(),
+    store: createFileStore({ dir: join(tmpdir(), 'orangerail-args-test') }),
+  });
+
+  it('forwards hostApprovalPrompt when the config declares it', () => {
+    const config: OrangerailConfig = {
+      ...baseConfig(),
+      hostApprovalPrompt: 'ungoverned-actions',
+    };
+    const args = mcpServerArgsFrom({ config, registry: config.registry });
+
+    expect(args.hostApprovalPrompt).toBe('ungoverned-actions');
+  });
+
+  it('passes nothing at all when the config omits it, so the server default wins', () => {
+    const config = baseConfig();
+    const args = mcpServerArgsFrom({ config, registry: config.registry });
+
+    // Not `undefined` under a present key — an explicit undefined would defeat
+    // the parameter default in `createMcpServer`.
+    expect('hostApprovalPrompt' in args).toBe(false);
+  });
+
+  it('still forwards the hooks it already forwarded', () => {
+    const resolveIdentity = () => ({ subject: 'someone', roles: [] });
+    const config: OrangerailConfig = {
+      ...baseConfig(),
+      preset: 'sandbox',
+      allowDevMode: true,
+      resolveIdentity,
+    };
+    const args = mcpServerArgsFrom({ config, registry: config.registry });
+
+    expect(args.preset).toBe('sandbox');
+    expect(args.allowDevMode).toBe(true);
+    expect(args.resolveIdentity).toBe(resolveIdentity);
   });
 });
 

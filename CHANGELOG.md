@@ -103,6 +103,22 @@ both logs consistently and pass verification. See
 
 ### Added
 
+- **`hostApprovalPrompt` — engage the agent host's own permission prompt.**
+  Off by default. Set it in `orangerail.config.mjs` to
+  `'ungoverned-actions'` and the actions you declared *without*
+  `policy: { approval: 'required' }` — the ones that execute on call, with no
+  orangerail gate in front of them — carry
+  `_meta: { "anthropic/requiresUserInteraction": true }` in `tools/list`, which
+  makes Claude Code v2.1.199+ prompt on every call to them. `'all-actions'`
+  extends it to governed actions too (which only stage, so it buys a checkpoint
+  before the approval queue rather than before a write). Read tools and
+  `check_approval` are never annotated: `check_approval` is polled in a loop.
+  The key is vendor-prefixed per the MCP `_meta` rules, so every other host
+  ignores it and nothing changes there. It is enforced by the **client**, so it
+  is a second checkpoint on top of orangerail's gate and never what makes that
+  gate hold. Turn it on deliberately — a flagged tool's prompt survives
+  `bypassPermissions`, offers no "don't ask again", is not skipped by an allow
+  rule, and in `dontAsk` mode the call is denied instead of asked.
 - **`orangerail.governance.json` and `orangerail sync --accept-governance`.**
   `sync` now compares the live registry's governance posture — approval gate,
   approver roles, `where` guard, target — against a recorded baseline at your repo
@@ -142,6 +158,11 @@ both logs consistently and pass verification. See
   command now reads the same four names — `.mjs`, `.js`, `.ts`, `.mts`. TypeScript
   configs load through your own TS-capable runtime (`tsx`, or
   `node --experimental-strip-types`); orangerail bundles no loader.
+- **Every package declares `engines.node`.** `orangerail` and `orangerail-mcp`
+  require Node `>=20.0.0`; `orangerail-core`, `orangerail-docs-gen` and
+  `orangerail-studio` require `>=18.0.0`. None of them declared anything before,
+  so npm installed them onto a runtime that could not load them without a word.
+  It now warns at install time (`EBADENGINE`) instead.
 
 ### Changed
 
@@ -171,6 +192,15 @@ both logs consistently and pass verification. See
 
 ### Fixed
 
+- **The published bundles stripped the `node:` prefix off every builtin import.**
+  Source uses `node:fs`, `node:readline/promises` and so on throughout, but tsup
+  rewrites them to bare specifiers unless told not to, and `0.1.0` shipped with
+  the rewrite on. A bare name resolves against `node_modules` first, so any
+  package of that name shadows the builtin; and on a runtime without the bare
+  builtin the loader answered `Cannot find package 'readline'` — pointing the
+  user of a governance tool at a long-abandoned third-party package on npm. All
+  five packages now keep the prefix, and the build fails if one ever loses it
+  again.
 - `orangerail init` failed outright under pnpm: the pre-flight dependency probe
   used CJS resolution, which honors `NODE_PATH`, while the ESM loader that
   actually imports the generated code does not. The probe is now the ESM loader
