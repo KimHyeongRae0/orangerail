@@ -68,8 +68,49 @@ Consequence: a process `SIGKILL`ed inside the (milliseconds-long) critical
 section leaves the store locked until an explicit unlock — a rare, loud,
 fail-closed liveness cost, traded for zero runtime steal-race surface.
 
+## Approve-what-you-execute
+
+`createApproval` stamps an `inputHash` over the canonical persisted form of the
+staged input, and `execute` recomputes it over the payload it is about to run
+before any side effect. `signatureHash` only ever covered the action's
+**declared** shape, so without this an input edited in the store between approval
+and execution ran unchallenged: the operator approves `harmless-test-widget` and
+the engine deletes `PRODUCTION-CUSTOMER-TABLE`.
+
+A store implementation **must** stamp it — one that skips it makes every approval
+it creates unexecutable, because `execute` treats an absent hash as unverifiable
+and refuses. That is also what happens to an approval persisted by `0.1.0` and
+still `pending` across an upgrade: it is consumed and returns
+`{ status: 'invalidated', reason: 'input' }`, and must be re-staged. `verifyAudit`
+takes the other side of the same fact and does **not** report an absent hash as
+tampering — it cannot tell a `0.1.0` record from a stripped one, and that swap is
+caught anyway by the staged-vs-executed input comparison on the chain, which needs
+no hash.
+
 ## Audit verification
 
-`verifyAudit({ store })` reports chain tampering, started-but-unfinished
-executions, and **orphaned consumed approvals** (consumed with no post-consume
-audit record — a crash between `consumeApproval` and the audit append).
+`verifyAudit({ store })` walks the chain — each record's `hash` recomputed over
+its own content, each `prevHash` linked to the record before it — and checks it
+against the anchored `audit.head.json` checkpoint, which catches a tail truncated
+off `audit.jsonl` alone. It reports started-but-unfinished executions and
+**orphaned consumed approvals** (consumed with no post-consume audit record — a
+crash between `consumeApproval` and the audit append).
+
+On top of that walk it cross-checks the approvals store and the audit chain
+against each other wherever they overlap — staging, decision, decider, requester,
+action, consumption, and the approved payload. The two are independent witnesses,
+so neither is trusted on its own and forging one of them is not enough.
+
+**It is not a defense against an attacker with write access to the store
+directory.** The chain hash is an unkeyed sha256, `hashAuditRecord` is a public
+export of this package, and the anchor is an unsigned JSON file sitting beside the
+records it anchors — so both logs can be deleted, re-chained and re-anchored
+consistently, and verification will report the result as OK. What these checks
+raise is the bar, from "detects careless tampering" to "detects tampering that
+does not also forge both logs in agreement", and nothing higher.
+
+The practical consequence is a deployment one: **put the store somewhere the
+governed agent cannot write.** `createFileStore({ dir })` takes any path, and
+`orangerail init` scaffolds `dir` inside the scanned project — convenient locally,
+and the single configuration that most undermines the guarantee once the agent has
+file tools over that repo.

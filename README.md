@@ -8,7 +8,8 @@ CLI) plus `orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and
 `orangerail-studio`. `npx orangerail init` runs against your own project today, with no
 checkout of this repo ([Quickstart](#quickstart)). It is still v0 and under active
 development: the API described further down is the design target, and it will move before
-1.0.
+1.0. What has changed since `0.1.0`, and the one thing an upgrade asks of you, are in the
+[CHANGELOG](./CHANGELOG.md).
 
 ## See it stop an agent
 
@@ -149,6 +150,38 @@ approve ok (approved)
 The agent's next `check_approval` is the first moment the row can change. Nothing ran
 before you said so, and every step is on the hash chain.
 
+**7. Record the governance baseline — and commit it.** `ontology/` is yours to edit,
+which means the one line that disarms this whole flow (`policy: { approval: 'required' }`)
+is one careless deletion away, and a re-scan cannot notice: the scanner has no opinion on
+policy. So the posture is compared against a file you record deliberately.
+
+```bash
+npx orangerail sync --accept-governance
+```
+
+That writes `orangerail.governance.json` at your repo root — one row per action holding
+its approval gate, approver roles, `where` guard and target. **Commit it.** Its whole
+value is that a pull request removing an approval gate shows `"approval": "required"`
+turning into `null` in its own diff, in front of a human reviewer, before CI runs at all.
+From then on `orangerail sync` fails (exit 1) when the posture *weakens* — a gate removed,
+a `where` guard removed or rewritten, approver roles widened, an action retargeted, or a
+new action that is not gated — and passes quietly when it tightens. `--accept-governance`
+re-records the file, which is how you acknowledge a change you meant to make.
+
+Two things to expect, both deliberate:
+
+- **A project with at least one action and no baseline exits 1** until you have run
+  `--accept-governance` once. Every existing project goes red exactly once, on purpose:
+  the alternative is that deleting the file buys silence. A project with zero actions has
+  no posture to vouch for and is never nagged.
+- **A functional `where` predicate is opaque to the check.** It records as the constant
+  `functional`, exactly as it does to the action signature hash, so rewriting the body of
+  one is invisible here. Sync says so in its own output rather than implying coverage it
+  does not have.
+
+(`orangerail.governance.json` and `--accept-governance` are new since `0.1.0` — the
+[CHANGELOG](./CHANGELOG.md) maps every user-visible change to its release.)
+
 ## See your whole domain as a map
 
 `orangerail studio` reads your declared ontology and opens a live, read-only map of
@@ -174,8 +207,9 @@ working against your system actually needs:
 - **A prompt rail** — generated domain docs for `AGENTS.md`, so agents are *guided*
   to behave well.
 - **A runtime rail** — a typed MCP server with staged write-actions, human-in-the-loop
-  approval, and a tamper-evident audit log, so agents are physically *stopped* when
-  they don't.
+  approval, and a hash-chained audit log, so agents are physically *stopped* when
+  they don't. What that log does and does not prove is stated exactly in
+  [What the audit log proves](#what-the-audit-log-proves).
 - **A map you can trust** — a live, read-only studio view of your objects, links,
   and actions, so you can *see* exactly what an agent can reach and confirm it
   matches your intent.
@@ -233,7 +267,9 @@ it cannot rot into something that never compiled.
   approval gate fails the run instead of passing as "in sync". Exit 1 on drift.
 - `orangerail mcp` — typed MCP server over your declared objects, links, and actions.
 - `orangerail approvals` — CLI approval queue for staged actions.
-- `orangerail audit verify` — hash-chain verification of the audit log.
+- `orangerail audit verify` — hash-chain verification of the audit log, cross-checked
+  against the approvals store. Read [What the audit log proves](#what-the-audit-log-proves)
+  before you rely on it as a security control.
 - `orangerail studio` — the live, read-only map of your domain graph.
 
 Everything here runs from your repository alone — no external exports, no accounts,
@@ -323,6 +359,65 @@ the audit chain is concerned.
 So the guarantee is a conditional one, and it is worth stating exactly: **when orangerail's
 tools are the agent's only route to your domain, every write is staged, approved and
 audited.** Closing off the other routes is your job, not the rail's.
+
+## What the audit log proves
+
+`orangerail audit verify` checks a lot. Every record's `hash` must recompute over its own
+content and every `prevHash` must link to the record before it, so an edited or reordered
+record breaks the walk. The chain is measured against a checkpoint persisted outside it
+(`audit.head.json`), so a tail lopped off `audit.jsonl` alone is caught. Every started
+execution must have a terminal record. And the audit chain and the approvals store are
+cross-checked against each other wherever they overlap — staging, decision, decider,
+requester, action, consumption, and the approved payload itself — so neither log is
+trusted on its own and forging one of them is not enough.
+
+That is a real bar. It is not the bar the phrase "tamper-evident" implies, so this project
+does not use it. Stated exactly:
+
+> An attacker with write access to the store directory can still delete audit records,
+> re-chain the survivors with the public `hashAuditRecord`, re-anchor the unsigned
+> `audit.head.json` that sits beside them, and edit `approvals.jsonl` to match — and
+> `orangerail audit verify` will report the result as OK; what this release adds is that
+> tampering with only *one* of the two logs, or with either one carelessly, is now
+> detected.
+
+The chain hash is unkeyed, `hashAuditRecord` is exported from `orangerail-core`, and the
+anchor is an unsigned JSON file in the same directory as the records it anchors. So what
+orangerail gives you today is **a human checkpoint and an audit trail** — a gated write
+cannot execute without a person deciding, and every staged, approved, rejected and
+executed action is on the chain — and not a tamper-evident boundary against someone who
+owns the disk.
+
+### Keep the store out of the agent's reach
+
+All of that turns on who can write the store directory, and the default is the wrong
+answer for a governed agent. `orangerail init` scaffolds the store **inside the project it
+just scanned** — the generated `orangerail.config.mjs` builds it as:
+
+```js
+const store = createFileStore({ dir: join(here, '.orangerail', 'store') });
+```
+
+That is convenient for a local single-user run, and it is the worst available choice the
+moment the governed agent also has file tools over that repo: the agent has write access
+to the very log that records what it did, which is precisely the attacker in the paragraph
+above.
+
+There is no CLI flag for this, and no other mechanism: the store location is the `dir`
+argument of `createFileStore`, and `orangerail.config.mjs` is a user-owned file that `init`
+refuses to regenerate. Relocating the store is therefore a one-line edit you make once:
+
+```js
+const store = createFileStore({ dir: '/var/lib/orangerail/store' });
+```
+
+A correct deployment points that path at a directory the agent's tools cannot reach —
+outside the workspace, owned by the operator account, with the agent's process holding no
+write permission on it. The orangerail MCP server writes it; the agent never does. Its only
+route is the MCP tools, which stage, poll and read your domain, and never expose the store
+directory. If the agent and the operator are the same OS user on the same machine, you have
+a human checkpoint and an audit trail and no boundary — which is exactly what the section
+above says you have.
 
 ## Examples
 
