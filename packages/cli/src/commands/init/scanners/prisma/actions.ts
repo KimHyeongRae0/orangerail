@@ -49,6 +49,11 @@ const actionsForModel = ({
 }): IrAction[] => {
   const writable = object.fields.filter((field) => isWritable({ field }));
 
+  // The schema's own model name, carried onto every synthesized action so the
+  // emitter can derive `prisma.<accessor>` from the SCHEMA rather than from the
+  // emitted JS binding (ONT-041).
+  const sourceModel = object.sourceModel ?? object.name;
+
   const created: IrAction[] = [];
 
   // create: every writable field; optional iff Prisma-optional (`?`) or it has
@@ -57,7 +62,7 @@ const actionsForModel = ({
   created.push({
     name: sanitizeMcpName({ value: `create${object.name}` }),
     source: 'prisma',
-    prisma: { model: object.name, op: 'create' },
+    prisma: { model: object.name, sourceModel, op: 'create' },
     write: true,
     input: writable.map((field) =>
       toInputField({ field, optional: field.optional || field.hasDefault === true }),
@@ -86,7 +91,7 @@ const actionsForModel = ({
   created.push({
     name: sanitizeMcpName({ value: `update${object.name}` }),
     source: 'prisma',
-    prisma: { model: object.name, op: 'update', idField },
+    prisma: { model: object.name, sourceModel, op: 'update', idField },
     write: true,
     input: updateInput,
     description: `Update a ${object.name} row by its ${idField}.`,
@@ -96,7 +101,7 @@ const actionsForModel = ({
   created.push({
     name: sanitizeMcpName({ value: `delete${object.name}` }),
     source: 'prisma',
-    prisma: { model: object.name, op: 'delete', idField },
+    prisma: { model: object.name, sourceModel, op: 'delete', idField },
     write: true,
     input:
       idIrField === undefined

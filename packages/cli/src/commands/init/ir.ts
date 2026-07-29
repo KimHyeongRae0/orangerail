@@ -49,6 +49,15 @@ export interface IrObject {
   relations: IrRelation[];
   /** The id field name, when the model declares an `@id`. */
   idField?: string;
+  /**
+   * The SOURCE model name exactly as the schema declares it, when this object
+   * came from a database schema (ONT-041). `name` is an emitter-owned value —
+   * it may be MCP-sanitized or collision-renamed — but the Prisma client
+   * accessor is a property of the *schema*, so the emitter derives
+   * `prisma.<accessor>` from this, never from `name`. Absent for objects with
+   * no database model behind them.
+   */
+  sourceModel?: string;
   /** Human-readable provenance kept as inert data (e.g. mapped table name). */
   provenance?: string;
 }
@@ -101,17 +110,25 @@ export interface IrActionField {
 
 /**
  * A synthesized Prisma write action's execution metadata (plan D1/D3). The
- * `model` is the scanned model name and is kept in lockstep with the owning
+ * `model` is the owning object's emitted name and is kept in lockstep with
  * `IrObject.name` by the global allocator (`scan.ts` `allocateNames`) so the
- * emitter can recompute the client accessor from it at EMIT time, mirroring the
- * read side (`emit-object.ts` `accessorName`). The client accessor is never
- * embedded here — it is derived from `model` when the file is rendered, so a
- * collision-rename tracked onto `model` keeps read/write pointed at the same
- * `prisma.<accessor>` member (plan-review finding 2).
+ * generated `target:` import resolves to the object file that was actually
+ * written. `sourceModel` is the schema's own model name and never moves; the
+ * client accessor is recomputed from IT at EMIT time, mirroring the read side
+ * (`emit-object.ts` `accessorName`), so read and write agree on a
+ * `prisma.<accessor>` that the Prisma client really exposes (ONT-041).
  */
 export interface IrPrismaAction {
-  /** The scanned model name (allocator-tracked; drives the emit-time accessor). */
+  /** The owning object's `IrObject.name` (allocator-tracked; drives the import binding). */
   model: string;
+  /**
+   * The SOURCE model name exactly as the schema declares it — the mirror of
+   * `IrObject.sourceModel`, and what the emit-time `prisma.<accessor>` is
+   * derived from (ONT-041). Never renamed by the allocator, so a reserved-word
+   * or collision rename of the JS binding can no longer leak into the database
+   * accessor. Falls back to `model` when absent (a hand-built IR in a test).
+   */
+  sourceModel?: string;
   /** Which CRUD operation this action performs. */
   op: 'create' | 'update' | 'delete';
   /** The single `@id` field name, present for `update` / `delete` (the `where` key). */
