@@ -59,6 +59,31 @@ export interface IrEnum {
   values: string[];
 }
 
+/**
+ * Declared value constraints an action input field carries into the emitted zod
+ * (ONT-037). Each key is named after the zod method it renders to, so the
+ * emitter is a table lookup and no mapping knowledge lives in two places;
+ * `min`/`max` are a length bound on a string kind and a value bound on a numeric
+ * kind, exactly the way zod's own `.min()`/`.max()` are overloaded.
+ *
+ * Only `IrActionField` carries these. The object side is scanned from Prisma,
+ * whose schema language declares no value constraints, and keeping the bounds
+ * off `IrField` also keeps them out of the sync differ's field probe (which
+ * reads `IrObject.fields` only) — so an existing project sees no new drift.
+ */
+export interface IrValueConstraints {
+  /** Inclusive lower bound — `.min(n)`. */
+  min?: number;
+  /** Inclusive upper bound — `.max(n)`. */
+  max?: number;
+  /** Exclusive lower bound — `.gt(n)` (numeric kinds only). */
+  gt?: number;
+  /** Exclusive upper bound — `.lt(n)` (numeric kinds only). */
+  lt?: number;
+  /** ECMA-262 pattern source — `.regex(new RegExp(...))` (string kind only). */
+  regex?: string;
+}
+
 /** An input field on a scanned action (OpenAPI request body / path param). */
 export interface IrActionField {
   name: string;
@@ -66,6 +91,12 @@ export interface IrActionField {
   scalar?: IrScalar;
   enumValues?: string[];
   optional: boolean;
+  /**
+   * Value constraints the source declared, honored by the emitted zod (ONT-037).
+   * Absent — not an empty object — when the source declared none, so a
+   * constraint-free field stays byte-identical to the pre-ONT-037 emitter.
+   */
+  constraints?: IrValueConstraints;
 }
 
 /**
