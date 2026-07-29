@@ -211,6 +211,18 @@ both logs consistently and pass verification. See
 
 ### Fixed
 
+- **`orangerail studio` watched your whole `node_modules` on Linux.** Live
+  reload used one `fs.watch(..., { recursive: true })` over the config
+  directory. macOS and Windows hand that to the OS for one watch; every other
+  platform falls through to Node's userland walk, which opens a separate inotify
+  watch descriptor per file and per directory — 3611 of them for a 3000-file
+  `node_modules`, measured on Linux. Studio now watches each directory
+  individually, skipping `node_modules` and dot-directories, capped and with a
+  warning when the cap bites. A watch that fails now costs live reload in that
+  one directory instead of killing the server, and deleting a watched file no
+  longer crashes studio on Node 20.0-20.12 or 22.0 (nodejs/node#52349). Edits
+  inside `node_modules` or a dot-directory no longer trigger a reload.
+
 - **The published bundles stripped the `node:` prefix off every builtin import.**
   Source uses `node:fs`, `node:readline/promises` and so on throughout, but tsup
   rewrites them to bare specifiers unless told not to, and `0.1.0` shipped with

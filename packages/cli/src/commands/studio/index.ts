@@ -142,6 +142,13 @@ export const runStudio = async ({
 
           broadcast({ event: 'change', data: '1' });
         },
+        onWarn: ({ message }) => {
+          // A watch that could not be established is a live-reload gap, not a
+          // failed reload: the operator's own stderr says so, and the SSE
+          // clients are left alone rather than shown a reload-error banner for
+          // something no edit caused.
+          process.stderr.write(`orangerail studio: live reload degraded — ${message}\n`);
+        },
         onError: ({ message }) => {
           // ONT-016 L-SSE-PATHLEAK: the detailed message (which carries the
           // absolute config path) stays on the operator's own stderr; the SSE
