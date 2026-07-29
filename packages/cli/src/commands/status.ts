@@ -122,7 +122,7 @@ const governanceClause = ({ report }: { report: StatusReport }): string => {
     case 'unreadable':
       return ` · ${GOVERNANCE_FILE} UNREADABLE — the posture above is unverified`;
     case 'unrecorded':
-      return ` · no governance baseline recorded — the posture above is unverified`;
+      return ' · no governance baseline recorded — the posture above is unverified';
     case 'verified':
       return isUnreviewed({ review: report.governance })
         ? ' · baseline recorded by init, not yet reviewed'
@@ -142,7 +142,10 @@ const governanceClause = ({ report }: { report: StatusReport }): string => {
  */
 export const formatStatusLine = ({ report }: { report: StatusReport }): string => {
   if (!report.audit.ok) {
-    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'`;
+    // The governance clause rides along even here: a broken chain and a weakened
+    // posture are different failures, and swallowing one because the other is
+    // louder is how a readout ends up telling half the truth.
+    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'${governanceClause({ report })}`;
   }
 
   const gate = report.readOnly

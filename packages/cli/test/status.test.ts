@@ -260,6 +260,26 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
     expect(line).toContain('AUDIT CHAIN FAILED (1 issue(s))');
     expect(line).toContain("run 'orangerail audit verify'");
   });
+
+  it('reports a broken chain AND a weakened posture — one loud failure never swallows the other', () => {
+    const line = formatStatusLine({
+      report: {
+        ...base,
+        audit: { ok: false, count: 5, issues: ['seq 3 hash mismatch'] },
+        governance: {
+          state: 'weakened',
+          recordedBy: 'sync',
+          postures: [],
+          changes: [],
+          weakenedActions: ['deleteOrder'],
+        },
+        withheld: ['deleteOrder'],
+      },
+    });
+
+    expect(line).toContain('AUDIT CHAIN FAILED');
+    expect(line).toContain('GOVERNANCE DRIFT');
+  });
 });
 
 describe('runStatus — exit codes', () => {
