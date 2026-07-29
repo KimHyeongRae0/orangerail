@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { GENESIS_HASH, hashAuditRecord } from '../audit/chain';
+import { GENESIS_HASH, hashApprovalInput, hashAuditRecord } from '../audit/chain';
 import type { Identity } from '../types';
 import type {
   ApprovalRecord,
@@ -106,7 +106,12 @@ export const createFileStore = ({ dir }: { dir: string }): FileStore => {
 
     for (const event of events) {
       if (event.type === 'created') {
-        state.set(event.record.id, { ...event.record });
+        // First writer wins: ids are UUIDs, so a repeat `created` for a known id
+        // is never something the store emitted — it is a spent approval being
+        // reset to `pending` for a replay.
+        if (!state.has(event.record.id)) {
+          state.set(event.record.id, { ...event.record });
+        }
         continue;
       }
 
@@ -115,12 +120,18 @@ export const createFileStore = ({ dir }: { dir: string }): FileStore => {
         continue;
       }
 
-      if (event.type === 'resolved') {
+      // The fold enforces the §3.4 state machine, it does not merely replay.
+      // Every event the store itself writes is emitted under the lock AFTER the
+      // same precondition is checked, so a legitimate log never trips these
+      // guards — but an APPENDED line does. Without them, one extra `resolved`
+      // line folds a `consumed` record back to `approved` and re-arms a spent
+      // approval for a second execution (ONT-040).
+      if (event.type === 'resolved' && record.status === 'pending') {
         record.status = event.decision;
         record.decidedBy = event.decidedBy;
         record.decidedAt = event.decidedAt;
       }
-      if (event.type === 'consumed') {
+      if (event.type === 'consumed' && record.status === 'approved') {
         record.status = 'consumed';
       }
     }
@@ -165,6 +176,7 @@ export const createFileStore = ({ dir }: { dir: string }): FileStore => {
           actionName: record.actionName,
           input: record.input,
           signatureHash: record.signatureHash,
+          inputHash: hashApprovalInput({ input: record.input }),
           status: 'pending',
           requestedBy: record.requestedBy,
           requestedByRoles: [...record.requestedByRoles],

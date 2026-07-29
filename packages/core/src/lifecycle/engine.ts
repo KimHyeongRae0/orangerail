@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { hashApprovalInput } from '../audit/chain';
 import { isNotImplemented } from '../define/action';
 import { authorizeApprover } from '../identity/contract';
 import { evaluateWhere } from '../policy/where';
@@ -40,8 +41,16 @@ export interface FailureDetail {
 export type ExecuteResult =
   | { status: 'executed'; result: unknown }
   | { status: 'consume_failed'; reason: 'not_approved' | 'not_found' | 'already_consumed' }
-  | { status: 'invalidated'; reason: 'signature' | 'schema' }
+  /**
+   * `signature` — the action's declared shape drifted; `schema` — the staged
+   * input no longer parses; `input` — the staged input no longer matches the
+   * `inputHash` stamped when it was approved, i.e. the payload was swapped in
+   * the store after a human approved it (§3.4 / ONT-040).
+   */
+  | { status: 'invalidated'; reason: 'signature' | 'schema' | 'input' }
   | { status: 'condition_changed' }
+  /** A `dry_run` engine (sandbox preset) refuses to complete an approval (§3.6). */
+  | { status: 'dry_run' }
   | ({ status: 'resolve_error' } & FailureDetail)
   | ({ status: 'audit_blocked' } & FailureDetail)
   | ({ status: 'failed' } & FailureDetail);
@@ -82,7 +91,7 @@ type WhereCheck = { kind: 'pass' } | { kind: 'fail' } | { kind: 'resolve_error';
 
 /**
  * The governed action lifecycle engine (§3.4 / §4.5). Binds a registry + store;
- * exposes stage / approve / reject / execute. The execute wrapper owns the six
+ * exposes stage / approve / reject / execute. The execute wrapper owns the
  * ordered steps and the fail-closed audit invariant — it is never bypassed.
  */
 export const createEngine = ({
@@ -499,6 +508,28 @@ export const createEngine = ({
   };
 
   const execute = async ({ approvalId }: { approvalId: string }): Promise<ExecuteResult> => {
+    // Step 0: sandbox dry-run (§3.6). `stage` has always branched on the mode,
+    // but `execute` did not — so a sandbox server sharing a store with a live
+    // one really completed approvals the live server staged, and the preset
+    // whose entire point is "this server cannot cause effects" caused them
+    // (ONT-040). BEFORE the consume CAS, so the sandbox does not burn a live
+    // approval either: the approval stays `approved` and the live engine can
+    // still complete it.
+    if (mode === 'dry_run') {
+      const record = await store.getApproval({ id: approvalId });
+
+      await store.appendAudit({
+        record: mkAudit({
+          phase: 'dry_run',
+          actionName: record?.actionName ?? 'unknown',
+          approvalId,
+          ...(record ? { requestedBy: record.requestedBy, input: record.input } : {}),
+        }),
+      });
+
+      return { status: 'dry_run' };
+    }
+
     // Step 1: consume CAS (approved -> consumed) — single-winner, closes the
     // double-execute race. A consumed approval stays consumed on every outcome.
     const consume = await store.consumeApproval({ id: approvalId });
@@ -527,13 +558,30 @@ export const createEngine = ({
       devMode: record.devMode,
     };
 
-    // Step 2: signature check (mismatch / missing action -> invalidated).
+    // Step 2: approve-what-you-execute (§3.4 / ONT-040). `signatureHash` covers
+    // the action's DECLARED shape, never the staged payload, so on its own it
+    // lets an input edited in the store between approval and execution run: the
+    // operator approves `harmless-test-widget` and the engine deletes
+    // `PRODUCTION-CUSTOMER-TABLE`. Re-hash the payload about to run and require
+    // it to match the hash stamped at `createApproval`.
+    //
+    // An ABSENT hash is a record persisted by 0.1.0 (or by a store that does not
+    // honor the contract) and is unverifiable, so it refuses too — nothing
+    // executes on a payload whose approval cannot be bound to it. The approval
+    // is already consumed here, exactly as on a signature/schema mismatch: a
+    // tampered approval is spent, not retried.
+    if (record.inputHash !== hashApprovalInput({ input: record.input })) {
+      await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
+      return { status: 'invalidated', reason: 'input' };
+    }
+
+    // Step 3: signature check (mismatch / missing action -> invalidated).
     if (!action || action.signatureHash !== record.signatureHash) {
       await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
       return { status: 'invalidated', reason: 'signature' };
     }
 
-    // Step 3: re-parse staged input against the CURRENT schema (deep drift).
+    // Step 4: re-parse staged input against the CURRENT schema (deep drift).
     const reparsed = action.input.safeParse(record.input);
     if (!reparsed.success) {
       await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
@@ -542,7 +590,7 @@ export const createEngine = ({
 
     const freshInput: unknown = reparsed.data;
 
-    // Step 4: authoritative where re-evaluation (TOCTOU -> condition_changed).
+    // Step 5: authoritative where re-evaluation (TOCTOU -> condition_changed).
     const where = await checkWhere({ action, input: freshInput, identity: executeIdentity });
     if (where.kind === 'resolve_error') {
       await store.appendAudit({
@@ -556,7 +604,7 @@ export const createEngine = ({
       return { status: 'condition_changed' };
     }
 
-    // Steps 5-6: execution_started (fail-closed) -> execute -> terminal record.
+    // Steps 6-7: execution_started (fail-closed) -> execute -> terminal record.
     return runExecute({ action, input: freshInput, identity: executeIdentity, audit });
   };
 

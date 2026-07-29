@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { GENESIS_HASH, hashAuditRecord } from '../audit/chain';
+import { GENESIS_HASH, hashApprovalInput, hashAuditRecord } from '../audit/chain';
 import type { Identity } from '../types';
 import type {
   ApprovalRecord,
@@ -39,6 +39,7 @@ export const createMemoryStore = (): Store => {
       actionName: record.actionName,
       input: record.input,
       signatureHash: record.signatureHash,
+      inputHash: hashApprovalInput({ input: record.input }),
       status: 'pending',
       requestedBy: record.requestedBy,
       requestedByRoles: [...record.requestedByRoles],
