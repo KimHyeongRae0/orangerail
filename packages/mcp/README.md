@@ -56,22 +56,40 @@ blocked audit append, any other throw out of `tools/call` — returns:
 }
 ```
 
-with a message naming the tool, the domain-level cause (`the action ran and the
-datasource rejected it` / `the action target could not be read from the
-datasource` / `the audit record could not be written, so nothing was executed` /
-`the server hit an unexpected internal error`), and that same id. The agent
-keeps enough to decide whether to retry, choose another tool, or escalate — it
-just never learns the schema.
+with a message naming the tool, the domain-level cause, the kind of error being
+withheld, and where an operator can find it:
+
+> Tool "update_order" failed: the datasource rejected the action. The datasource
+> error is withheld; an operator can read it in the audit log or host log under
+> correlationId "6f1d0d2e-…".
+
+The agent keeps enough to decide whether to retry, choose another tool, or
+escalate — it just never learns the schema.
+
+The message is held to the same honesty standard as the rest of the project: it
+says what KIND of error was withheld (a **store** error for `audit_blocked`, not
+a datasource one) and names **only a channel that actually holds the text**:
+
+| status           | cause                                                       | withheld         | where              |
+| ---------------- | ----------------------------------------------------------- | ---------------- | ------------------ |
+| `failed`         | the datasource rejected the action                            | datasource error | audit log or host log |
+| `resolve_error`  | the target could not be read from the datasource              | datasource error | audit log or host log¹ |
+| `audit_blocked`  | the audit record could not be written, so nothing ran         | store error      | host log           |
+| `internal_error` | an unexpected internal error                                  | underlying error | host log           |
+
+¹ a `resolve_error` raised by a **read tool** says host log only — reads are not
+audited by design, and pointing an operator at a record that cannot exist is the
+same class of error as leaking one.
 
 The FULL text goes to the operator instead:
 
-- **`reportFailure`** — defaults to **stderr** (on stdio, stdout is the JSON-RPC
-  channel). Pass your own sink to route it into a host logger:
+- **`reportFailure`** — runs on every failure path, so the host log always has
+  it. Defaults to **stderr** (on stdio, stdout is the JSON-RPC channel). Pass
+  your own sink to route it into a host logger:
   `reportFailure: ({ status, tool, correlationId, error }) => log.error(…)`.
-- **the audit record** — `failed` and `resolve_error` records carry the full
-  `error`, keyed by the same `correlationId` the agent was handed
-  (`approvalId` on the approval path). An `audit_blocked` failure is the append
-  itself failing, so for that one the sink is the only copy.
+- **the audit record** — engine-raised `failed` / `resolve_error` records carry
+  the full `error`, keyed by the same `correlationId` the agent was handed
+  (`approvalId` on the approval path).
 
 ## Caveats
 

@@ -133,18 +133,64 @@ describe('mcp — redactFailure (§3.10)', () => {
 
     expect(redacted.status).toBe('failed');
     expect(redacted.correlationId).toBe('cid-1');
-    expect(redacted.message).toContain('update_order');
-    expect(redacted.message).toContain('the datasource rejected it');
-    expect(redacted.message).toContain('cid-1');
+    expect(redacted.message).toBe(
+      'Tool "update_order" failed: the datasource rejected the action. ' +
+        'The datasource error is withheld; an operator can read it in ' +
+        'the audit log or host log under correlationId "cid-1".',
+    );
   });
 
   it('distinguishes the failure categories so the agent can still act on them', () => {
     const cause = ({ status }: { status: 'resolve_error' | 'audit_blocked' | 'internal_error' }) =>
       redactFailure({ status, tool: 't', correlationId: 'c' }).message;
 
-    expect(cause({ status: 'resolve_error' })).toContain('could not be read from the datasource');
-    expect(cause({ status: 'audit_blocked' })).toContain('nothing was executed');
-    expect(cause({ status: 'internal_error' })).toContain('unexpected internal error');
+    expect(cause({ status: 'resolve_error' })).toContain(
+      'the target could not be read from the datasource',
+    );
+    expect(cause({ status: 'audit_blocked' })).toContain(
+      'the audit record could not be written, so nothing ran',
+    );
+    expect(cause({ status: 'internal_error' })).toContain('an unexpected internal error');
+  });
+
+  it('names the KIND of error withheld — a store error is not a datasource error', () => {
+    const withheldIn = ({ status }: { status: 'audit_blocked' | 'internal_error' }) =>
+      redactFailure({ status, tool: 't', correlationId: 'c' }).message;
+
+    // The old wording called every withheld error a "datasource error", which
+    // is false for a blocked audit append (a store/filesystem failure) and for
+    // an unclassified internal throw.
+    expect(withheldIn({ status: 'audit_blocked' })).toContain('The store error is withheld');
+    expect(withheldIn({ status: 'audit_blocked' })).not.toContain('datasource error is withheld');
+    expect(withheldIn({ status: 'internal_error' })).toContain('The underlying error is withheld');
+    expect(withheldIn({ status: 'internal_error' })).not.toContain('datasource error is withheld');
+  });
+
+  it('never points at an audit record that cannot exist', () => {
+    // audit_blocked: the append IS the failure, so there is no audit record.
+    const blocked = redactFailure({
+      status: 'audit_blocked',
+      tool: 'update_order',
+      correlationId: 'cid-2',
+    }).message;
+
+    expect(blocked).toBe(
+      'Tool "update_order" failed: the audit record could not be written, so nothing ran. ' +
+        'The store error is withheld; an operator can read it in the host log ' +
+        'under correlationId "cid-2".',
+    );
+    expect(blocked).not.toContain('audit log');
+
+    // A read resolver is not audited either — the call site says so explicitly.
+    const read = redactFailure({
+      status: 'resolve_error',
+      tool: 'order_get',
+      correlationId: 'cid-3',
+      channel: 'host-log',
+    }).message;
+
+    expect(read).toContain('read it in the host log');
+    expect(read).not.toContain('audit log');
   });
 });
 
@@ -164,7 +210,7 @@ describe('mcp — execution failures are redacted before reaching the agent (§3
 
     // The agent keeps a domain-level "why": which tool, and where it failed.
     expect(messageOf({ result })).toContain('update_order');
-    expect(messageOf({ result })).toContain('the datasource rejected it');
+    expect(messageOf({ result })).toContain('the datasource rejected the action');
 
     // Operator side: the FULL text survives on the host sink...
     expect(reported).toHaveLength(1);
@@ -188,6 +234,11 @@ describe('mcp — execution failures are redacted before reaching the agent (§3
     expect(result.structuredContent?.status).toBe('resolve_error');
     expect(reported[0]?.error).toBe(DRIVER_ERROR);
     expect(reported[0]?.tool).toBe('order_get');
+
+    // Reads are not audited, so the message must not send an operator looking
+    // for an audit record that was never written.
+    expect(messageOf({ result })).toContain('read it in the host log');
+    expect(messageOf({ result })).not.toContain('audit log');
   });
 
   it('withholds the driver text from a throwing read resolver (list)', async () => {
@@ -220,8 +271,17 @@ describe('mcp — execution failures are redacted before reaching the agent (§3
     expect(JSON.stringify(result)).not.toContain('audit.jsonl');
     expect(JSON.stringify(result)).not.toContain('EACCES');
     expect(result.structuredContent?.status).toBe('audit_blocked');
-    expect(messageOf({ result })).toContain('nothing was executed');
     expect(reported[0]?.error).toContain('audit.jsonl');
+
+    // Locked verbatim: the withheld error is a STORE error, not a datasource
+    // one, and the append that failed is exactly the audit record — so the
+    // host log is the only channel this message may name.
+    const correlationId = String(result.structuredContent?.['correlationId'] ?? '');
+    expect(messageOf({ result })).toBe(
+      'Tool "update_order" failed: the audit record could not be written, so nothing ran. ' +
+        'The store error is withheld; an operator can read it in the host log ' +
+        `under correlationId "${correlationId}".`,
+    );
   });
 
   it('backstops any other throw out of tools/call instead of leaking it as an internal error', async () => {

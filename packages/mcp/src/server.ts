@@ -24,7 +24,7 @@ import {
 } from 'orangerail-core';
 
 import { validateToolName } from './names';
-import { redactFailure, type FailureStatus } from './redact';
+import { redactFailure, type FailureChannel, type FailureStatus } from './redact';
 import { deriveInputSchema, type JsonSchema } from './schema';
 
 /** Runtime preset controlling which tools are exposed and the engine mode (§3.6). */
@@ -229,6 +229,8 @@ type FailureMapper = (args: {
   status: FailureStatus;
   error: string;
   correlationId: string;
+  /** Overrides the status default where the text has no audit home. */
+  channel?: FailureChannel;
 }) => ToolResult;
 
 const mapStage = ({
@@ -371,10 +373,15 @@ export const createMcpServer = ({
 
   const failureFor =
     ({ tool }: { tool: string }): FailureMapper =>
-    ({ status, error, correlationId }) => {
+    ({ status, error, correlationId, channel }) => {
       reportFailure({ status, tool, correlationId, error });
 
-      const redacted = redactFailure({ status, tool, correlationId });
+      const redacted = redactFailure({
+        status,
+        tool,
+        correlationId,
+        ...(channel ? { channel } : {}),
+      });
 
       return err({
         status: redacted.status,
@@ -417,6 +424,7 @@ export const createMcpServer = ({
     // escape as a JSON-RPC internal error carrying the driver text verbatim —
     // the same leak as a failing write, on a tool with no approval gate in
     // front of it. Caught here so it takes the redacted resolve_error path.
+    // Reads are not audited, so the host log is the only channel to name.
     let result: unknown;
     try {
       result = await object.resolve?.get({ id });
@@ -425,6 +433,7 @@ export const createMcpServer = ({
         status: 'resolve_error',
         error: errorMessage({ err: caught }),
         correlationId: randomUUID(),
+        channel: 'host-log',
       });
     }
 
@@ -467,6 +476,7 @@ export const createMcpServer = ({
         status: 'resolve_error',
         error: errorMessage({ err: caught }),
         correlationId: randomUUID(),
+        channel: 'host-log',
       });
     }
 

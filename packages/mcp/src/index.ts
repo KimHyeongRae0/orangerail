@@ -11,7 +11,7 @@
 export { createMcpServer } from './server';
 export type { CreateMcpServerArgs, McpPreset, ReportFailure } from './server';
 export { redactFailure } from './redact';
-export type { FailureStatus, RedactedFailure } from './redact';
+export type { FailureChannel, FailureStatus, RedactedFailure } from './redact';
 export { validateToolName } from './names';
 export { deriveInputSchema } from './schema';
 export type { JsonSchema } from './schema';
