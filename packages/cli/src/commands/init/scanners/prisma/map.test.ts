@@ -108,3 +108,43 @@ describe('mapPrismaToIr', () => {
     expect(m?.fields.find((f) => f.name === 'b')?.scalar).toBe('decimal');
   });
 });
+
+/**
+ * ONT-042 E — `{"__proto__": v}` in a generated object literal sets the
+ * prototype instead of creating an own key, so a `__proto__` column vanished
+ * from the object schema, from the create action's input, and from the Prisma
+ * `data:` payload — never written, never reported.
+ */
+describe('mapPrismaToIr unrepresentable field names (ONT-042 E)', () => {
+  const source = scan({
+    source: `model Evil { id String @id\n __proto__ String\n keep String }`,
+  });
+
+  it('keeps the field out of the object rather than emitting a key that disappears', () => {
+    expect(source.objects[0]?.fields.map((f) => f.name)).toEqual(['id', 'keep']);
+  });
+
+  it('keeps it out of the synthesized write action input too', () => {
+    const create = source.actions.find((a) => a.name === 'createEvil');
+
+    expect(create?.input.map((f) => f.name)).toEqual(['id', 'keep']);
+  });
+
+  it('names the model, the field, and a way out in one warning', () => {
+    const warning = source.warnings.find((w) => /__proto__/.test(w));
+
+    expect(warning).toContain('Evil.__proto__');
+    expect(warning).toMatch(/rename the column/);
+  });
+
+  it('surfaces the parser`s invalid-block headers as one aggregated warning', () => {
+    const withBadNames = scan({
+      source: `model Über { id String @id }\nmodel 2Fast { id String @id }\nmodel OK { id String @id }`,
+    });
+
+    expect(withBadNames.objects.map((o) => o.name)).toEqual(['OK']);
+    const warning = withBadNames.warnings.find((w) => /not a valid Prisma identifier/.test(w));
+    expect(warning).toContain('model Über');
+    expect(warning).toContain('model 2Fast');
+  });
+});

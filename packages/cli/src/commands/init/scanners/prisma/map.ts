@@ -27,6 +27,15 @@ const SCALAR_MAP: Record<string, IrScalar> = {
   Bytes: 'bytes',
 };
 
+/**
+ * A field name that a JS object literal cannot carry as a plain key. Emitting
+ * `{ "__proto__": … }` sets the object's prototype instead of declaring the key,
+ * so such a field would silently disappear from the generated zod object, from
+ * the write action's input, and from the Prisma `data:` payload — the column
+ * would never be written and nothing would say so (ONT-042 E).
+ */
+const UNSAFE_KEY = '__proto__';
+
 const hasAttribute = ({ attributes, attr }: { attributes: string; attr: string }): boolean =>
   new RegExp(`(^|\\s)@${attr}\\b`).test(attributes);
 
@@ -49,6 +58,13 @@ const mapModel = ({
     if (field.unsupported) {
       warnings.push(
         `prisma: skipping unsupported field ${model.name}.${field.name} (Unsupported(...)) — the model is still generated`,
+      );
+      return;
+    }
+
+    if (field.name === UNSAFE_KEY) {
+      warnings.push(
+        `prisma: skipping field ${model.name}.${field.name} — a "${UNSAFE_KEY}" key sets a generated object literal's prototype instead of declaring the field, so it would vanish from the schema AND from the write payload; rename the column (\`@map("${UNSAFE_KEY}")\` keeps the database name) or add it by hand`,
       );
       return;
     }
@@ -180,6 +196,14 @@ export const mapPrismaToIr = ({ parsed }: { parsed: ParsedSchema }): ScannedSour
 
   const enums: IrEnum[] = parsed.enums.map((e) => ({ name: e.name, values: [...e.values] }));
   source.enums.push(...enums);
+
+  if (parsed.invalidBlocks.length > 0) {
+    // Prisma rejects these names itself, so the skip is right — but skipping in
+    // silence left the user with a model count that did not match their schema.
+    source.warnings.push(
+      `prisma: skipping ${parsed.invalidBlocks.length} block(s) whose name is not a valid Prisma identifier (${parsed.invalidBlocks.join(', ')}) — a block name must match [A-Za-z_][A-Za-z0-9_]*; rename it (\`@@map\` keeps the table name) and re-run`,
+    );
+  }
 
   if (parsed.views.length > 0) {
     // One aggregated skip-with-warning line: views are read models, a natural

@@ -44,6 +44,13 @@ export interface ParsedSchema {
   enums: RawEnum[];
   /** Names of declared `view` blocks, in source order (bodies never parsed). */
   views: string[];
+  /**
+   * `<keyword> <name>` headers whose block name this grammar cannot accept, in
+   * source order. Prisma rejects those names too, so the SKIP is correct — the
+   * defect was that it happened with zero diagnostics, leaving a user staring at
+   * "✓ 1 object(s)" with three models silently absent (ONT-042 F).
+   */
+  invalidBlocks: string[];
 }
 
 /**
@@ -110,13 +117,28 @@ interface Block {
   body: string;
 }
 
+/** A block name this grammar accepts (Prisma's own identifier rule). */
+const VALID_BLOCK_NAME = /^[A-Za-z_]\w*$/;
+
 /**
  * Extract top-level `keyword name { ... }` blocks, matching braces while
  * respecting string literals so a brace inside a string never miscounts.
+ *
+ * The header pattern is deliberately LENIENT about the name and the name is
+ * validated afterwards. Matching strictly meant a header the grammar could not
+ * accept (`model Über`) was not recognized as a block at all: its body was left
+ * in the scan window, and it produced no diagnostic. Recognizing it, consuming
+ * its body, and reporting the header keeps the skip (Prisma rejects those names
+ * too) while making it visible (ONT-042 F).
  */
-const extractBlocks = ({ source }: { source: string }): Block[] => {
+const extractBlocks = ({
+  source,
+}: {
+  source: string;
+}): { blocks: Block[]; invalidBlocks: string[] } => {
   const blocks: Block[] = [];
-  const headerRe = /(model|view|enum|generator|datasource|type)\s+([A-Za-z_][\w]*)\s*\{/g;
+  const invalidBlocks: string[] = [];
+  const headerRe = /(model|view|enum|generator|datasource|type)\s+([^\s{]+)\s*\{/g;
 
   let match: RegExpExecArray | null = headerRe.exec(source);
 
@@ -151,14 +173,17 @@ const extractBlocks = ({ source }: { source: string }): Block[] => {
       i += 1;
     }
 
-    const body = source.slice(bodyStart, i - 1);
-    blocks.push({ keyword, name, body });
+    if (VALID_BLOCK_NAME.test(name)) {
+      blocks.push({ keyword, name, body: source.slice(bodyStart, i - 1) });
+    } else {
+      invalidBlocks.push(`${keyword} ${name}`);
+    }
 
     headerRe.lastIndex = i;
     match = headerRe.exec(source);
   }
 
-  return blocks;
+  return { blocks, invalidBlocks };
 };
 
 /** Split a type token into base identifier + modifiers. */
@@ -239,7 +264,7 @@ const parseEnumBody = ({ body }: { body: string }): string[] => {
 /** Parse a Prisma schema string into raw models and enums (plan D3). */
 export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema => {
   const cleaned = stripComments({ source });
-  const blocks = extractBlocks({ source: cleaned });
+  const { blocks, invalidBlocks } = extractBlocks({ source: cleaned });
 
   const models: RawModel[] = [];
   const enums: RawEnum[] = [];
@@ -258,5 +283,5 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
     }
   }
 
-  return { models, enums, views };
+  return { models, enums, views, invalidBlocks };
 };

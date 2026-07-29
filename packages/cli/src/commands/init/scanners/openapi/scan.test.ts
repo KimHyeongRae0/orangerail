@@ -772,3 +772,416 @@ describe('scanOpenApiJson value constraints (ONT-037)', () => {
     expect(exprs.every((e) => !/\.(min|max|gt|lt|regex|multipleOf)\(/.test(e))).toBe(true);
   });
 });
+
+/**
+ * ONT-042 A — `type: array` and `type: object` missed `JSON_TYPE_TO_SCALAR`
+ * entirely, so `baseOf` fell through to `SCALARS['string']` and both emitted
+ * `z.string()` with nothing in the report. The agent was told a string was
+ * acceptable and every valid call failed validation.
+ */
+describe('scanOpenApiJson array and object properties (ONT-042 A)', () => {
+  it('maps an array of scalars and a nested object instead of collapsing both to a string', () => {
+    const scanned = scanOpenApiJson({
+      source: docWith({ property: { type: 'array', items: { type: 'string' } } }),
+    });
+
+    expect(actionFieldExpr({ field: scanned.actions[0]!.input[0]! })).toBe('z.array(z.string())');
+
+    expect(
+      exprFor({ property: { type: 'object', properties: { deep: { type: 'string' } } } }),
+    ).toBe('z.object({ "deep": z.string().optional() })');
+  });
+
+  it('accepts the values the spec allows and rejects the ones it does not', () => {
+    const scanned = scanOpenApiJson({
+      source: docWith({
+        property: { type: 'object', required: ['deep'], properties: { deep: { type: 'string' } } },
+      }),
+    });
+    const schema = emittedSchema({ action: scanned.actions[0]! });
+
+    // Both of these used to be inverted: the object was rejected, a string passed.
+    expect(schema.safeParse({ value: { deep: 'ok' } }).success).toBe(true);
+    expect(schema.safeParse({ value: 'a string' }).success).toBe(false);
+  });
+
+  it('honors the item constraints of an array and the required set of a nested object', () => {
+    expect(exprFor({ property: { type: 'array', items: { type: 'integer', minimum: 0 } } })).toBe(
+      'z.array(z.number().int().min(0))',
+    );
+
+    expect(
+      exprFor({
+        property: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string' }, note: { type: 'string' } },
+        },
+      }),
+    ).toBe('z.object({ "id": z.string(), "note": z.string().optional() })');
+  });
+
+  it('maps an array of objects and an object nested two levels deep', () => {
+    expect(
+      exprFor({
+        property: {
+          type: 'array',
+          items: { type: 'object', properties: { id: { type: 'string' } } },
+        },
+      }),
+    ).toBe('z.array(z.object({ "id": z.string().optional() }))');
+
+    expect(
+      exprFor({
+        property: {
+          type: 'object',
+          properties: { inner: { type: 'object', properties: { leaf: { type: 'integer' } } } },
+        },
+      }),
+    ).toBe('z.object({ "inner": z.object({ "leaf": z.number().int().optional() }).optional() })');
+  });
+
+  it('resolves a $ref item and a $ref nested property', () => {
+    const doc = JSON.stringify({
+      openapi: '3.0.3',
+      paths: {
+        '/tags': {
+          post: {
+            operationId: 'createTags',
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      tags: { type: 'array', items: { $ref: '#/components/schemas/Tag' } },
+                      owner: { $ref: '#/components/schemas/Owner' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      components: {
+        schemas: {
+          Tag: { type: 'string', minLength: 1 },
+          Owner: { type: 'object', properties: { id: { type: 'string' } } },
+        },
+      },
+    });
+
+    const scanned = scanOpenApiJson({ source: doc });
+    const exprs = new Map(
+      scanned.actions[0]!.input.map((f) => [f.name, actionFieldExpr({ field: f })]),
+    );
+
+    expect(exprs.get('tags')).toBe('z.array(z.string().min(1)).optional()');
+    expect(exprs.get('owner')).toBe('z.object({ "id": z.string().optional() }).optional()');
+    expect(scanned.warnings).toHaveLength(0);
+  });
+
+  it('emits an untyped array as an array of unknown and says nothing (nothing was dropped)', () => {
+    const scanned = scanOpenApiJson({ source: docWith({ property: { type: 'array' } }) });
+
+    expect(actionFieldExpr({ field: scanned.actions[0]!.input[0]! })).toBe('z.array(z.unknown())');
+    expect(scanned.warnings).toHaveLength(0);
+  });
+
+  it('reports an array of arrays and a property-less object instead of faking a shape', () => {
+    const doc = JSON.stringify({
+      openapi: '3.0.3',
+      paths: {
+        '/shapes': {
+          post: {
+            operationId: 'createShape',
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      matrix: {
+                        type: 'array',
+                        items: { type: 'array', items: { type: 'string' } },
+                      },
+                      freeform: { type: 'object' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const scanned = scanOpenApiJson({ source: doc });
+    const exprs = new Map(
+      scanned.actions[0]!.input.map((f) => [f.name, actionFieldExpr({ field: f })]),
+    );
+
+    expect(exprs.get('matrix')).toBe('z.array(z.unknown()).optional()');
+    expect(exprs.get('freeform')).toBe('z.unknown().optional()');
+
+    const warnings = scanned.warnings.filter((w) => /cannot express/.test(w));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('matrix (array of arrays)');
+    expect(warnings[0]).toContain('freeform (object with no declared properties)');
+  });
+
+  it('stops at the nesting bound instead of recursing forever through an inline chain', () => {
+    // Six levels of inline `properties` — one past the scanner's nesting bound.
+    let property: unknown = { type: 'string' };
+    for (let level = 0; level < 6; level += 1) {
+      property = { type: 'object', properties: { next: property } };
+    }
+
+    const scanned = scanOpenApiJson({ source: docWith({ property }) });
+
+    expect(scanned.warnings.some((w) => /nested deeper than/.test(w))).toBe(true);
+    expect(actionFieldExpr({ field: scanned.actions[0]!.input[0]! })).toContain('z.unknown()');
+  });
+
+  it('reports the array/object cardinality keywords it does not carry', () => {
+    const doc = JSON.stringify({
+      openapi: '3.0.3',
+      paths: {
+        '/cards': {
+          post: {
+            operationId: 'createCard',
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      tags: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        minItems: 1,
+                        uniqueItems: true,
+                      },
+                      meta: {
+                        type: 'object',
+                        properties: { k: { type: 'string' } },
+                        minProperties: 1,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const warning = scanOpenApiJson({ source: doc }).warnings.find((w) => /constraint/.test(w));
+
+    expect(warning).toContain('tags.minItems');
+    expect(warning).toContain('tags.uniqueItems');
+    expect(warning).toContain('meta.minProperties');
+  });
+});
+
+/**
+ * ONT-042 B — `collectInput` read `content['application/json']` and nothing
+ * else, so a whole request body became `input: z.object({})` with no diagnostic.
+ */
+describe('scanOpenApiJson request-body media types (ONT-042 B)', () => {
+  /** A one-operation document whose request body declares exactly `content`. */
+  const docWithContent = ({ content }: { content: unknown }): string =>
+    JSON.stringify({
+      openapi: '3.0.3',
+      paths: { '/things': { post: { operationId: 'createThing', requestBody: { content } } } },
+    });
+
+  const objectSchema = { type: 'object', required: ['id'], properties: { id: { type: 'string' } } };
+
+  it('maps a non-JSON body from its declared schema and names the operation and media type', () => {
+    for (const mediaType of [
+      'application/xml',
+      'application/x-www-form-urlencoded',
+      'multipart/form-data',
+    ]) {
+      const scanned = scanOpenApiJson({
+        source: docWithContent({ content: { [mediaType]: { schema: objectSchema } } }),
+      });
+
+      expect(scanned.actions[0]?.input.map((f) => f.name)).toEqual(['id']);
+
+      const warning = scanned.warnings.find((w) => /no JSON content/.test(w));
+      expect(warning).toContain('POST /things');
+      expect(warning).toContain(mediaType);
+    }
+  });
+
+  it('reports a body whose content declares no schema at all', () => {
+    const scanned = scanOpenApiJson({ source: docWithContent({ content: { 'text/plain': {} } }) });
+
+    expect(scanned.actions[0]?.input).toHaveLength(0);
+    const warning = scanned.warnings.find((w) => /declares no schema/.test(w));
+    expect(warning).toContain('POST /things');
+    expect(warning).toContain('text/plain');
+  });
+
+  it('recognizes +json and parameterized media types as JSON, silently', () => {
+    for (const mediaType of [
+      'application/json',
+      'application/json; charset=utf-8',
+      'application/merge-patch+json',
+      'application/vnd.api+json',
+    ]) {
+      const scanned = scanOpenApiJson({
+        source: docWithContent({ content: { [mediaType]: { schema: objectSchema } } }),
+      });
+
+      expect(scanned.actions[0]?.input.map((f) => f.name)).toEqual(['id']);
+      expect(scanned.warnings).toHaveLength(0);
+    }
+  });
+
+  it('prefers the JSON entry when the body offers several media types', () => {
+    const scanned = scanOpenApiJson({
+      source: docWithContent({
+        content: {
+          'application/xml': {
+            schema: { type: 'object', properties: { xmlOnly: { type: 'string' } } },
+          },
+          'application/json': { schema: objectSchema },
+        },
+      }),
+    });
+
+    expect(scanned.actions[0]?.input.map((f) => f.name)).toEqual(['id']);
+    expect(scanned.warnings).toHaveLength(0);
+  });
+
+  it('falls back to the entry that has a schema when the JSON one does not', () => {
+    const scanned = scanOpenApiJson({
+      source: docWithContent({
+        content: { 'application/json': {}, 'application/xml': { schema: objectSchema } },
+      }),
+    });
+
+    expect(scanned.actions[0]?.input.map((f) => f.name)).toEqual(['id']);
+    expect(scanned.warnings.some((w) => /no JSON content/.test(w))).toBe(true);
+  });
+});
+
+/**
+ * ONT-042 E — a `__proto__` key in a generated object literal sets the
+ * prototype instead of declaring the field, so it disappeared from the schema,
+ * from the action input and from the write payload, silently.
+ */
+describe('scanOpenApiJson unrepresentable field names (ONT-042 E)', () => {
+  it('skips a __proto__ body property with a warning and keeps its siblings', () => {
+    // Built as raw JSON text on purpose: a JS object literal would apply the
+    // same prototype rule this test is about and never carry the key at all.
+    const source = String.raw`{"openapi":"3.0.3","paths":{"/evil":{"post":{"operationId":"createEvil","requestBody":{"content":{"application/json":{"schema":{"type":"object","properties":{"__proto__":{"type":"string"},"ok":{"type":"string"}}}}}}}}}}`;
+
+    const scanned = scanOpenApiJson({ source });
+
+    expect(scanned.actions[0]?.input.map((f) => f.name)).toEqual(['ok']);
+    const warning = scanned.warnings.find((w) => /object literal cannot carry/.test(w));
+    expect(warning).toContain('__proto__');
+  });
+
+  it('skips a __proto__ path parameter the same way', () => {
+    const source = String.raw`{"openapi":"3.0.3","paths":{"/p/{__proto__}":{"put":{"operationId":"putProto","parameters":[{"name":"__proto__","in":"path","required":true,"schema":{"type":"string"}},{"name":"ok","in":"path","required":true,"schema":{"type":"string"}}]}}}}`;
+
+    const scanned = scanOpenApiJson({ source });
+
+    expect(scanned.actions[0]?.input.map((f) => f.name)).toEqual(['ok']);
+    expect(scanned.warnings.some((w) => /object literal cannot carry/.test(w))).toBe(true);
+  });
+});
+
+/** ONT-042 F — the smaller reporting gaps ONT-037 left open. */
+describe('scanOpenApiJson remaining reporting gaps (ONT-042 F)', () => {
+  it('reports an allOf property a later branch redefines differently', () => {
+    const doc = JSON.stringify({
+      openapi: '3.0.3',
+      paths: {
+        '/dups': {
+          post: {
+            operationId: 'createDup',
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: {
+                    allOf: [
+                      { type: 'object', properties: { dup: { type: 'integer', minimum: 5 } } },
+                      { type: 'object', properties: { dup: { type: 'string', maxLength: 3 } } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const scanned = scanOpenApiJson({ source: doc });
+
+    // The first branch still wins — that behavior is unchanged.
+    expect(actionFieldExpr({ field: scanned.actions[0]!.input[0]! })).toBe(
+      'z.number().int().min(5).optional()',
+    );
+    const warning = scanned.warnings.find((w) => /more than one branch/.test(w));
+    expect(warning).toContain('dup');
+  });
+
+  it('says nothing when two allOf branches declare the identical property', () => {
+    const doc = JSON.stringify({
+      openapi: '3.0.3',
+      paths: {
+        '/sames': {
+          post: {
+            operationId: 'createSame',
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: {
+                    allOf: [
+                      { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+                      { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(scanOpenApiJson({ source: doc }).warnings).toHaveLength(0);
+  });
+
+  it('reports `nullable: true` and treats `nullable: false` as the no-op it is', () => {
+    const dropped = scanOpenApiJson({
+      source: docWith({ property: { type: 'string', nullable: true } }),
+    }).warnings.find((w) => /constraint/.test(w));
+    expect(dropped).toContain('value.nullable');
+
+    expect(
+      scanOpenApiJson({ source: docWith({ property: { type: 'string', nullable: false } }) })
+        .warnings,
+    ).toHaveLength(0);
+  });
+
+  it('honors the string keywords of an UNTYPED property, which really does emit z.string()', () => {
+    const scanned = scanOpenApiJson({
+      source: docWith({ property: { pattern: '^a+$', minLength: 2, maxLength: 8 } }),
+    });
+
+    expect(actionFieldExpr({ field: scanned.actions[0]!.input[0]! })).toBe(
+      'z.string().min(2).max(8).regex(new RegExp("^a+$"))',
+    );
+    expect(scanned.warnings).toHaveLength(0);
+  });
+});
