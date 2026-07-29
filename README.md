@@ -60,6 +60,11 @@ verbatim from one run against the published `0.1.0` packages, in a scratch proje
 nothing but a two-model Prisma schema (`Customer`, `Order`) — no checkout of this repo,
 nothing built from source.
 
+**Requirements: Node 20 or newer** for the `orangerail` CLI and `orangerail-mcp` (Node 18
+for `orangerail-core`, `orangerail-docs-gen` and `orangerail-studio` on their own). Every
+package declares this in `engines.node`, so npm warns before you install onto a runtime
+that cannot load it.
+
 **1. Scan your project.** Run this in a repo that has a `prisma/schema.prisma` or an
 OpenAPI spec. The scanner is deterministic: it reads your files, makes no LLM calls, and
 needs no API key. `--yes` takes the defaults instead of prompting, and `--no-studio` keeps
