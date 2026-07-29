@@ -87,6 +87,47 @@ a datasource one) and names **only a channel that actually holds the text**:
 audited by design, and pointing an operator at a record that cannot exist is the
 same class of error as leaking one.
 
+### Classified configuration failures
+
+Redaction is absolute about the datasource's own words, and that used to make
+orangerail's own first-run diagnostics disappear along with them: an agent whose
+project simply had no `DATABASE_URL` was told "the datasource rejected the
+action", which it cannot act on.
+
+So a failure orangerail can positively identify carries a **classification**
+rather than a message. The failing layer attaches a code from a closed set; this
+package owns the sentence for each code:
+
+| `diagnostic`                 | what actually happened                          |
+| ---------------------------- | ------------------------------------------------ |
+| `datasource_client_missing`  | `@prisma/client` is not installed or not generated |
+| `datasource_model_missing`   | the client was generated from a different schema   |
+| `datasource_not_configured`  | the connection URL is missing or unusable          |
+
+```json
+{
+  "status": "failed",
+  "diagnostic": "datasource_not_configured",
+  "correlationId": "6f1d0d2e-…"
+}
+```
+
+> Tool "createNote" failed: the datasource is not configured, so the client could
+> not connect. Its connection URL is missing or unusable — for a Prisma project
+> that is the DATABASE_URL environment variable, which must be set for the
+> process running the orangerail server. Set it, then retry. The datasource error
+> is withheld; an operator can read it in the audit log or host log under
+> correlationId "6f1d0d2e-…".
+
+This is not a hole in the redaction, and it is worth being precise about why.
+The channel carries **no string** from the failing layer: a `code` from a closed
+enum, plus an optional `subject` that must match `/^[A-Za-z_][A-Za-z0-9_]{0,63}$/`
+and is dropped otherwise. The prose lives here, in the transport. A datasource
+that forged the marker could therefore achieve exactly one thing — making
+orangerail print one of orangerail's own sentences. The driver text is still
+withheld, and the message still says so. Anything orangerail cannot classify
+carries no `diagnostic` at all and is redacted exactly as before.
+
 The FULL text goes to the operator instead:
 
 - **`reportFailure`** — runs on every failure path, so the host log always has

@@ -4,6 +4,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import {
   createMemoryStore,
   createRegistry,
+  markPublicDiagnostic,
   type AuditRecord,
   type Registry,
   type Store,
@@ -194,6 +195,82 @@ describe('mcp — redactFailure (§3.10)', () => {
   });
 });
 
+describe('mcp — a classified failure gets orangerail prose, not driver prose (ONT-045)', () => {
+  it('replaces the generic cause with the specific one and adds the fix', () => {
+    const redacted = redactFailure({
+      status: 'failed',
+      tool: 'createNote',
+      correlationId: 'cid-9',
+      diagnostic: { code: 'datasource_not_configured' },
+    });
+
+    expect(redacted.diagnostic).toBe('datasource_not_configured');
+    expect(redacted.message).toContain('the datasource is not configured');
+    expect(redacted.message).toContain('DATABASE_URL');
+    // The withholding clause survives: the carve-out changes what orangerail
+    // says, never whether the driver text travels.
+    expect(redacted.message).toContain('The datasource error is withheld');
+    expect(redacted.message).toContain('cid-9');
+  });
+
+  it('names the subject when it has one, and stays grammatical when it does not', () => {
+    const named = redactFailure({
+      status: 'resolve_error',
+      tool: 'Post_list',
+      correlationId: 'c',
+      channel: 'host-log',
+      diagnostic: { code: 'datasource_model_missing', subject: 'Post' },
+    }).message;
+
+    expect(named).toContain('"Post"');
+    expect(named).toContain('npx prisma generate');
+
+    const anonymous = redactFailure({
+      status: 'resolve_error',
+      tool: 'Post_list',
+      correlationId: 'c',
+      channel: 'host-log',
+      diagnostic: { code: 'datasource_model_missing' },
+    }).message;
+
+    expect(anonymous).toContain('npx prisma generate');
+    expect(anonymous).not.toContain('undefined');
+    expect(anonymous).not.toContain('""');
+  });
+
+  it('is unchanged for an unclassified failure — the carve-out is opt-in per code', () => {
+    expect(redactFailure({ status: 'failed', tool: 't', correlationId: 'c' }).message).toBe(
+      redactFailure({ status: 'failed', tool: 't', correlationId: 'c' }).message,
+    );
+    expect(redactFailure({ status: 'failed', tool: 't', correlationId: 'c' }).diagnostic).toBe(
+      undefined,
+    );
+    expect(redactFailure({ status: 'failed', tool: 't', correlationId: 'c' }).message).toContain(
+      'the datasource rejected the action',
+    );
+  });
+
+  it('renders every code in the closed set with a fix the reader can act on', () => {
+    const codes = [
+      'datasource_client_missing',
+      'datasource_model_missing',
+      'datasource_not_configured',
+    ] as const;
+
+    for (const code of codes) {
+      const message = redactFailure({
+        status: 'failed',
+        tool: 't',
+        correlationId: 'c',
+        diagnostic: { code },
+      }).message;
+
+      expect(message).toMatch(/retry\./);
+      expect(message).toContain('is withheld');
+    }
+  });
+});
+
 describe('mcp — execution failures are redacted before reaching the agent (§3.10)', () => {
   it('withholds the driver text from a failing action and hands back a correlationId', async () => {
     const { client, store, reported } = await connect({ registry: throwingAction() });
@@ -334,6 +411,104 @@ describe('mcp — execution failures are redacted before reaching the agent (§3
     const failed = records.find((record) => record.phase === 'failed');
     expect(failed?.approvalId).toBe(approvalId);
     expect(failed?.error).toBe(DRIVER_ERROR);
+  });
+
+  it('adds the fix for a classified failure while still withholding the text', async () => {
+    // The exact ONT-018 case: Prisma raises its initialization error, the
+    // generated file tags it, and the agent finally learns what to DO.
+    const registry = createRegistry();
+    registry.defineAction({
+      name: 'createNote',
+      input: z.object({ title: z.string() }),
+      execute: async () => {
+        const error = new Error(
+          `${DRIVER_ERROR}\nerror: Environment variable not found: DATABASE_URL.`,
+        );
+        error.name = 'PrismaClientInitializationError';
+
+        throw markPublicDiagnostic({ error, code: 'datasource_not_configured' });
+      },
+    });
+
+    const { client, reported } = await connect({ registry });
+    const result = await call({ client, name: 'createNote', args: { title: 't' } });
+
+    expectNoLeak({ result });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent?.['diagnostic']).toBe('datasource_not_configured');
+    expect(messageOf({ result })).toContain('DATABASE_URL');
+    expect(messageOf({ result })).toContain('the datasource is not configured');
+
+    // Prisma's own sentence never appears in the response — only on the sink.
+    expect(JSON.stringify(result)).not.toContain('Environment variable not found');
+    expect(reported[0]?.error).toContain('Environment variable not found: DATABASE_URL');
+  });
+
+  it('cannot be talked into leaking by an error that forges the brand', async () => {
+    // The adversarial case for the ONT-045 carve-out: a datasource that knows
+    // about the brand and stuffs a connection string into it. The code is not in
+    // the closed set and the subject is not an identifier, so both are dropped
+    // and the response degrades to the ordinary full redaction.
+    const registry = createRegistry();
+    registry.defineObject({
+      name: 'order',
+      schema: z.object({ id: z.string() }),
+      resolve: {
+        get: async () => {
+          const error = new Error(DRIVER_ERROR);
+          Object.defineProperty(error, Symbol.for('orangerail.publicDiagnostic'), {
+            value: {
+              code: 'leak_everything',
+              subject: 'postgres://admin:hunter2@db.internal:5432/prod',
+            },
+            configurable: true,
+          });
+
+          throw error;
+        },
+      },
+    });
+
+    const { client } = await connect({ registry });
+    const result = await call({ client, name: 'order_get', args: { id: 'o1' } });
+
+    expectNoLeak({ result });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain('hunter2');
+    expect(serialized).not.toContain('db.internal');
+    expect(serialized).not.toContain('leak_everything');
+    expect(result.structuredContent?.['diagnostic']).toBeUndefined();
+    expect(messageOf({ result })).toContain('the target could not be read from the datasource');
+  });
+
+  it('drops a non-identifier subject on an otherwise valid code', async () => {
+    const registry = createRegistry();
+    registry.defineObject({
+      name: 'order',
+      schema: z.object({ id: z.string() }),
+      resolve: {
+        get: async () => {
+          const error = new Error(DRIVER_ERROR);
+          Object.defineProperty(error, Symbol.for('orangerail.publicDiagnostic'), {
+            value: {
+              code: 'datasource_model_missing',
+              subject: 'postgres://admin:hunter2@db.internal:5432/prod',
+            },
+            configurable: true,
+          });
+
+          throw error;
+        },
+      },
+    });
+
+    const { client } = await connect({ registry });
+    const result = await call({ client, name: 'order_get', args: { id: 'o1' } });
+
+    // The class survives (it is in the closed set); the smuggled subject does not.
+    expect(result.structuredContent?.['diagnostic']).toBe('datasource_model_missing');
+    expect(JSON.stringify(result)).not.toContain('hunter2');
+    expect(JSON.stringify(result)).not.toContain('postgres://');
   });
 
   it('defaults the operator sink to stderr, never the JSON-RPC stdout stream', async () => {

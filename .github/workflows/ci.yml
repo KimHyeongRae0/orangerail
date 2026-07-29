@@ -20,3 +20,56 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run the gate harness
         run: ./scripts/verify.sh
+
+  # A SEPARATE job, not a tenth gate inside verify.sh.
+  #
+  # verify.sh is what a contributor runs locally before every commit and it has
+  # to stay in the ~60s range to keep being run at all. The e2e suite is a
+  # different animal: it rebuilds the workspace, boots studio servers on real
+  # ports, drives `orangerail mcp` over stdio, and runs `prisma db push` against
+  # SQLite — minutes, not seconds. Folding it in would make the local gate one
+  # nobody runs, and CI would gain nothing it does not already get from a job
+  # running in parallel.
+  #
+  # As its own job it runs concurrently with `verify` (wall time is
+  # max(verify, e2e), not the sum), gets a clean runner with no contention from
+  # five vitest pools, and fails the check independently — so a red scenario is
+  # attributable at a glance instead of hiding behind a `verify` failure.
+  #
+  # Scenarios are NOT parallelized inside the job. Several bind ports, several
+  # share `.docs/scratch/` run dirs, and ONT-018's `prisma db push` regenerates
+  # the workspace-wide Prisma client that ONT-008 also observes. scripts/e2e.sh
+  # already runs them serially and exits non-zero if any one fails, which is
+  # exactly the contract this job needs — so there is one runner, not a matrix.
+  e2e:
+    runs-on: ubuntu-latest
+    # The full regression is minutes; this is a backstop against a scenario that
+    # hangs on a port or an MCP handshake, not an expected duration.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # Four scenarios (ONT-005/006/011/017) drive a REAL browser through the
+      # agent-browser CLI, because the studio's value is what a human sees and a
+      # jsdom assertion cannot speak to that. It is a global CLI rather than a
+      # workspace dependency — direct Playwright is forbidden repo-wide — so CI
+      # installs it explicitly. Pinned: an e2e gate that silently changes its
+      # browser driver under us is not a gate. `--with-deps` pulls the Linux
+      # shared libraries Chrome needs, which a bare runner does not have.
+      - name: Install the browser driver for the studio scenarios
+        run: |
+          npm install --global agent-browser@0.27.0
+          agent-browser install --with-deps
+      - name: Run the e2e regression
+        # No ticket argument = regression mode over every tests/e2e/*.sh.
+        # A scenario needing live credentials declares `# @live-env: VAR`; the
+        # flag makes such a scenario skip LOUDLY instead of failing a fork PR
+        # that has no secrets (DEC-006). None declares one today — the flag is
+        # set so that adding one later does not turn CI red for a contributor.
+        run: ORANGERAIL_ALLOW_MISSING_LIVE=1 ./scripts/e2e.sh

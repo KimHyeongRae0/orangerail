@@ -1,3 +1,5 @@
+import type { PublicDiagnosticCode } from 'orangerail-core';
+
 import type { IrObject } from '../ir';
 import { escapeBlockComment, escapeStringLiteral, sanitizeIdentifier } from './escape';
 import { fieldExpr } from './zod';
@@ -109,6 +111,61 @@ const isClientMissing = ({ error }: { error: unknown }): boolean => {
 };
 
 /**
+ * True when the Prisma client could not initialize its datasource — an unset or
+ * unusable connection URL, bad credentials, an unreachable server, a missing
+ * engine. Prisma raises exactly one error class for that whole family
+ * (`PrismaClientInitializationError`), thrown lazily on the first query, and it
+ * is disjoint from query and constraint errors, which are what the redaction
+ * exists to withhold (ONT-032).
+ *
+ * The check reads `name`, which the driver ultimately controls — and that is
+ * safe here BY CONSTRUCTION rather than by trust. Matching only selects a
+ * `PublicDiagnosticCode`, and the transport renders its OWN sentence for that
+ * code; no byte of `error.message` travels. A driver that lied about its `name`
+ * would achieve nothing but making orangerail print orangerail's own text.
+ */
+const isDatasourceUnconfigured = ({ error }: { error: unknown }): boolean =>
+  (error as { name?: unknown } | null | undefined)?.name === 'PrismaClientInitializationError';
+
+/**
+ * Attach an orangerail diagnostic code to an error, via the global symbol
+ * registry.
+ *
+ * Deliberately NOT `markPublicDiagnostic` imported from `orangerail-core`
+ * (ONT-045). This module's whole output is code that runs in the USER's project
+ * with no orangerail import, so it marks with a `Symbol.for` literal; doing the
+ * same here keeps the TypeScript mirror and the emitted mirror one mechanism
+ * rather than two that can diverge. It also keeps the CLI free of a RUNTIME
+ * dependency on a specific core version — ONT-039's packed-tarball scenario
+ * fails loudly when the CLI needs an export the installed core does not have,
+ * and codegen has no reason to create that coupling.
+ *
+ * Core revalidates the code and the subject on read, so nothing here is trusted.
+ */
+const DIAGNOSTIC_KEY = Symbol.for('orangerail.publicDiagnostic');
+
+const markDiagnostic = <T>({
+  error,
+  code,
+  subject,
+}: {
+  error: T;
+  code: PublicDiagnosticCode;
+  subject?: string;
+}): T => {
+  if (error !== null && typeof error === 'object') {
+    Object.defineProperty(error, DIAGNOSTIC_KEY, {
+      value: subject === undefined ? { code } : { code, subject },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  return error;
+};
+
+/**
  * Map a resolve-time error into what the resolve should throw. A missing client
  * (module-not-found) becomes the install/generate diagnostic; a `TypeError` —
  * the shape of reading an operation off an `undefined` model accessor — becomes
@@ -116,6 +173,16 @@ const isClientMissing = ({ error }: { error: unknown }): boolean => {
  * error is returned untouched so real runtime failures (a live query error, a
  * connection refusal) are never masked. This is the exact logic mirrored inline
  * into generated object/action files; it is exported for direct unit testing.
+ *
+ * Whatever it returns is also MARKED with its `PublicDiagnosticCode` (ONT-045).
+ * The mark is what lets the MCP transport tell an agent "run `npx prisma
+ * generate`" instead of the bare "the datasource rejected the action" that
+ * ONT-032's redaction otherwise reduces every failure to. An unclassifiable
+ * error is returned unmarked and stays fully redacted — the default.
+ *
+ * A datasource-initialization failure is marked but NOT rewritten: Prisma's own
+ * message is the operator's best evidence and it goes to the operator sink
+ * untouched, while the agent sees only the code's sentence.
  */
 export const wrapResolveError = ({
   objectName,
@@ -129,7 +196,9 @@ export const wrapResolveError = ({
   const missing = isClientMissing({ error });
 
   if (!missing && !(error instanceof TypeError)) {
-    return error;
+    return isDatasourceUnconfigured({ error })
+      ? markDiagnostic({ error, code: 'datasource_not_configured' })
+      : error;
   }
 
   const original = (error as { message?: unknown } | null | undefined)?.message;
@@ -139,8 +208,15 @@ export const wrapResolveError = ({
   const diagnostic = missing
     ? buildResolveDiagnostic({ objectName })
     : buildAccessorDiagnostic({ objectName, accessor });
+  const code: PublicDiagnosticCode = missing
+    ? 'datasource_client_missing'
+    : 'datasource_model_missing';
 
-  return new Error(`${diagnostic}${detail}`);
+  return markDiagnostic({
+    error: new Error(`${diagnostic}${detail}`),
+    code,
+    subject: objectName,
+  });
 };
 
 const renderResolve = ({ object }: { object: IrObject }): string => {
@@ -161,6 +237,12 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
   // `get`: coerce a numeric key with `Number(id)` and fail a non-numeric id to a
   // clean not-found (`null`) rather than handing Prisma a `NaN` and leaking a raw
   // validation error; a string key passes through untouched.
+  //
+  // `return await` is load-bearing, not a lint quirk (ONT-045). A bare
+  // `return prisma.x.findUnique(...)` inside `try` settles AFTER the try block
+  // has been left, so the `catch` never runs and the raw driver error escapes
+  // unwrapped — the diagnostic below was dead code on this path. The `list`
+  // branch happened to be correct because it assigns through `await` first.
   const getLines = numericKey
     ? [
         '    get: async ({ id }) => {',
@@ -170,7 +252,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
         '        if (Number.isNaN(key)) {',
         '          return null;',
         '        }',
-        `        return ${member}.findUnique({ where: { ${idKey}: key } });`,
+        `        return await ${member}.findUnique({ where: { ${idKey}: key } });`,
         '      } catch (error) {',
         '        throw wrapPrismaError(error);',
         '      }',
@@ -180,7 +262,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
         '    get: async ({ id }) => {',
         '      try {',
         '        const prisma = await getPrisma();',
-        `        return ${member}.findUnique({ where: { ${idKey}: id } });`,
+        `        return await ${member}.findUnique({ where: { ${idKey}: id } });`,
         '      } catch (error) {',
         '        throw wrapPrismaError(error);',
         '      }',
@@ -227,6 +309,15 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
  * generating one (ONT-041). Any other error passes through untouched. Shared
  * verbatim by object resolve files and Prisma action files so both degrade
  * identically (plan D3, exported for `emit-action.ts`).
+ *
+ * Every error it recognizes is also tagged with its orangerail diagnostic code
+ * (ONT-045), so the MCP transport can tell the agent HOW to fix a configuration
+ * fault while still withholding the driver text (section 3.10). The tag is
+ * written as a `Symbol.for` property literal rather than an import: a generated
+ * ontology file must keep working with no orangerail import of its own, and the
+ * global symbol registry makes the key agree across package copies. Core
+ * revalidates the code and the subject on read, so this line is a hint, never a
+ * trusted payload.
  */
 export const prismaClientBlock = ({
   diagnosticName,
@@ -244,6 +335,7 @@ export const prismaClientBlock = ({
       accessor: accessorName({ model: sourceModel }),
     }),
   });
+  const subject = escapeStringLiteral({ value: diagnosticName });
 
   return [
     'const getPrisma = (() => {',
@@ -257,16 +349,36 @@ export const prismaClientBlock = ({
     '  };',
     '})();',
     '',
+    "const DIAGNOSTIC_KEY = Symbol.for('orangerail.publicDiagnostic');",
+    '',
+    'const tagDiagnostic = (error, code, subject) => {',
+    "  if (error !== null && typeof error === 'object') {",
+    '    Object.defineProperty(error, DIAGNOSTIC_KEY, {',
+    '      value: subject === undefined ? { code } : { code, subject },',
+    '      enumerable: false,',
+    '      configurable: true,',
+    '      writable: true,',
+    '    });',
+    '  }',
+    '  return error;',
+    '};',
+    '',
     'const wrapPrismaError = (error) => {',
     '  const code = error === null || error === undefined ? undefined : error.code;',
     "  const missing = code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';",
     '  if (!missing && !(error instanceof TypeError)) {',
-    '    return error;',
+    "    return error && error.name === 'PrismaClientInitializationError'",
+    "      ? tagDiagnostic(error, 'datasource_not_configured')",
+    '      : error;',
     '  }',
     '',
     "  const original = error && typeof error.message === 'string' ? error.message : '';",
     `  const detail = original === '' ? '' : ' Original error: ' + original;`,
-    `  return new Error((missing ? ${missingClient} : ${missingAccessor}) + detail);`,
+    `  return tagDiagnostic(`,
+    `    new Error((missing ? ${missingClient} : ${missingAccessor}) + detail),`,
+    `    missing ? 'datasource_client_missing' : 'datasource_model_missing',`,
+    `    ${subject},`,
+    '  );',
     '};',
   ].join('\n');
 };

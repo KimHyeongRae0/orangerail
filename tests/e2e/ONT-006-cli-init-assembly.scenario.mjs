@@ -445,10 +445,31 @@ console.log('[phase 4] OK');
 
 console.log('[phase 5] sync: clean, drift, --accept-new, unregistered warning');
 
+// ONT-043 (#50) added a governance baseline: `sync` refuses to call a project
+// clean while nothing on disk records the gates a human vouched for, and a
+// freshly `init`ed project has no such file yet. `init` deliberately does not
+// write one — the point of the baseline is that a HUMAN reviewed the generated
+// posture, and a scanner asserting that on the human's behalf would make the
+// file worthless. So the first step of a real project's life is to record it,
+// and this scenario now does exactly that before asking whether sync is clean.
+const record = runCli({ args: ['sync', '--accept-governance'], cwd: RUN_A });
+assert({
+  ok: record.status === 0,
+  message: `sync --accept-governance must record the baseline (exit 0), got ${record.status}:\n${record.stdout}\n${record.stderr}`,
+});
+assert({
+  ok: existsSync(join(RUN_A, 'orangerail.governance.json')),
+  message: 'sync --accept-governance must write orangerail.governance.json at the project root',
+});
+
 const clean = runCli({ args: ['sync'], cwd: RUN_A });
 assert({
   ok: clean.status === 0,
-  message: `sync right after init must be clean (exit 0), got ${clean.status}:\n${clean.stdout}\n${clean.stderr}`,
+  message: `sync right after init + recorded baseline must be clean (exit 0), got ${clean.status}:\n${clean.stdout}\n${clean.stderr}`,
+});
+assert({
+  ok: !/no recorded baseline/.test(clean.stdout + clean.stderr),
+  message: `a recorded baseline must silence the governance nag:\n${clean.stdout}\n${clean.stderr}`,
 });
 
 cpSync(join(FIXTURE, 'prisma', 'schema-drifted.prisma'), join(RUN_A, 'prisma', 'schema.prisma'));

@@ -15,10 +15,13 @@
  *     — `check_approval` executes the mutation exactly once (the row is
  *     observably created), a re-call is denied (consumed), and `orangerail audit
  *     verify` passes. NO hand-editing of any generated file.
- *   Phase 2 (AC-4): with no DATABASE_URL wired, calling the write action fails
- *     at execute with an actionable diagnostic (names the object + DATABASE_URL),
- *     never a raw crash; the generated AGENTS.md documents the Prisma action as
- *     approval-required and carries NO false "[stub — not implemented]" line.
+ *   Phase 2 (AC-4): with the client deliberately generated but NO datasource
+ *     configured, calling the write action fails at execute with an actionable,
+ *     CLASSIFIED diagnostic — `datasource_not_configured`, naming DATABASE_URL —
+ *     while Prisma's own text stays out of the response and reaches only the
+ *     operator sink under the same correlationId (ONT-032 + ONT-045). The
+ *     generated AGENTS.md documents the Prisma action as approval-required and
+ *     carries NO false "[stub — not implemented]" line.
  *   Phase 3 (AC-6): an OpenAPI-source fixture still emits an unchanged action
  *     file — a byte-identity check against a captured pre-ONT-018 reference
  *     proves the OpenAPI stub path is untouched.
@@ -68,11 +71,26 @@ const assert = ({ ok, message }) => {
   }
 };
 
+/**
+ * Build a child environment. `unset` is applied AFTER the merge, which is the
+ * whole point: phase 2 needs a process that provably has no DATABASE_URL, and
+ * spreading a pre-filtered copy over `process.env` silently puts an ambient one
+ * back (the ambient value wins the first spread and nothing removes it).
+ */
+const childEnv = ({ env, unset } = {}) => {
+  const merged = { ...process.env, ...(env ?? {}) };
+  for (const key of unset ?? []) {
+    delete merged[key];
+  }
+
+  return merged;
+};
+
 /** Runs an `orangerail` CLI command to completion inside a run dir. */
-const runCli = ({ args, cwd, env }) => {
+const runCli = ({ args, cwd, env, unset }) => {
   const res = spawnSync('node', [CLI, ...args], {
     cwd,
-    env: { ...process.env, ...(env ?? {}) },
+    env: childEnv({ env, unset }),
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -103,7 +121,7 @@ const prismaDbPush = ({ cwd }) => {
 
   const res = spawnSync('node', [PRISMA_BIN, 'db', 'push'], {
     cwd,
-    env: { ...process.env, ...DB_ENV },
+    env: childEnv({ env: DB_ENV }),
     encoding: 'utf8',
     timeout: 180_000,
   });
@@ -111,6 +129,57 @@ const prismaDbPush = ({ cwd }) => {
   const output = `${res.stdout ?? ''}\n${res.stderr ?? ''}`;
 
   return { ok: res.status === 0, detail: output };
+};
+
+/**
+ * Generate the Prisma client WITHOUT creating a database (phase 2 setup).
+ *
+ * `prisma generate` reads the schema and emits the client; it never opens the
+ * datasource, so it succeeds with no DATABASE_URL. That is what lets phase 2
+ * construct the unconfigured-datasource state DELIBERATELY: after this runs, a
+ * missing or mismatched client is off the table by construction, and the only
+ * fault left in the run dir is the one the phase is about.
+ */
+const prismaGenerate = ({ cwd }) => {
+  if (!existsSync(PRISMA_BIN)) {
+    return { ok: false, detail: `prisma CLI not found at ${PRISMA_BIN}` };
+  }
+
+  const res = spawnSync('node', [PRISMA_BIN, 'generate'], {
+    cwd,
+    env: childEnv({ unset: ['DATABASE_URL'] }),
+    encoding: 'utf8',
+    timeout: 180_000,
+  });
+
+  return { ok: res.status === 0, detail: `${res.stdout ?? ''}\n${res.stderr ?? ''}` };
+};
+
+/**
+ * Prove the generated client is present AND carries the model this fixture
+ * scanned. Phase 2 asserts on this before it asserts on the failure class: a
+ * client that is absent, or generated from someone else's schema, produces a
+ * DIFFERENT (also correct) diagnostic, and a phase that cannot tell the two
+ * apart is not testing what its name claims.
+ */
+const prismaClientCarriesModel = ({ cwd }) => {
+  const script = [
+    "const { PrismaClient } = await import('@prisma/client');",
+    'const prisma = new PrismaClient();',
+    `process.stdout.write(String(prisma[${JSON.stringify(ACCESSOR)}] !== undefined));`,
+  ].join('\n');
+
+  const res = spawnSync('node', ['--input-type=module', '-e', script], {
+    cwd,
+    env: childEnv({ unset: ['DATABASE_URL'] }),
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+
+  return {
+    ok: res.status === 0 && (res.stdout ?? '').trim() === 'true',
+    detail: `${res.stdout ?? ''}\n${res.stderr ?? ''}`,
+  };
 };
 
 /** Read every `Note` row via a short-lived generated client (row observation). */
@@ -125,7 +194,7 @@ const readNotes = ({ cwd }) => {
 
   const res = spawnSync('node', ['--input-type=module', '-e', script], {
     cwd,
-    env: { ...process.env, ...DB_ENV },
+    env: childEnv({ env: DB_ENV }),
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -133,12 +202,24 @@ const readNotes = ({ cwd }) => {
   return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 };
 
-/** Minimal MCP stdio client (ONT-003/006/008 pattern) over the generated config. */
-const openMcpSession = async ({ cwd, env }) => {
+/**
+ * Minimal MCP stdio client (ONT-003/006/008 pattern) over the generated config.
+ *
+ * stderr is CAPTURED (and echoed) rather than inherited: it is the operator
+ * channel §3.10 promises the full driver text on, and phase 2 has to read it to
+ * prove the text went THERE and not to the agent.
+ */
+const openMcpSession = async ({ cwd, env, unset }) => {
   const child = spawn('node', [CLI, 'mcp', '--config', 'orangerail.config.mjs'], {
     cwd,
-    env: { ...process.env, ...(env ?? {}) },
-    stdio: ['pipe', 'pipe', 'inherit'],
+    env: childEnv({ env, unset }),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString('utf8');
+    process.stderr.write(chunk);
   });
 
   let nextId = 1;
@@ -211,7 +292,22 @@ const openMcpSession = async ({ cwd, env }) => {
     await exited;
   };
 
-  return { request, callTool, listTools, close };
+  /**
+   * The operator line and the JSON-RPC response travel on DIFFERENT pipes, and
+   * the child writing stderr first does not guarantee the parent reads it
+   * first. Poll briefly, so a scheduling accident cannot turn a correct server
+   * into a red scenario.
+   */
+  const awaitOperatorLine = async ({ correlationId, timeoutMs = 5_000 }) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!stderr.includes(correlationId) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    return stderr;
+  };
+
+  return { request, callTool, listTools, close, awaitOperatorLine };
 };
 
 // ───────── phase 1 — the full governed write loop against real SQLite ─────────
@@ -392,11 +488,49 @@ assert({
   message: `no-db init must exit 0, got ${nodbInit.status}:\n${nodbInit.stdout}\n${nodbInit.stderr}`,
 });
 
-// Deliberately NO db push and NO DATABASE_URL: the write must degrade honestly.
-const noDbEnv = { ...process.env };
-delete noDbEnv.DATABASE_URL;
+// ── the unconfigured state is CONSTRUCTED here, not inherited ────────────────
+//
+// This phase used to reach "no database" by deleting DATABASE_URL from the
+// child env and hoping for the best. Two things were wrong with that. It leaned
+// on the AMBIENT environment, so a runner that happened to export DATABASE_URL
+// silently turned it into a different test (and the merge in `openMcpSession`
+// put an ambient value straight back). And it left the OTHER precondition
+// unstated: whether `@prisma/client` was generated at all decides which of
+// orangerail's diagnostics fires, and that depended on whether an earlier
+// scenario had run `prisma db push` in this workspace.
+//
+// So both halves are now positively established and asserted:
+//   1. the client IS generated and DOES carry `note` — `prisma generate` needs
+//      no database, so this is buildable here, and it removes
+//      "client missing" / "model missing" from the possible outcomes;
+//   2. DATABASE_URL is removed AFTER the env merge and re-checked.
+// What remains is exactly one fault: a datasource with no connection URL.
+const generated = prismaGenerate({ cwd: RUN_NODB });
+assert({
+  ok: generated.ok,
+  message: `phase 2 needs a generated Prisma client to isolate the unconfigured-datasource case; \`prisma generate\` failed:\n${generated.detail}`,
+});
 
-const nodbSession = await openMcpSession({ cwd: RUN_NODB, env: noDbEnv });
+const carries = prismaClientCarriesModel({ cwd: RUN_NODB });
+assert({
+  ok: carries.ok,
+  message: `phase 2 precondition: the generated client must expose \`prisma.${ACCESSOR}\`, otherwise this phase would be testing the schema-mismatch diagnostic instead:\n${carries.detail}`,
+});
+
+const NO_DB = ['DATABASE_URL'];
+assert({
+  ok: childEnv({ unset: NO_DB }).DATABASE_URL === undefined,
+  message: 'phase 2 precondition: the child environment must carry no DATABASE_URL',
+});
+
+// No `prisma db push` either — there is no database file to connect to even if
+// a URL appeared.
+assert({
+  ok: !existsSync(join(RUN_NODB, 'ont-018.db')),
+  message: 'phase 2 precondition: the no-db run dir must have no database file',
+});
+
+const nodbSession = await openMcpSession({ cwd: RUN_NODB, unset: NO_DB });
 const nodbStaged = await nodbSession.callTool({
   name: 'createNote',
   args: { title: 'no-db', body: 'should fail at execute' },
@@ -413,17 +547,20 @@ await nodbSession.close();
 const nodbApprove = runCli({
   args: ['approvals', 'approve', nodbApprovalId, '--config', 'orangerail.config.mjs'],
   cwd: RUN_NODB,
-  env: noDbEnv,
+  unset: NO_DB,
 });
 assert({
   ok: nodbApprove.status === 0,
   message: `no-db approve must succeed, got ${nodbApprove.status}:\n${nodbApprove.stderr}`,
 });
 
-const nodbSession2 = await openMcpSession({ cwd: RUN_NODB, env: noDbEnv });
+const nodbSession2 = await openMcpSession({ cwd: RUN_NODB, unset: NO_DB });
 const nodbExecuted = await nodbSession2.callTool({
   name: 'check_approval',
   args: { approvalId: nodbApprovalId },
+});
+const nodbOperatorLog = await nodbSession2.awaitOperatorLine({
+  correlationId: nodbExecuted.structuredContent?.correlationId ?? '',
 });
 await nodbSession2.close();
 
@@ -432,14 +569,55 @@ assert({
   message: `executing a write with no DATABASE_URL must fail (not succeed), got ${JSON.stringify(nodbExecuted)}`,
 });
 
-const nodbMessage = JSON.stringify(nodbExecuted);
+// ── what the AGENT is told (ONT-045) ─────────────────────────────────────────
+//
+// ONT-032 redacts every datasource error, and it is right to: a driver message
+// names credentials, hosts, tables and row values. But that also flattened
+// orangerail's OWN configuration diagnostics into "the datasource rejected the
+// action", which is useless to an agent on a first run. The fix is not a leak —
+// it is a CLASSIFICATION: core tags the failure with a code from a closed set,
+// and the transport prints its own sentence for that code. So the assertions
+// here are (a) the class is right, (b) the sentence is actionable, and (c) the
+// driver's own text is still nowhere in the response.
+const nodbResponse = JSON.stringify(nodbExecuted);
 assert({
-  ok: /note/i.test(nodbMessage),
-  message: `the no-db diagnostic must name the object/model, got: ${nodbMessage}`,
+  ok: nodbExecuted.structuredContent?.status === 'failed',
+  message: `the no-db failure must be a typed execute failure, got: ${nodbResponse}`,
 });
 assert({
+  ok: nodbExecuted.structuredContent?.diagnostic === 'datasource_not_configured',
+  message: `the no-db failure must be CLASSIFIED as datasource_not_configured (this is the one fault the phase constructed), got: ${nodbResponse}`,
+});
+
+const nodbMessage = nodbExecuted.content?.[0]?.text ?? '';
+assert({
   ok: nodbMessage.includes('DATABASE_URL'),
-  message: `the no-db diagnostic must tell the user how to wire DATABASE_URL, got: ${nodbMessage}`,
+  message: `the no-db diagnostic must tell the agent how to wire DATABASE_URL, got: ${nodbMessage}`,
+});
+assert({
+  ok: /not configured/i.test(nodbMessage),
+  message: `the no-db diagnostic must say the datasource is not configured, got: ${nodbMessage}`,
+});
+assert({
+  ok: nodbMessage.includes(nodbExecuted.structuredContent?.correlationId ?? ' '),
+  message: `the no-db diagnostic must carry the correlationId an operator looks the full text up by, got: ${nodbMessage}`,
+});
+
+// The redaction is NOT relaxed: Prisma's own text, the schema excerpt, and the
+// file path it quotes must not appear anywhere in the agent's response.
+for (const leak of ['Environment variable not found', 'schema.prisma', 'prisma.note.create']) {
+  assert({
+    ok: !nodbResponse.includes(leak),
+    message: `the response must not carry the raw datasource text ("${leak}"): ${nodbResponse}`,
+  });
+}
+
+// ...and the operator still gets all of it, under the same correlationId.
+assert({
+  ok:
+    nodbOperatorLog.includes('Environment variable not found: DATABASE_URL') &&
+    nodbOperatorLog.includes(nodbExecuted.structuredContent?.correlationId ?? ' '),
+  message: `the operator sink must carry the FULL Prisma text under the same correlationId — stderr was:\n${nodbOperatorLog}`,
 });
 
 // AC-4 docs half: the generated AGENTS.md documents the Prisma action truthfully

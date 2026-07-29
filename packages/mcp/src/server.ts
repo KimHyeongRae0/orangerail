@@ -10,10 +10,12 @@ import {
 
 import {
   createEngine,
+  readPublicDiagnostic,
   resolveCaller,
   type ExecuteResult,
   type Identity,
   type ObjectDefinition,
+  type PublicDiagnostic,
   type RedactAudit,
   type Registry,
   type ResolveIdentity,
@@ -53,6 +55,19 @@ const defaultReportFailure: ReportFailure = ({ status, tool, correlationId, erro
 
 const errorMessage = ({ err }: { err: unknown }): string =>
   err instanceof Error ? err.message : String(err);
+
+/**
+ * Split a caught value the same way the engine does: the full text for the
+ * operator sink, plus the classification if the throwing layer attached one.
+ * The read tools catch their resolver's throw here rather than in the engine,
+ * so they need the same split or a read failure would lose its diagnostic while
+ * a write kept it.
+ */
+const failureOf = ({ err }: { err: unknown }): { error: string; diagnostic?: PublicDiagnostic } => {
+  const diagnostic = readPublicDiagnostic({ error: err });
+
+  return { error: errorMessage({ err }), ...(diagnostic ? { diagnostic } : {}) };
+};
 
 /** Arguments to {@link createMcpServer}. */
 export interface CreateMcpServerArgs {
@@ -231,6 +246,8 @@ type FailureMapper = (args: {
   correlationId: string;
   /** Overrides the status default where the text has no audit home. */
   channel?: FailureChannel;
+  /** The classification core attached, when the failure was diagnosable. */
+  diagnostic?: PublicDiagnostic;
 }) => ToolResult;
 
 const mapStage = ({
@@ -381,7 +398,7 @@ export const createMcpServer = ({
 
   const failureFor =
     ({ tool }: { tool: string }): FailureMapper =>
-    ({ status, error, correlationId, channel }) => {
+    ({ status, error, correlationId, channel, diagnostic }) => {
       reportFailure({ status, tool, correlationId, error });
 
       const redacted = redactFailure({
@@ -389,12 +406,16 @@ export const createMcpServer = ({
         tool,
         correlationId,
         ...(channel ? { channel } : {}),
+        ...(diagnostic ? { diagnostic } : {}),
       });
 
       return err({
         status: redacted.status,
         message: redacted.message,
-        extra: { correlationId },
+        extra: {
+          correlationId,
+          ...(redacted.diagnostic ? { diagnostic: redacted.diagnostic } : {}),
+        },
       });
     };
 
@@ -439,7 +460,7 @@ export const createMcpServer = ({
     } catch (caught) {
       return failure({
         status: 'resolve_error',
-        error: errorMessage({ err: caught }),
+        ...failureOf({ err: caught }),
         correlationId: randomUUID(),
         channel: 'host-log',
       });
@@ -482,7 +503,7 @@ export const createMcpServer = ({
     } catch (caught) {
       return failure({
         status: 'resolve_error',
-        error: errorMessage({ err: caught }),
+        ...failureOf({ err: caught }),
         correlationId: randomUUID(),
         channel: 'host-log',
       });
@@ -568,7 +589,7 @@ export const createMcpServer = ({
     } catch (caught) {
       return failure({
         status: 'internal_error',
-        error: errorMessage({ err: caught }),
+        ...failureOf({ err: caught }),
         correlationId: randomUUID(),
       });
     }

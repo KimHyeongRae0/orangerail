@@ -10,9 +10,11 @@
 #     (NO root schema) plus a root openapi.json contributing one governed write
 #     action. Root-level `init` must DETECT the nested schema and generate its
 #     models (AC-1), emit ONE aggregated view-skip warning naming the fixture
-#     view (AC-2), the generated read tool must return an ACTIONABLE diagnostic
-#     when the Prisma client is absent (AC-3), and the generated AGENTS.md must
-#     carry the not-implemented stub-path wording (AC-4).
+#     view (AC-2), the generated read tool must surface an ACTIONABLE, CLASSIFIED
+#     failure when the Prisma client is absent — redacted for the agent, full on
+#     the operator sink, one correlationId across both (AC-3, retargeted at
+#     ONT-032/ONT-045) — and the generated AGENTS.md must carry the
+#     not-implemented stub-path wording (AC-4).
 #   - both/ : a root prisma/schema.prisma AND a nested packages/db/prisma one,
 #     each with a different model — ALL hits must be scanned, root first
 #     (ticket §4 precedence edge case).
