@@ -12,7 +12,7 @@ import { computeLayout } from './layout';
 /**
  * Adversarial layout QA harness. Confirms geometric invariants against many
  * edge-case snapshots to surface rendering overlaps of the same class as the
- * targeted-action self-loop-pill-over-next-card bug that was just fixed.
+ * targeted-action self-loop-pill-over-next-card bug ONT-025 fixed.
  *
  * Pill-band geometry (from ActionEdge.tsx + Pill.module.css, worst case):
  *   handles `src`/`loop` are Position.Right → anchored at card RIGHT edge,
@@ -73,11 +73,10 @@ interface PillBand {
 
 interface Violation {
   snapshot: string;
-  inv: 'INV-1' | 'INV-2' | 'INV-3';
+  inv: 'INV-1' | 'INV-2' | 'INV-3' | 'INV-4';
   detail: string;
-  /** For INV-2: the target's self-loop count, used to separate the scan-reachable
-   * contract (≤2 targeted actions/object) from the tall-stack
-   * backlog item (≥3 custom actions on one object, vertical pill-stack reserve). */
+  /** For INV-2/INV-4: the target's self-loop count. A stack of ≥3 pills is taller
+   * than the card it hangs off, so it is the case the vertical reserve exists for. */
   loopCount?: number;
 }
 
@@ -92,9 +91,9 @@ const analyze = ({
   name: string;
   snapshot: GraphSnapshot;
   positions: Map<string, { x: number; y: number }>;
-}): { violations: Violation[]; tallStacks: string[] } => {
+}): { violations: Violation[]; stacks: string[] } => {
   const violations: Violation[] = [];
-  const tallStacks: string[] = [];
+  const stacks: string[] = [];
 
   const byName = new Map(snapshot.objects.map((o) => [o.name, o]));
 
@@ -193,15 +192,37 @@ const analyze = ({
         });
       }
     }
-    // INV-4 (report only): tall stack spilling past card height.
-    if (band.stackHeight > band.cardHeight * 2 && band.loopCount >= 3) {
-      tallStacks.push(
-        `"${band.target}" N=${band.loopCount}: pill stack ${band.stackHeight.toFixed(0)}px vs card ${band.cardHeight.toFixed(0)}px (spill ${(band.stackHeight - band.cardHeight).toFixed(0)}px)`,
+    if (band.stackHeight > band.cardHeight) {
+      stacks.push(
+        `"${band.target}" N=${band.loopCount}: pill stack ${band.stackHeight.toFixed(0)}px vs card ${band.cardHeight.toFixed(0)}px (overhang ${((band.stackHeight - band.cardHeight) / 2).toFixed(0)}px each side)`,
       );
     }
   }
 
-  return { violations, tallStacks };
+  // INV-4: two pill bands must not intersect either — a stacked pill overlapping a
+  // neighbouring card's pill is as unreadable as one overlapping the card itself.
+  for (let i = 0; i < bands.length; i++) {
+    for (let j = i + 1; j < bands.length; j++) {
+      const a = bands[i];
+      const b = bands[j];
+      if (!a || !b) continue;
+      if (
+        overlaps1D(a.left, a.right, b.left, b.right, CARD_MARGIN) &&
+        overlaps1D(a.top, a.bottom, b.top, b.bottom, CARD_MARGIN)
+      ) {
+        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        violations.push({
+          snapshot: name,
+          inv: 'INV-4',
+          loopCount: Math.max(a.loopCount, b.loopCount),
+          detail: `pill bands of "${a.target}" (N=${a.loopCount}) and "${b.target}" (N=${b.loopCount}) overlap ${ox.toFixed(0)}x${oy.toFixed(0)}px`,
+        });
+      }
+    }
+  }
+
+  return { violations, stacks };
 };
 
 // ---- Adversarial snapshots ------------------------------------------------
@@ -441,6 +462,25 @@ const CASES: { name: string; snapshot: GraphSnapshot }[] = [
       actions: Array.from({ length: 5 }, (_, i) => act({ name: `h${i}`, target: 'hub' })),
     },
   },
+  // (n) isolated action-target with a tall stack docked ABOVE another isolated card.
+  // The isolated column advances its cursor by hand, so it needs the same vertical
+  // reserve ELK boxes now carry — at 3 and at 5 actions, so the reserve is a formula
+  // and not a number tuned to one count.
+  ...[3, 5].map((count) => ({
+    name: `n${count}:isolated target with ${count} actions above another isolated card`,
+    snapshot: {
+      objects: [
+        obj({ name: 'settingX', fields: ['id', 'key'] }),
+        obj({ name: 'belowX', fields: ['id'] }),
+        obj({ name: 'linkedA', fields: ['id'] }),
+        obj({ name: 'linkedB', fields: ['id'] }),
+      ],
+      links: [{ id: 'lab', from: 'linkedA', to: 'linkedB', cardinality: 'many' as const }],
+      actions: Array.from({ length: count }, (_, i) =>
+        act({ name: `set${i}`, target: 'settingX' }),
+      ),
+    },
+  })),
   // (m) chain where a MIDDLE node has many loops (stack collides up/down neighbours?)
   {
     name: 'm:chain with heavy-loop middle node',
@@ -455,39 +495,92 @@ const CASES: { name: string; snapshot: GraphSnapshot }[] = [
   },
 ];
 
+/** A target with `count` self-loops, a same-layer sibling, and a next-layer card. */
+const stackCase = ({ count }: { count: number }): GraphSnapshot => ({
+  objects: [
+    obj({ name: 'ledger', fields: ['id', 'balance'] }),
+    obj({ name: 'sibling', fields: ['id'] }),
+    obj({ name: 'sink', fields: ['id'] }),
+  ],
+  links: [
+    { id: 'l_sink', from: 'ledger', to: 'sink', cardinality: 'many' },
+    { id: 's_sink', from: 'sibling', to: 'sink', cardinality: 'many' },
+  ],
+  actions: Array.from({ length: count }, (_, i) => act({ name: `post${i}`, target: 'ledger' })),
+});
+
 describe('layout edge-case invariants (adversarial QA)', () => {
-  it('holds INV-1/2/3 within the CRUD-scan contract (≤2 targeted actions/object)', async () => {
+  it('holds INV-1/2/3/4 across every snapshot, at any targeted-action count', async () => {
     const allViolations: Violation[] = [];
-    const allTall: string[] = [];
+    const allStacks: string[] = [];
 
     for (const { name, snapshot } of CASES) {
       const positions = await computeLayout({ snapshot });
-      const { violations, tallStacks } = analyze({ name, snapshot, positions });
+      const { violations, stacks } = analyze({ name, snapshot, positions });
       allViolations.push(...violations);
-      allTall.push(...tallStacks.map((t) => `${name} :: ${t}`));
+      allStacks.push(...stacks.map((s) => `${name} :: ${s}`));
     }
 
-    // A CRUD scan yields at most 2 targeted actions per object (update + delete;
-    // create is target-less). Within that contract the map must never overlap:
-    // hard-assert every INV-1/INV-3 and every INV-2 whose target has ≤2 loops —
-    // this covers the isolated-action-target reserve fixed in this ticket. Pill
-    // bands from ≥3 hand-authored actions on ONE object can still overlap a
-    // neighbour or spill past the card vertically; that vertical-stack reserve is
-    // a separate backlog item and reported (not asserted) below.
-    const contractViolations = allViolations.filter(
-      (v) => v.inv !== 'INV-2' || (v.loopCount ?? 0) <= 2,
-    );
-    const ont027 = allViolations.filter((v) => v.inv === 'INV-2' && (v.loopCount ?? 0) >= 3);
+    console.log('\n===== pill stacks taller than their card (the reserved case) =====');
+    for (const s of allStacks) console.log('  ' + s);
+    console.log(`\n===== VIOLATIONS (must be 0): ${allViolations.length} =====`);
+    for (const v of allViolations) console.log(`  [${v.inv}] [${v.snapshot}] ${v.detail}`);
 
-    /* eslint-disable no-console */
-    console.log('\n===== Backlog: ≥3-action vertical pill-stack overlaps (report-only) =====');
-    for (const v of ont027) console.log(`  [${v.snapshot}] ${v.detail}`);
-    console.log('\n===== INV-4 tall pill stacks (report-only) =====');
-    for (const t of allTall) console.log('  ' + t);
-    console.log(`\n===== CONTRACT VIOLATIONS (must be 0): ${contractViolations.length} =====`);
-    for (const v of contractViolations) console.log(`  [${v.inv}] [${v.snapshot}] ${v.detail}`);
-    /* eslint-enable no-console */
+    // The assertion is unconditional. It used to be filtered down to the CRUD-scan
+    // contract (≤2 targeted actions/object) because a taller stack had nowhere to go:
+    // three pills span 212px against a 75px card, so the overhang landed on whatever
+    // ELK placed above or below, and the ≥3 case could only be REPORTED. Now every
+    // card's layout box is at least as tall as its own stack, so no count is exempt.
+    expect(
+      allStacks.length,
+      'expected snapshots whose stack overhangs its card, so the ≥3 case is exercised',
+    ).toBeGreaterThan(0);
+    expect(allViolations, JSON.stringify(allViolations, null, 2)).toEqual([]);
+  });
 
-    expect(contractViolations, JSON.stringify(contractViolations, null, 2)).toEqual([]);
+  it('stacks ≥3 targeted actions vertically and grows the reserve with the count', async () => {
+    const clearances: number[] = [];
+
+    // 3 and 5, not just 3 — the reserve has to be the stack formula, not a constant
+    // that happens to fit three pills.
+    for (const count of [3, 5]) {
+      const snapshot = stackCase({ count });
+      const positions = await computeLayout({ snapshot });
+      const { violations } = analyze({ name: `stack-${count}`, snapshot, positions });
+
+      expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
+
+      const target = snapshot.objects[0] as SnapshotObject;
+      const neighbour = snapshot.objects[1] as SnapshotObject;
+      const ledger = positions.get(objectId({ name: 'ledger' }));
+      const sibling = positions.get(objectId({ name: 'sibling' }));
+      const sink = positions.get(objectId({ name: 'sink' }));
+
+      const centreY = (ledger?.y ?? 0) + cardHeight({ object: target }) / 2;
+      const stackHalf = ((count - 1) / 2) * PILL_STAGGER + PILL_HALF_HEIGHT;
+
+      // The stack really is taller than the card it hangs off — that is the case.
+      expect(stackHalf * 2).toBeGreaterThan(cardHeight({ object: target }));
+
+      // The next layer clears the band horizontally (the ONT-025 reserve, unchanged).
+      expect(sink?.x ?? 0).toBeGreaterThanOrEqual(
+        (ledger?.x ?? 0) + cardWidth({ object: target }) + PILL_RIGHT_FROM_RIGHT,
+      );
+
+      // `sibling` shares ledger's ELK layer, so only the vertical reserve can keep it
+      // off the stack: it must sit wholly above or wholly below the pills.
+      const siblingTop = sibling?.y ?? 0;
+      const siblingBottom = siblingTop + cardHeight({ object: neighbour });
+      const clearance = Math.max(
+        siblingTop - (centreY + stackHalf),
+        centreY - stackHalf - siblingBottom,
+      );
+
+      expect(clearance).toBeGreaterThanOrEqual(0);
+      clearances.push(siblingTop + (siblingBottom - siblingTop) / 2 - centreY);
+    }
+
+    // Five pills push the neighbour further away than three do — the reserve scales.
+    expect(Math.abs(clearances[1] ?? 0)).toBeGreaterThan(Math.abs(clearances[0] ?? 0));
   });
 });

@@ -38,7 +38,10 @@ block() { fail_msg "$1"; BLOCKS=$((BLOCKS + 1)); }
 warned() { warn "$1"; WARNS=$((WARNS + 1)); }
 
 # ---- ST-01: root file whitelist ----
-ROOT_FILES_ALLOWED='^(CLAUDE\.md|DESIGN\.md|README\.md|LICENSE|\.gitignore|package\.json|pnpm-workspace\.yaml|pnpm-lock\.yaml|tsconfig\.json|tsconfig\.base\.json|\.npmrc|eslint\.config\.mjs|\.prettierrc|\.prettierignore)$'
+# `.git` is a DIRECTORY in a normal clone (whitelisted by ST-07 below) but a FILE
+# in a linked worktree, where it holds the `gitdir:` pointer. Without it here the
+# gate — and so the whole verify run — blocks in every `git worktree` checkout.
+ROOT_FILES_ALLOWED='^(CLAUDE\.md|DESIGN\.md|README\.md|LICENSE|\.git|\.gitignore|package\.json|pnpm-workspace\.yaml|pnpm-lock\.yaml|tsconfig\.json|tsconfig\.base\.json|\.npmrc|eslint\.config\.mjs|\.prettierrc|\.prettierignore)$'
 for f in * .[!.]*; do
   [[ -f "$f" ]] || continue
   if ! [[ "$f" =~ $ROOT_FILES_ALLOWED ]]; then
