@@ -52,6 +52,81 @@ export const typeNameOf = ({ node }: { node: unknown }): string => {
 };
 
 /**
+ * How many wrapper layers {@link baseNode} will strip before giving up. A zod
+ * chain of `.optional().nullable()` is two; a hand-written schema will not go
+ * far past that, and the cap means a malformed node whose `innerType` points
+ * back at itself cannot spin forever.
+ */
+const MAX_UNWRAP_DEPTH = 8;
+
+/** Wrappers that decorate a field without changing what value it accepts. */
+const WRAPPER_TYPES = new Set(['optional', 'nullable', 'default']);
+
+/**
+ * Strip the `.optional()` / `.nullable()` / `.default()` wrappers off a
+ * field-level zod node and return the node they decorate.
+ *
+ * {@link typeNameOf} is deliberately shallow, so it reports `optional` for
+ * `z.string().optional()` — true, and useless to a caller that wants to know
+ * the field holds a string. Everything generated from a Prisma schema wraps
+ * every nullable column, so without this the majority of a scanned object's
+ * fields are untypable. Returns the node itself when it carries no wrapper.
+ */
+export const baseNode = ({ node }: { node: unknown }): unknown => {
+  let current = node;
+
+  for (let depth = 0; depth < MAX_UNWRAP_DEPTH; depth += 1) {
+    if (!WRAPPER_TYPES.has(typeNameOf({ node: current }))) {
+      return current;
+    }
+
+    const inner = readDef({ node: current })?.['innerType'];
+
+    if (inner === undefined) {
+      return current;
+    }
+
+    current = inner;
+  }
+
+  return current;
+};
+
+/**
+ * The string members of a zod enum node, in DECLARED order, or `undefined` for
+ * any node that is not an enum.
+ *
+ * Declared order (not sorted) because the order is part of what the source
+ * said, and it is stable across runs — zod v3 keeps the `z.enum([...])` array
+ * and zod v4 keeps its `entries` object in the same insertion order — so
+ * nothing that renders this can lose byte-determinism by using it.
+ *
+ * Non-string members (a numeric `nativeEnum`) are dropped rather than coerced:
+ * a caller renders these as a JSON Schema `enum`, and listing `1` as the string
+ * `"1"` would advertise a value the schema does not accept.
+ */
+export const enumValues = ({ node }: { node: unknown }): string[] | undefined => {
+  if (typeNameOf({ node }) !== 'enum' && typeNameOf({ node }) !== 'nativeenum') {
+    return undefined;
+  }
+
+  const def = readDef({ node });
+  // v3 `ZodEnum` keeps an array of members; v3 `ZodNativeEnum` and v4 `ZodEnum`
+  // keep an object (`values` / `entries`) whose VALUES are the members.
+  const raw = def?.['values'] ?? def?.['entries'];
+
+  const members = Array.isArray(raw)
+    ? raw
+    : typeof raw === 'object' && raw !== null
+      ? Object.values(raw as Record<string, unknown>)
+      : [];
+
+  const strings = members.filter((member): member is string => typeof member === 'string');
+
+  return strings.length === 0 ? undefined : strings;
+};
+
+/**
  * Sorted `property-name -> primitive-type-name` map of a zod object schema's
  * top-level shape — the `inputShape` component of the action signature hash.
  */

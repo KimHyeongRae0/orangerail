@@ -398,4 +398,32 @@ describe('withholdActions — the server refuses the weakened action, not the on
     // The declared registry is a view source, never mutated.
     expect(registry.getAction({ name: 'deleteCustomer' })?.name).toBe('deleteCustomer');
   });
+
+  it('carries every OTHER registry member through, `listLinks` included (ONT-053)', () => {
+    // The view is a spread, so it forwards members it has never heard of. That
+    // is load-bearing rather than incidental: `orangerail mcp` now calls
+    // `listLinks()` to describe its read tools, and this view is the registry it
+    // is handed on any project with governance drift. Rebuilt as a fresh object
+    // literal, the server would throw on start — on the drift path only, which
+    // is exactly the path a green CI run does not exercise.
+    const registry = registryWith({ approval: 'required' });
+    const order = registry.defineObject({
+      name: 'Order',
+      schema: z.object({ id: z.string() }),
+      resolve: { get: async () => ({ id: 'o1' }) },
+    });
+
+    registry.defineLink({
+      name: 'Customer_orders',
+      from: registry.getObject({ name: 'Customer' })!,
+      to: order,
+      cardinality: 'many',
+    });
+
+    const served = withholdActions({ registry, names: new Set(['deleteCustomer']) });
+
+    expect(typeof served.listLinks).toBe('function');
+    expect(served.listLinks().map((link) => link.name)).toEqual(['Customer_orders']);
+    expect(served.getObject({ name: 'Order' })?.name).toBe('Order');
+  });
 });

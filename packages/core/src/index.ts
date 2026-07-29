@@ -72,7 +72,9 @@ export type { PublicDiagnostic, PublicDiagnosticCode } from './diagnostic';
 
 export { computeSignatureHash } from './signature';
 export {
+  baseNode,
   canonicalJson,
+  enumValues,
   getShape,
   inputShape,
   isOptionalField,
