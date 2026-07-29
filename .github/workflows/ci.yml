@@ -55,6 +55,17 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      # Four scenarios (ONT-005/006/011/017) drive a REAL browser through the
+      # agent-browser CLI, because the studio's value is what a human sees and a
+      # jsdom assertion cannot speak to that. It is a global CLI rather than a
+      # workspace dependency — direct Playwright is forbidden repo-wide — so CI
+      # installs it explicitly. Pinned: an e2e gate that silently changes its
+      # browser driver under us is not a gate. `--with-deps` pulls the Linux
+      # shared libraries Chrome needs, which a bare runner does not have.
+      - name: Install the browser driver for the studio scenarios
+        run: |
+          npm install --global agent-browser@0.27.0
+          agent-browser install --with-deps
       - name: Run the e2e regression
         # No ticket argument = regression mode over every tests/e2e/*.sh.
         # A scenario needing live credentials declares `# @live-env: VAR`; the

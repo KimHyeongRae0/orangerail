@@ -292,7 +292,22 @@ const openMcpSession = async ({ cwd, env, unset }) => {
     await exited;
   };
 
-  return { request, callTool, listTools, close, operatorLog: () => stderr };
+  /**
+   * The operator line and the JSON-RPC response travel on DIFFERENT pipes, and
+   * the child writing stderr first does not guarantee the parent reads it
+   * first. Poll briefly, so a scheduling accident cannot turn a correct server
+   * into a red scenario.
+   */
+  const awaitOperatorLine = async ({ correlationId, timeoutMs = 5_000 }) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!stderr.includes(correlationId) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    return stderr;
+  };
+
+  return { request, callTool, listTools, close, awaitOperatorLine };
 };
 
 // ───────── phase 1 — the full governed write loop against real SQLite ─────────
@@ -544,7 +559,9 @@ const nodbExecuted = await nodbSession2.callTool({
   name: 'check_approval',
   args: { approvalId: nodbApprovalId },
 });
-const nodbOperatorLog = nodbSession2.operatorLog();
+const nodbOperatorLog = await nodbSession2.awaitOperatorLine({
+  correlationId: nodbExecuted.structuredContent?.correlationId ?? '',
+});
 await nodbSession2.close();
 
 assert({

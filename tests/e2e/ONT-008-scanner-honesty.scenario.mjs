@@ -194,7 +194,22 @@ const openMcpSession = async ({ cwd }) => {
     await exited;
   };
 
-  return { request, close, operatorLog: () => stderr };
+  /**
+   * The operator line and the JSON-RPC response travel on DIFFERENT pipes, and
+   * the child writes stderr first only in ITS process — the parent may see the
+   * stdout chunk first. Poll briefly rather than read once, so a scheduling
+   * accident cannot turn a correct server into a red scenario.
+   */
+  const awaitOperatorLine = async ({ correlationId, timeoutMs = 5_000 }) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!stderr.includes(correlationId) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    return stderr;
+  };
+
+  return { request, close, awaitOperatorLine };
 };
 
 // ─────────── phase 1 — monorepo: nested schema detected + generated ───────────
@@ -291,9 +306,6 @@ const called = await session.request({
   method: 'tools/call',
   params: { name: 'Post_list', arguments: {} },
 });
-const operatorLog = session.operatorLog();
-await session.close();
-
 assert({
   ok: called?.isError === true,
   message: `calling Post_list without a generated Prisma client must surface a failure — got ${JSON.stringify(called)}`,
@@ -342,6 +354,9 @@ for (const needle of ['Post', 'prisma generate']) {
 
 // The other half of the §3.10 contract: the FULL text the agent did not get
 // still reaches the operator, under the same id the agent was handed.
+const operatorLog = await session.awaitOperatorLine({ correlationId });
+await session.close();
+
 const reported = operatorLog
   .split('\n')
   .find((line) => line.includes(correlationId) && line.includes('resolve_error'));
