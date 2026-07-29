@@ -3,12 +3,24 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createFileStore, createRegistry, type Registry } from 'orangerail-core';
+import {
+  createEngine,
+  createFileStore,
+  createRegistry,
+  DEV_SUBJECT,
+  type Registry,
+} from 'orangerail-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import type { OrangerailConfig } from '../src/config';
-import { actionPostures, GOVERNANCE_FILE, writeBaseline } from '../src/governance';
+import {
+  actionPostures,
+  GOVERNANCE_FILE,
+  reviewGovernance,
+  withholdActions,
+  writeBaseline,
+} from '../src/governance';
 import { mcpServerArgsFrom, runMcp } from '../src/commands/mcp';
 import { boundPortOf } from '../src/commands/studio';
 
@@ -315,6 +327,48 @@ describe('mcp — a posture the baseline contradicts is not served (ONT-050)', (
     expect(served.listActions()).toHaveLength(2);
     expect(line).toContain('could not be read');
     expect(line).toContain('CANNOT verify');
+  });
+
+  /**
+   * The consequence of withholding, asserted rather than assumed: an approval
+   * staged before the drift cannot be turned into an execution while the drift
+   * stands. It lands on the engine's existing "missing action" branch, so the
+   * approval is spent and audited as `invalidated` — the same contract a
+   * signature mismatch already has. Nothing runs, which is the point.
+   */
+  it('will not execute an approval staged for an action that has since been withheld', async () => {
+    const { root, config } = project({ gateDelete: true });
+    writeBaseline({
+      projectRoot: root,
+      postures: actionPostures({ registry: config.registry }),
+      recordedBy: 'sync',
+    });
+
+    const staged = await createEngine({ registry: config.registry, store: config.store }).stage({
+      actionName: 'deleteOrder',
+      input: { id: '8' },
+      caller: { subject: DEV_SUBJECT, roles: [], devMode: true },
+    });
+    expect(staged.status).toBe('approval_pending');
+    const approvalId = staged.status === 'approval_pending' ? staged.approvalId : '';
+
+    // The gate is deleted afterwards; the server withholds the action.
+    const drifted = project({ gateDelete: false });
+    const served = withholdActions({
+      registry: drifted.config.registry,
+      names: new Set(
+        reviewGovernance({ projectRoot: root, registry: drifted.config.registry }).weakenedActions,
+      ),
+    });
+
+    const engine = createEngine({ registry: served, store: config.store });
+    await engine.approve({
+      approvalId,
+      approver: { subject: 'alice', roles: [], devMode: true },
+    });
+
+    const done = await engine.execute({ approvalId });
+    expect(done.status).toBe('invalidated');
   });
 
   it('serves normally against a matching baseline and adds no noise', async () => {
