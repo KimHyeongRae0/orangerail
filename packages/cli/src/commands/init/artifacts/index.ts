@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
-import { specifiersResolvable, smokeLoadStaged, writeFileSet } from '../atomic';
+import {
+  clobberRefusal,
+  degradeNotice,
+  existingTargets,
+  verifyStaged,
+  writeFileSet,
+} from '../atomic';
 import { extractCandidates } from './candidates';
 import { emitArtifacts } from './emit';
 import { computeFindings } from './findings';
@@ -142,9 +148,15 @@ export const runInitFromArtifacts = async ({
 
   const files = emitArtifacts({ ontology });
 
-  if (specifiersResolvable({ cwd })) {
-    await smokeLoadStaged({ files, cwd });
+  const existing = existingTargets({ files, baseDir: cwd });
+
+  if (existing.length > 0) {
+    process.stderr.write(clobberRefusal({ existing }));
+
+    return 1;
   }
+
+  const verdict = await verifyStaged({ files, cwd });
 
   writeFileSet({ files, baseDir: cwd });
 
@@ -167,6 +179,10 @@ export const runInitFromArtifacts = async ({
       `from ${sources}.\n` +
       'These files are yours — review ANALYTICS.md, then run `orangerail mcp` or `orangerail studio`.\n',
   );
+
+  if (!verdict.ok) {
+    process.stdout.write(degradeNotice({ verdict }));
+  }
 
   return 0;
 };

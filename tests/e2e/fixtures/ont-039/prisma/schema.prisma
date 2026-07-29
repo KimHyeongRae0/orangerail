@@ -1,0 +1,25 @@
+// ONT-039 e2e fixture — the smallest repo `init` will generate for: two models
+// with a relation, so the file set has an ontology/ worth clobbering.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id       Int    @id @default(autoincrement())
+  title    String
+  body     String
+  author   Author @relation(fields: [authorId], references: [id])
+  authorId Int
+}
+
+model Author {
+  id       Int       @id @default(autoincrement())
+  name     String
+  articles Article[]
+}

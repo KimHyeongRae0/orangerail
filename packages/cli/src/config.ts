@@ -25,7 +25,22 @@ export interface OrangerailConfig {
   allowDevMode?: boolean;
 }
 
-const DEFAULT_CONFIG_NAMES = ['orangerail.config.mjs', 'orangerail.config.js'];
+/**
+ * Config filenames every command discovers, in resolution order — the single
+ * list `init`'s front door and `resolveConfigPath` both read, so a name one of
+ * them honors can never read as "not initialized" to the other.
+ *
+ * `.mjs` stays first (it is what `init` generates). The TypeScript names are
+ * discovered because the docs promise they work through the user's own
+ * TS-capable runtime; leaving them out let `init` regenerate over the ontology
+ * of anyone who had migrated to one.
+ */
+export const DEFAULT_CONFIG_NAMES = [
+  'orangerail.config.mjs',
+  'orangerail.config.js',
+  'orangerail.config.ts',
+  'orangerail.config.mts',
+];
 
 /**
  * Load the ontology config via plain dynamic `import()` (§3.4 — no loader
