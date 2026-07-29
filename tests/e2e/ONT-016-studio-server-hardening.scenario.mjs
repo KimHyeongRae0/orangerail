@@ -327,22 +327,51 @@ const main = async () => {
     });
 
     // Self-healing: closing an admitted client frees a slot for a new connection.
+    // How long the server takes to observe the FIN is not a fact this scenario
+    // is testing, and a fixed sleep is a guess about it that a loaded runner
+    // loses. Poll for the freed slot instead. The assertion is unchanged and is
+    // not made vacuous: a cap that never releases the slot fails on the timeout.
     openSockets[0].destroy();
-    await sleep(1000);
 
-    const afterFree = await openSse({ host: `127.0.0.1:${PORT}` });
+    const afterFree = await waitFor({
+      label: 'the SSE cap to release a slot after an admitted client disconnects',
+      timeoutMs: 15_000,
+      fn: async () => {
+        const handle = await openSse({ host: `127.0.0.1:${PORT}` });
+
+        if (handle.status === 200) {
+          return handle;
+        }
+
+        handle.socket.destroy();
+        return undefined;
+      },
+    });
+
     openSockets.push(afterFree.socket);
     assert({
       ok: afterFree.status === 200,
       message: `AC-2: a new SSE connection must succeed after a slot frees (got ${afterFree.status})`,
     });
 
-    // Release every Phase-2 socket so the cap does not starve later phases.
+    // Release every Phase-2 socket so the cap does not starve later phases. The
+    // next phase opens its own SSE client and asserts it is admitted, so wait
+    // for the cap to have actually drained rather than sleeping on it.
     for (const socket of openSockets) {
       socket.destroy();
     }
     openSockets.length = 0;
-    await sleep(1000);
+
+    await waitFor({
+      label: 'the SSE cap to drain after every Phase-2 socket is destroyed',
+      timeoutMs: 15_000,
+      fn: async () => {
+        const handle = await openSse({ host: `127.0.0.1:${PORT}` });
+        handle.socket.destroy();
+
+        return handle.status === 200;
+      },
+    });
 
     // ---- Phase 3 (AC-3): reload errors do not leak filesystem paths ----
     console.log('Phase 3 (AC-3): reload-error payload carries no absolute path');

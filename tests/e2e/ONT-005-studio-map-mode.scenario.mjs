@@ -128,8 +128,20 @@ const abEval = ({ js }) => {
   return JSON.parse(stdout.slice(start, end + 1));
 };
 
-/** Poll an async predicate until it returns truthy or the timeout elapses. */
-const waitFor = async ({ label, fn, timeoutMs = 20_000, intervalMs = 500 }) => {
+/**
+ * Poll an async predicate until it returns truthy or the timeout elapses.
+ *
+ * A wait predicate here must cover EVERY fact the assertions after it read.
+ * Where it does not, the assertions race the app instead of testing it: the
+ * scenario failed in CI on `action node not rendered: publish_product` because
+ * this wait counted object cards only, while the assertion also needed the
+ * action pills — and React Flow renders those strictly later (see `readGraph`).
+ *
+ * Widening a predicate costs diagnostics — a precise `assert` message becomes a
+ * generic timeout — so `detail` lets a predicate report what it was still
+ * missing on its last look, and the timeout says it.
+ */
+const waitFor = async ({ label, fn, timeoutMs = 20_000, intervalMs = 500, detail }) => {
   const deadline = Date.now() + timeoutMs;
 
   for (;;) {
@@ -146,7 +158,8 @@ const waitFor = async ({ label, fn, timeoutMs = 20_000, intervalMs = 500 }) => {
     }
 
     if (Date.now() > deadline) {
-      fail({ message: `timed out waiting for: ${label}` });
+      const missing = detail ? ` — still missing: ${detail()}` : '';
+      fail({ message: `timed out waiting for: ${label}${missing}` });
     }
 
     await sleep(intervalMs);
@@ -202,7 +215,21 @@ const stopStudio = async ({ child }) => {
   });
 };
 
-/** Read the DOM contract for every rendered object / action node. */
+/**
+ * Read the DOM contract for every rendered object / action node, in ONE sample.
+ *
+ * Node classes on this surface do NOT appear together, which is what every wait
+ * below has to respect. Object cards are React Flow nodes and are in the DOM on
+ * the first commit. A targeted action (`publish_product`) is an edge label on a
+ * self-loop, and React Flow renders an edge only once both its endpoints have
+ * been measured by a ResizeObserver — asynchronously, after that first commit.
+ * Measured here on an idle machine the pills, the link edges and the cards'
+ * `visibility: visible` all land ~15-35ms after the cards; on a loaded CI runner
+ * that window is wide enough for a poll to land inside it.
+ *
+ * Everything a phase asserts therefore comes from one call, so no assertion can
+ * read a DOM that moved on between the wait and the check.
+ */
 const readGraph = () =>
   abEval({
     js: `(() => {
@@ -221,6 +248,7 @@ const readGraph = () =>
       return {
         objects,
         actions,
+        edges: document.querySelectorAll('.react-flow__edge').length,
         panelOpen: !!document.querySelector('[data-testid="detail-panel"]'),
         reloadError: !!document.querySelector('[data-testid="reload-error"]'),
         viewport: (document.querySelector('.react-flow__viewport') || {}).style ? document.querySelector('.react-flow__viewport').style.transform : '',
@@ -234,6 +262,61 @@ const readGraph = () =>
 
 const objectByName = ({ graph, name }) => graph.objects.find((o) => o.name === name);
 const actionByName = ({ graph, name }) => graph.actions.find((a) => a.name === name);
+
+/**
+ * Click a selector and wait for the state that click is supposed to produce,
+ * re-issuing the click on every poll until it lands. Returns the settled graph.
+ *
+ * Moving onto a node commits a hover, and a committed hover rebuilds the graph,
+ * which React Flow renders by briefly detaching the edge svg — the app documents
+ * this in `pointerInside` and already softens it with a 90ms hover debounce. A
+ * click that lands inside that detach window is delivered to an element that is
+ * on its way out, the selection never happens, and a wait can then only run out
+ * the clock. Both clicks driven this way are idempotent selections (they set a
+ * focus, they never toggle one), so re-issuing is safe, and it turns a dropped
+ * click into a slower click rather than a failed run.
+ *
+ * `ready` is the phase's own asserted state, so the click is driven until
+ * exactly the condition the assertions read is true — never merely until the
+ * click command returned. `landed` is the narrower "the selection happened at
+ * all" fact: once that holds the click is not re-issued, because the rest is
+ * only rendering catching up, and a needless second click on an open panel
+ * could be intercepted by the panel itself.
+ */
+const clickUntil = async ({ selector, label, landed, ready, describe }) => {
+  let status = ab({ args: ['click', selector] }).status;
+
+  return waitFor({
+    label,
+    detail: () => `${describe()} (last click exit ${status})`,
+    fn: () => {
+      const graph = readGraph();
+
+      if (ready({ graph })) {
+        return graph;
+      }
+
+      if (!landed({ graph })) {
+        status = ab({ args: ['click', selector] }).status;
+      }
+
+      return undefined;
+    },
+  });
+};
+
+/** Node classes the page-load assertions read, and which are not yet in the DOM. */
+const missingFromMap = ({ graph }) => [
+  ...[...EXPECTED_OBJECTS]
+    .filter((name) => !objectByName({ graph, name }))
+    .map((n) => `object ${n}`),
+  ...[...EXPECTED_ACTIONS]
+    .filter((name) => !actionByName({ graph, name }))
+    .map((n) => `action ${n}`),
+  ...(graph.edges >= EXPECTED_LINKS.size
+    ? []
+    : [`${EXPECTED_LINKS.size - graph.edges} link edge(s)`]),
+];
 
 const main = async () => {
   rmSync(RUN_DIR, { recursive: true, force: true });
@@ -298,26 +381,27 @@ const main = async () => {
     console.log('Phase 2: page load, nodes/edges/action pill');
     ab({ args: ['--args', '--no-first-run,--no-default-browser-check', 'open', `${BASE}/`] });
 
-    await waitFor({
-      label: 'object nodes to render',
-      fn: async () => {
-        const graph = readGraph();
-        return graph.objects.length >= EXPECTED_OBJECTS.size ? graph : undefined;
+    // Wait for every node class the assertions below read — cards, action pills
+    // AND link edges — not just the cards. Counting cards alone is what made this
+    // phase flaky: the pills arrive with the edges, one measurement pass later.
+    let latest = [];
+    let graph = await waitFor({
+      label: 'the map to render its object cards, action pills and link edges',
+      detail: () => latest.join(', '),
+      fn: () => {
+        const g = readGraph();
+        latest = missingFromMap({ graph: g });
+        return latest.length === 0 ? g : undefined;
       },
     });
 
-    let graph = readGraph();
     for (const name of EXPECTED_OBJECTS) {
       assert({ ok: !!objectByName({ graph, name }), message: `object node not rendered: ${name}` });
     }
     for (const name of EXPECTED_ACTIONS) {
       assert({ ok: !!actionByName({ graph, name }), message: `action node not rendered: ${name}` });
     }
-
-    const edgeCount = abEval({
-      js: `(() => document.querySelectorAll('.react-flow__edge').length)()`,
-    });
-    assert({ ok: edgeCount >= EXPECTED_LINKS.size, message: 'link edges not rendered' });
+    assert({ ok: graph.edges >= EXPECTED_LINKS.size, message: 'link edges not rendered' });
 
     const publishPill = actionByName({ graph, name: 'publish_product' });
     assert({
@@ -339,13 +423,28 @@ const main = async () => {
 
     // ---- Phase 3: click an object node -> focus highlight + panel ----
     console.log('Phase 3: object focus highlight + detail panel');
-    ab({ args: ['click', '[data-object-name="product"]'] });
+    // The focus state and the detail panel are pushed through different paths
+    // (React Flow's node store vs a plain DOM sibling), so wait for the whole
+    // asserted state — active card, a highlighted neighbour, panel open — not
+    // only for `active`.
+    let unsettled = [];
+    graph = await clickUntil({
+      selector: '[data-object-name="product"]',
+      label: 'the product focus to settle (active card, highlighted neighbour, open panel)',
+      describe: () => unsettled.join(', '),
+      landed: ({ graph: g }) => objectByName({ graph: g, name: 'product' })?.active === true,
+      ready: ({ graph: g }) => {
+        unsettled = [
+          ...(objectByName({ graph: g, name: 'product' })?.active ? [] : ['product not active']),
+          ...(['internal_note', 'customer'].some(
+            (n) => objectByName({ graph: g, name: n })?.highlighted,
+          )
+            ? []
+            : ['no linked neighbour highlighted']),
+          ...(g.panelOpen ? [] : ['detail panel not open']),
+        ];
 
-    graph = await waitFor({
-      label: 'product node to become active',
-      fn: () => {
-        const g = readGraph();
-        return objectByName({ graph: g, name: 'product' })?.active ? g : undefined;
+        return unsettled.length === 0;
       },
     });
 
@@ -367,13 +466,25 @@ const main = async () => {
 
     // ---- Phase 4: click the governed action pill -> target highlighted ----
     console.log('Phase 4: action focus highlights its target');
-    ab({ args: ['click', '[data-action-name="publish_product"]'] });
+    // The pill (an edge label) and its target card (a node) are two different
+    // React Flow surfaces; wait for both halves of the asserted state.
+    graph = await clickUntil({
+      selector: '[data-action-name="publish_product"]',
+      label: 'the publish_product focus to settle (active pill, highlighted target)',
+      describe: () => unsettled.join(', '),
+      landed: ({ graph: g }) =>
+        actionByName({ graph: g, name: 'publish_product' })?.active === true,
+      ready: ({ graph: g }) => {
+        unsettled = [
+          ...(actionByName({ graph: g, name: 'publish_product' })?.active
+            ? []
+            : ['publish_product pill not active']),
+          ...(objectByName({ graph: g, name: 'product' })?.highlighted
+            ? []
+            : ['product card not highlighted']),
+        ];
 
-    graph = await waitFor({
-      label: 'publish_product pill to become active',
-      fn: () => {
-        const g = readGraph();
-        return actionByName({ graph: g, name: 'publish_product' })?.active ? g : undefined;
+        return unsettled.length === 0;
       },
     });
 
@@ -435,17 +546,38 @@ const main = async () => {
 
     const beforeTidy = readGraph().objects.length;
     ab({ args: ['click', '[data-testid="tidy"]'] });
-    await sleep(1500);
-    const afterTidy = readGraph();
-    assert({ ok: afterTidy.objects.length === beforeTidy, message: 'tidy must not drop nodes' });
+
+    // Tidy re-runs the async ELK layout and re-fits. A blind sleep judges
+    // whatever the DOM happens to look like when it expires; poll for a settled
+    // DOM instead — the same object count on two consecutive reads. The
+    // assertion is unchanged and is NOT made vacuous by this: a tidy that really
+    // dropped a card settles at the wrong count and still fails, by name.
+    const afterTidy = await waitFor({
+      label: 'the graph to settle after tidy',
+      fn: () => {
+        const first = readGraph();
+        const second = readGraph();
+        return first.objects.length === second.objects.length ? second : undefined;
+      },
+    });
+    assert({
+      ok: afterTidy.objects.length === beforeTidy,
+      message: `tidy must not drop nodes (${beforeTidy} before, ${afterTidy.objects.length} after)`,
+    });
     assert({ ok: !afterTidy.reloadError, message: 'tidy must not raise an error' });
 
     ab({ args: ['select', '[data-testid="show-mode"]', 'name'] });
     await waitFor({
+      // `[].every(...)` is true, so a predicate of "every card has no field rows"
+      // is satisfied by a graph with NO cards at all — it would wave through the
+      // exact mid-re-render frame it is supposed to wait out. Require the cards.
       label: 'field rows to disappear in Name Only mode',
       fn: () => {
         const g = readGraph();
-        return g.objects.every((o) => o.fields.length === 0) ? g : undefined;
+        return g.objects.length === EXPECTED_OBJECTS.size &&
+          g.objects.every((o) => o.fields.length === 0)
+          ? g
+          : undefined;
       },
     });
     ab({ args: ['screenshot', join(SHOT_DIR, 'studio-04-name-only.png')] });
@@ -480,8 +612,21 @@ const main = async () => {
     });
 
     // ---- Phase 8: hostile-named object rendered inert ----
+    // Read the hostile card from a wait, not from a bare re-read: phase 7 just
+    // rebuilt the whole graph from a reloaded config, and the assertions below
+    // (including the two negative ones) have to judge a settled DOM.
     console.log('Phase 8: hostile name rendered inert (AC-8)');
-    graph = readGraph();
+    let rendered = [];
+    graph = await waitFor({
+      label: 'the hostile-named object card to re-render after the live reload',
+      detail: () => `rendered cards: ${rendered.join(' | ') || 'none'}`,
+      fn: () => {
+        const g = readGraph();
+        rendered = g.objects.map((o) => o.name);
+
+        return g.objects.some((o) => o.text && o.text.includes('onerror')) ? g : undefined;
+      },
+    });
     assert({
       ok: graph.xss === undefined || graph.xss === null,
       message: 'hostile payload executed (window.__ont_xss set)',
