@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { IrActionField, IrField, IrScalar } from '../ir';
+import type { IrActionField, IrField, IrScalar, IrValueConstraints } from '../ir';
 import { escapeStringLiteral } from './escape';
 
 /**
@@ -75,11 +75,46 @@ export const fieldExpr = ({ field }: { field: IrField }): string => {
   return expr;
 };
 
+/** Numeric-bound keys, in the order they are chained onto the base expression. */
+const BOUND_METHODS = ['min', 'gt', 'max', 'lt'] as const;
+
+/**
+ * Render the declared value constraints (ONT-037) as a chain of zod modifiers.
+ * The key names ARE the method names and the order is fixed, so the same IR
+ * always emits the same bytes and a constraint-free field emits nothing at all.
+ * A `regex` source goes through the one escaping layer (D10) and is rebuilt with
+ * `new RegExp(...)` rather than a `/…/` literal, which no amount of user input
+ * can terminate early.
+ */
+const constraintSuffix = ({
+  constraints,
+}: {
+  constraints: IrValueConstraints | undefined;
+}): string => {
+  if (constraints === undefined) {
+    return '';
+  }
+
+  const parts = BOUND_METHODS.filter((method) => constraints[method] !== undefined).map(
+    (method) => `.${method}(${constraints[method] as number})`,
+  );
+
+  if (constraints.regex !== undefined) {
+    parts.push(`.regex(new RegExp(${escapeStringLiteral({ value: constraints.regex })}))`);
+  }
+
+  return parts.join('');
+};
+
 /** The full zod expression string for a scanned action input field. */
 export const actionFieldExpr = ({ field }: { field: IrActionField }): string => {
   const base = baseOf({ field });
 
-  return field.optional ? `${base.expr}.optional()` : base.expr;
+  // `.optional()` stays outermost: the bounds constrain the value, not whether
+  // the caller has to supply one.
+  const expr = `${base.expr}${constraintSuffix({ constraints: field.constraints })}`;
+
+  return field.optional ? `${expr}.optional()` : expr;
 };
 
 /** The actual zod node a scanned object field maps to (differ side). */

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
+import { actionFieldExpr } from '../../codegen/zod';
+import type { IrAction } from '../../ir';
 import { scanOpenApiJson, YAML_HINT } from './scan';
 
 const DOC = JSON.stringify({
@@ -529,5 +532,243 @@ describe('scanOpenApiJson', () => {
       'cancellationReason',
       'allRemainingBookings',
     ]);
+  });
+});
+
+/** A one-write-operation document whose single body property is `property`. */
+const docWith = ({ property }: { property: unknown }): string =>
+  JSON.stringify({
+    openapi: '3.0.3',
+    paths: {
+      '/things': {
+        post: {
+          operationId: 'createThing',
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: { type: 'object', required: ['value'], properties: { value: property } },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+/** The emitted expression for the single `value` property of `docWith`. */
+const exprFor = ({ property }: { property: unknown }): string => {
+  const scanned = scanOpenApiJson({ source: docWith({ property }) });
+  const field = scanned.actions[0]?.input[0];
+
+  return field === undefined ? '<no field>' : actionFieldExpr({ field });
+};
+
+/**
+ * Rebuild a runtime schema out of the EMITTED expressions. The assertion is then
+ * about the artifact that lands in `ontology/<action>.mjs`, not about a
+ * hand-written copy of it — `new Function` evaluates exactly the emitted string.
+ */
+const emittedSchema = ({ action }: { action: IrAction }): z.ZodType => {
+  const entries = action.input
+    .map((field) => `${JSON.stringify(field.name)}: ${actionFieldExpr({ field })}`)
+    .join(', ');
+
+  return new Function('z', `return z.object({ ${entries} });`)(z) as z.ZodType;
+};
+
+const PRODUCTS_DOC = JSON.stringify({
+  openapi: '3.0.0',
+  paths: {
+    '/products': {
+      post: {
+        operationId: 'createProduct',
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'priceCents'],
+                properties: {
+                  name: { type: 'string', minLength: 1 },
+                  priceCents: { type: 'integer', minimum: 0 },
+                  discountPct: { type: 'number', minimum: 0, maximum: 100 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+});
+
+describe('scanOpenApiJson value constraints (ONT-037)', () => {
+  it('carries the declared bounds from the issue #29 reproduction into the emitted zod', () => {
+    const scanned = scanOpenApiJson({ source: PRODUCTS_DOC });
+    const create = scanned.actions.find((a) => a.name === 'createProduct');
+    const exprs = new Map(create?.input.map((f) => [f.name, actionFieldExpr({ field: f })]));
+
+    expect(exprs.get('name')).toBe('z.string().min(1)');
+    expect(exprs.get('priceCents')).toBe('z.number().int().min(0)');
+    expect(exprs.get('discountPct')).toBe('z.number().min(0).max(100).optional()');
+    // Every declared constraint was honored, so there is nothing to report.
+    expect(scanned.warnings).toHaveLength(0);
+  });
+
+  it('rejects the contract-violating payload the pre-fix schema accepted', () => {
+    const scanned = scanOpenApiJson({ source: PRODUCTS_DOC });
+    const create = scanned.actions.find((a) => a.name === 'createProduct') as IrAction;
+    const schema = emittedSchema({ action: create });
+
+    expect(schema.safeParse({ name: '', priceCents: -500, discountPct: -1 }).success).toBe(false);
+    expect(schema.safeParse({ name: 'Rail', priceCents: 500, discountPct: 10 }).success).toBe(true);
+  });
+
+  it('renders exclusive bounds in both the 3.0 modifier and the 3.1 numeric spelling', () => {
+    // OpenAPI 3.0: a boolean flag that makes the sibling `minimum` exclusive.
+    expect(
+      exprFor({
+        property: {
+          type: 'number',
+          minimum: 0,
+          exclusiveMinimum: true,
+          maximum: 10,
+          exclusiveMaximum: true,
+        },
+      }),
+    ).toBe('z.number().gt(0).lt(10)');
+
+    // JSON Schema 2020-12 / OpenAPI 3.1: the keyword IS the bound.
+    expect(
+      exprFor({ property: { type: 'integer', exclusiveMinimum: 0, exclusiveMaximum: 10 } }),
+    ).toBe('z.number().int().gt(0).lt(10)');
+  });
+
+  it('emits both bounds when an inclusive and an exclusive one are declared together', () => {
+    // Their intersection is `>= 10`; emitting only `.gt(5)` would be weaker than
+    // what the spec declares, which is the whole defect this ticket fixes.
+    expect(exprFor({ property: { type: 'integer', minimum: 10, exclusiveMinimum: 5 } })).toBe(
+      'z.number().int().min(10).gt(5)',
+    );
+  });
+
+  it('treats an explicit `exclusiveMinimum: false` as the no-op it is', () => {
+    const scanned = scanOpenApiJson({
+      source: docWith({ property: { type: 'integer', minimum: 0, exclusiveMinimum: false } }),
+    });
+
+    expect(actionFieldExpr({ field: scanned.actions[0]!.input[0]! })).toBe(
+      'z.number().int().min(0)',
+    );
+    expect(scanned.warnings).toHaveLength(0);
+  });
+
+  it('honors a string pattern through the escaping layer, hostile quotes included', () => {
+    expect(exprFor({ property: { type: 'string', pattern: '^[A-Z]{2}-[0-9]+$' } })).toBe(
+      'z.string().regex(new RegExp("^[A-Z]{2}-[0-9]+$"))',
+    );
+
+    const scanned = scanOpenApiJson({
+      source: docWith({ property: { type: 'string', pattern: '^["a-z]+$' } }),
+    });
+    const schema = emittedSchema({ action: scanned.actions[0]! });
+
+    // The quote survived as inert data: the emitted literal still evaluates and
+    // still enforces the pattern.
+    expect(schema.safeParse({ value: '"abc' }).success).toBe(true);
+    expect(schema.safeParse({ value: 'ABC' }).success).toBe(false);
+    expect(scanned.warnings).toHaveLength(0);
+  });
+
+  it('honors bounds declared on a path parameter', () => {
+    const doc = JSON.stringify({
+      openapi: '3.0.3',
+      paths: {
+        '/tenants/{slug}': {
+          put: {
+            operationId: 'updateTenant',
+            parameters: [
+              {
+                name: 'slug',
+                in: 'path',
+                required: true,
+                schema: { type: 'string', minLength: 3, maxLength: 32 },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const scanned = scanOpenApiJson({ source: doc });
+
+    expect(actionFieldExpr({ field: scanned.actions[0]!.input[0]! })).toBe(
+      'z.string().min(3).max(32)',
+    );
+  });
+
+  it('leaves a constraint-free property untouched (no IR key, byte-identical output)', () => {
+    const scanned = scanOpenApiJson({ source: docWith({ property: { type: 'string' } }) });
+    const field = scanned.actions[0]!.input[0]!;
+
+    expect('constraints' in field).toBe(false);
+    expect(actionFieldExpr({ field })).toBe('z.string()');
+    expect(scanned.warnings).toHaveLength(0);
+  });
+
+  it('reports every constraint it cannot honor in one aggregated warning', () => {
+    const doc = JSON.stringify({
+      openapi: '3.0.3',
+      paths: {
+        '/drops': {
+          post: {
+            operationId: 'createDrop',
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      // A string keyword on a numeric kind.
+                      label: { type: 'integer', minLength: 3 },
+                      // Any bound on an enum: the IR has no place to put it.
+                      tier: { enum: ['a', 'b'], minimum: 1 },
+                      // Expressible in zod, but outside this ticket's honored set.
+                      ratio: { type: 'number', multipleOf: 0.5 },
+                      // A pattern that does not compile as a regex.
+                      code: { type: 'string', pattern: '[' },
+                      // A malformed bound value.
+                      size: { type: 'integer', minimum: 'nope' },
+                      // An exclusivity flag with no sibling bound to modify.
+                      seats: { type: 'integer', exclusiveMinimum: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const scanned = scanOpenApiJson({ source: doc });
+    const warnings = scanned.warnings.filter((w) => /constraint/.test(w));
+
+    expect(warnings).toHaveLength(1);
+    const [warning] = warnings;
+    for (const mention of [
+      'label.minLength',
+      'tier.minimum',
+      'ratio.multipleOf',
+      'code.pattern',
+      'size.minimum',
+      'seats.exclusiveMinimum',
+    ]) {
+      expect(warning).toContain(mention);
+    }
+
+    // Nothing unenforceable leaked into the emitted expressions.
+    const exprs = scanned.actions[0]!.input.map((f) => actionFieldExpr({ field: f }));
+    expect(exprs.every((e) => !/\.(min|max|gt|lt|regex|multipleOf)\(/.test(e))).toBe(true);
   });
 });

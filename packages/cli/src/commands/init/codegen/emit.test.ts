@@ -246,6 +246,54 @@ describe('emitActionFile', () => {
     expect(content).toContain('name: "actions_create-workflow-dispatch"');
     expect(filename).toBe('actions_create_workflow_dispatch.mjs');
   });
+
+  it('renders declared value constraints into the input schema (ONT-037)', () => {
+    const createProduct: IrAction = {
+      name: 'createProduct',
+      source: 'openapi',
+      method: 'POST',
+      path: '/products',
+      write: true,
+      input: [
+        {
+          name: 'name',
+          kind: 'scalar',
+          scalar: 'string',
+          optional: false,
+          constraints: { min: 1, regex: '^["a-z]+$' },
+        },
+        {
+          name: 'priceCents',
+          kind: 'scalar',
+          scalar: 'int',
+          optional: false,
+          constraints: { min: 0 },
+        },
+        {
+          name: 'discountPct',
+          kind: 'scalar',
+          scalar: 'float',
+          optional: true,
+          constraints: { min: 0, max: 100 },
+        },
+      ],
+    };
+
+    const { content } = emitActionFile({ action: createProduct });
+
+    expect(content).toContain('"name": z.string().min(1).regex(new RegExp("^[\\"a-z]+$")),');
+    expect(content).toContain('"priceCents": z.number().int().min(0),');
+    // `.optional()` stays the outermost modifier.
+    expect(content).toContain('"discountPct": z.number().min(0).max(100).optional(),');
+  });
+
+  it('emits a constraint-free action byte-identically to the pre-ONT-037 output', () => {
+    const { content } = emitActionFile({ action: coupon });
+
+    expect(content).toContain('"customerId": z.string(),');
+    expect(content).not.toContain('.min(');
+    expect(content).not.toContain('new RegExp(');
+  });
 });
 
 describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () => {

@@ -1,7 +1,13 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { IrAction, IrActionField, IrScalar, ScannedSource } from '../../ir';
+import type {
+  IrAction,
+  IrActionField,
+  IrScalar,
+  IrValueConstraints,
+  ScannedSource,
+} from '../../ir';
 import { emptySource } from '../../ir';
 import { sanitizeMcpName } from '../../codegen/escape';
 import type { Scanner } from '../types';
@@ -34,7 +40,31 @@ export const YAML_HINT =
 interface JsonProperty {
   type?: string;
   enum?: unknown[];
+  minimum?: unknown;
+  maximum?: unknown;
+  /** OpenAPI 3.0 spells this as a boolean modifier on `minimum`; 3.1 as the bound. */
+  exclusiveMinimum?: unknown;
+  exclusiveMaximum?: unknown;
+  minLength?: unknown;
+  maxLength?: unknown;
+  pattern?: unknown;
+  multipleOf?: unknown;
 }
+
+/** Numeric value keywords — meaningless on a non-numeric kind. */
+const NUMERIC_KEYWORDS = [
+  'minimum',
+  'exclusiveMinimum',
+  'maximum',
+  'exclusiveMaximum',
+] as const satisfies readonly (keyof JsonProperty)[];
+
+/** String value keywords — meaningless on a non-string kind. */
+const STRING_KEYWORDS = [
+  'minLength',
+  'maxLength',
+  'pattern',
+] as const satisfies readonly (keyof JsonProperty)[];
 
 /** A request-body schema, possibly a `$ref` or a composed (`allOf`/`oneOf`/`anyOf`) node. */
 interface JsonBodySchema {
@@ -67,6 +97,8 @@ interface OpenApiOperation {
 interface ResolutionSink {
   onUnresolvable: ({ reason }: { reason: ResolveReason }) => void;
   onComposition: () => void;
+  /** A declared value constraint that the IR cannot express on this field. */
+  onDroppedConstraint: ({ field, keyword }: { field: string; keyword: string }) => void;
 }
 
 /** Whether a `*.json` file is an OpenAPI 3.x document (top-level `openapi`). */
@@ -95,32 +127,210 @@ const deriveName = ({ method, path }: { method: string; path: string }): string 
   return sanitizeMcpName({ value: `${method}${segments.join('')}` });
 };
 
+/** A finite JSON number, or `undefined` for anything else (`"0"`, `NaN`, null). */
+const finiteNumber = ({ value }: { value: unknown }): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+/** A length keyword's value: a non-negative integer, or `undefined` if malformed. */
+const lengthValue = ({ value }: { value: unknown }): number | undefined => {
+  const n = finiteNumber({ value });
+
+  return n !== undefined && Number.isInteger(n) && n >= 0 ? n : undefined;
+};
+
+/** A `pattern` that actually compiles, or `undefined` — an uncompilable one would
+ * make the generated `ontology/*.mjs` throw at import, so it never gets emitted. */
+const compilablePattern = ({ value }: { value: unknown }): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  try {
+    new RegExp(value);
+    return value;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Whether a keyword is meaningfully declared (a `false` exclusivity flag is not). */
+const isDeclared = ({ value }: { value: unknown }): boolean =>
+  value !== undefined && value !== false;
+
+/**
+ * Resolve one numeric bound side into its inclusive and/or exclusive value.
+ * OpenAPI 3.0 spells exclusivity as a boolean modifier on the inclusive keyword
+ * (`{"minimum": 0, "exclusiveMinimum": true}`); JSON Schema 2020-12 / OpenAPI 3.1
+ * spells it as the bound itself (`{"exclusiveMinimum": 0}`). Both collapse here,
+ * so the emitter renders `.gt(0)` either way. When the 3.1 form declares BOTH,
+ * both are returned — their intersection is what the spec means, and emitting
+ * only one of them could be weaker than what the author declared.
+ */
+const resolveBound = ({
+  inclusiveRaw,
+  exclusiveRaw,
+  inclusiveKeyword,
+  exclusiveKeyword,
+  drop,
+}: {
+  inclusiveRaw: unknown;
+  exclusiveRaw: unknown;
+  inclusiveKeyword: string;
+  exclusiveKeyword: string;
+  drop: ({ keyword }: { keyword: string }) => void;
+}): { inclusive?: number; exclusive?: number } => {
+  const inclusive = finiteNumber({ value: inclusiveRaw });
+
+  if (inclusiveRaw !== undefined && inclusive === undefined) {
+    drop({ keyword: inclusiveKeyword });
+  }
+
+  if (!isDeclared({ value: exclusiveRaw })) {
+    return inclusive === undefined ? {} : { inclusive };
+  }
+
+  if (exclusiveRaw === true) {
+    // 3.0 modifier form: the flag binds nothing without a sibling bound.
+    if (inclusive === undefined) {
+      drop({ keyword: exclusiveKeyword });
+      return {};
+    }
+
+    return { exclusive: inclusive };
+  }
+
+  const exclusive = finiteNumber({ value: exclusiveRaw });
+
+  if (exclusive === undefined) {
+    drop({ keyword: exclusiveKeyword });
+    return inclusive === undefined ? {} : { inclusive };
+  }
+
+  return inclusive === undefined ? { exclusive } : { inclusive, exclusive };
+};
+
+/**
+ * Read a property's declared value constraints into the IR (ONT-037). Every
+ * keyword that is declared but cannot be honored — wrong kind for the keyword, a
+ * malformed value, an uncompilable pattern, or `multipleOf` (outside the honored
+ * set) — is reported to the sink instead of vanishing, which is the same
+ * skip-with-warning discipline the rest of this scanner already follows.
+ */
+const collectConstraints = ({
+  name,
+  property,
+  field,
+  sink,
+}: {
+  name: string;
+  property: JsonProperty;
+  field: IrActionField;
+  sink: ResolutionSink;
+}): IrValueConstraints | undefined => {
+  const drop = ({ keyword }: { keyword: string }): void => {
+    sink.onDroppedConstraint({ field: name, keyword });
+  };
+
+  const scalar = field.kind === 'scalar' ? field.scalar : undefined;
+  const constraints: IrValueConstraints = {};
+
+  if (scalar === 'int' || scalar === 'float') {
+    const lower = resolveBound({
+      inclusiveRaw: property.minimum,
+      exclusiveRaw: property.exclusiveMinimum,
+      inclusiveKeyword: 'minimum',
+      exclusiveKeyword: 'exclusiveMinimum',
+      drop,
+    });
+    const upper = resolveBound({
+      inclusiveRaw: property.maximum,
+      exclusiveRaw: property.exclusiveMaximum,
+      inclusiveKeyword: 'maximum',
+      exclusiveKeyword: 'exclusiveMaximum',
+      drop,
+    });
+
+    Object.assign(constraints, {
+      ...(lower.inclusive === undefined ? {} : { min: lower.inclusive }),
+      ...(lower.exclusive === undefined ? {} : { gt: lower.exclusive }),
+      ...(upper.inclusive === undefined ? {} : { max: upper.inclusive }),
+      ...(upper.exclusive === undefined ? {} : { lt: upper.exclusive }),
+    });
+  } else {
+    for (const keyword of NUMERIC_KEYWORDS) {
+      if (isDeclared({ value: property[keyword] })) {
+        drop({ keyword });
+      }
+    }
+  }
+
+  if (scalar === 'string') {
+    const min = lengthValue({ value: property.minLength });
+    const max = lengthValue({ value: property.maxLength });
+    const regex = compilablePattern({ value: property.pattern });
+
+    for (const [keyword, honored] of [
+      ['minLength', min],
+      ['maxLength', max],
+      ['pattern', regex],
+    ] as const) {
+      if (isDeclared({ value: property[keyword] }) && honored === undefined) {
+        drop({ keyword });
+      }
+    }
+
+    Object.assign(constraints, {
+      ...(min === undefined ? {} : { min }),
+      ...(max === undefined ? {} : { max }),
+      ...(regex === undefined ? {} : { regex }),
+    });
+  } else {
+    for (const keyword of STRING_KEYWORDS) {
+      if (isDeclared({ value: property[keyword] })) {
+        drop({ keyword });
+      }
+    }
+  }
+
+  // `multipleOf` is a value constraint zod could express, but it is outside this
+  // ticket's honored set — so it is reported rather than dropped in silence.
+  if (isDeclared({ value: property.multipleOf })) {
+    drop({ keyword: 'multipleOf' });
+  }
+
+  return Object.keys(constraints).length === 0 ? undefined : constraints;
+};
+
 const mapProperty = ({
   name,
   property,
   required,
+  sink,
 }: {
   name: string;
   property: JsonProperty;
   required: boolean;
+  sink: ResolutionSink;
 }): IrActionField => {
-  if (Array.isArray(property.enum)) {
-    return {
-      name,
-      kind: 'enum',
-      enumValues: property.enum.map((v) => String(v)),
-      optional: !required,
-    };
-  }
-
   const scalar = property.type === undefined ? undefined : JSON_TYPE_TO_SCALAR[property.type];
 
-  return {
-    name,
-    kind: 'scalar',
-    ...(scalar === undefined ? {} : { scalar }),
-    optional: !required,
-  };
+  const field: IrActionField = Array.isArray(property.enum)
+    ? {
+        name,
+        kind: 'enum',
+        enumValues: property.enum.map((v) => String(v)),
+        optional: !required,
+      }
+    : {
+        name,
+        kind: 'scalar',
+        ...(scalar === undefined ? {} : { scalar }),
+        optional: !required,
+      };
+
+  const constraints = collectConstraints({ name, property, field, sink });
+
+  return constraints === undefined ? field : { ...field, constraints };
 };
 
 /**
@@ -182,15 +392,15 @@ const mapObjectProperties = ({
 
       if (!result.ok) {
         sink.onUnresolvable({ reason: result.reason });
-        fields.push(mapProperty({ name, property: {}, required }));
+        fields.push(mapProperty({ name, property: {}, required, sink }));
         continue;
       }
 
-      fields.push(mapProperty({ name, property: result.value as JsonProperty, required }));
+      fields.push(mapProperty({ name, property: result.value as JsonProperty, required, sink }));
       continue;
     }
 
-    fields.push(mapProperty({ name, property: rawProperty as JsonProperty, required }));
+    fields.push(mapProperty({ name, property: rawProperty as JsonProperty, required, sink }));
   }
 
   return fields;
@@ -352,6 +562,7 @@ const collectInput = ({
         name: param.name,
         property: param.schema ?? {},
         required: param.required === true,
+        sink,
       }),
     );
   }
@@ -362,6 +573,19 @@ const collectInput = ({
   }
 
   return fields;
+};
+
+/** How many `<field>.<keyword>` entries the dropped-constraint warning names. */
+const DROPPED_SAMPLE = 10;
+
+/** Name the dropped constraints, truncating a large spec's list to stay readable. */
+const listDropped = ({ dropped }: { dropped: Set<string> }): string => {
+  const entries = [...dropped];
+  const shown = entries.slice(0, DROPPED_SAMPLE).join(', ');
+
+  return entries.length <= DROPPED_SAMPLE
+    ? shown
+    : `${shown}, +${entries.length - DROPPED_SAMPLE} more`;
 };
 
 /** Parse an OpenAPI JSON document into scanned write actions. */
@@ -388,12 +612,19 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
   };
   let compositionOps = 0;
 
+  // `<field>.<keyword>` entries, deduped and kept in scan order (paths and
+  // methods are already iterated sorted, so the report is deterministic).
+  const droppedConstraints = new Set<string>();
+
   const sink: ResolutionSink = {
     onUnresolvable: ({ reason }) => {
       unresolvable[reason] += 1;
     },
     onComposition: () => {
       compositionOps += 1;
+    },
+    onDroppedConstraint: ({ field, keyword }) => {
+      droppedConstraints.add(`${field}.${keyword}`);
     },
   };
 
@@ -453,6 +684,12 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
   if (compositionOps > 0) {
     scanned.warnings.push(
       `openapi: ${compositionOps} composed request body(ies) (oneOf/anyOf) surfaced as an all-optional union — the IR cannot express typed unions; review the generated inputs`,
+    );
+  }
+
+  if (droppedConstraints.size > 0) {
+    scanned.warnings.push(
+      `openapi: dropped ${droppedConstraints.size} declared value constraint(s) the generated input cannot enforce (${listDropped({ dropped: droppedConstraints })}) — the emitted schema is weaker than the spec there; add the check by hand if the action needs it`,
     );
   }
 
