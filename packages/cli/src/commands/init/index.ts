@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { DEFAULT_CONFIG_NAMES, type OrangerailConfig } from '../../config';
+import { actionPostures, GOVERNANCE_FILE, writeBaseline } from '../../governance';
 import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
 import { runInitFromArtifacts } from './artifacts';
@@ -27,6 +28,61 @@ import { runWizard, type InitFlags } from './wizard';
  */
 const configExists = ({ cwd }: { cwd: string }): boolean =>
   DEFAULT_CONFIG_NAMES.some((name) => existsSync(join(cwd, name)));
+
+/** Import the config init just generated; `null` when it does not default-export one. */
+const loadGeneratedConfig = async ({ cwd }: { cwd: string }): Promise<OrangerailConfig | null> => {
+  const module: unknown = await import(pathToFileURL(join(cwd, 'orangerail.config.mjs')).href);
+
+  return (module as { default?: OrangerailConfig }).default ?? null;
+};
+
+/**
+ * Record the generated posture as the project's governance baseline, from the
+ * LIVE registry (ONT-050).
+ *
+ * ONT-043 deliberately did not do this, on the grounds that a baseline asserts a
+ * human reviewed the posture and a scanner cannot make that assertion on
+ * someone's behalf. That reasoning is right, and it is the reason the file
+ * records WHO wrote it: this one is stamped `recordedBy: "init"`, its note says
+ * it is a starting point rather than an approval, and every `sync` and `status`
+ * repeats that until someone runs `--accept-governance`.
+ *
+ * What is left is a claim init can honestly make: every action it generated
+ * carries `policy: { approval: 'required' }`, so this row set is the strongest
+ * posture the tool can produce. Recording it cannot launder a weak posture as
+ * approved; it can only make a later weakening detectable — which without this
+ * file it simply was not, in exactly the state every new project starts in.
+ *
+ * A failure to write is reported and swallowed: the ontology is already on disk
+ * and usable, and taking a successful `init` down to a non-zero exit over the
+ * baseline would be worse than the missing file, which `sync` already reports.
+ */
+const recordInitialBaseline = ({
+  config,
+  cwd,
+}: {
+  config: OrangerailConfig;
+  cwd: string;
+}): string | null => {
+  const postures = actionPostures({ registry: config.registry });
+
+  // No actions, no posture to vouch for — a read-only ontology gets no file and
+  // is never nagged about one.
+  if (postures.length === 0) {
+    return null;
+  }
+
+  try {
+    return writeBaseline({ projectRoot: cwd, postures, recordedBy: 'init' });
+  } catch (err) {
+    process.stderr.write(
+      `orangerail init: could not write ${GOVERNANCE_FILE} (${err instanceof Error ? err.message : String(err)}) — ` +
+        'run `orangerail sync --accept-governance` to record it.\n',
+    );
+
+    return null;
+  }
+};
 
 /**
  * Whether the file set will contain any `@prisma/client` call site (ONT-049).
@@ -167,6 +223,15 @@ export const runInit = async ({
   const objectCount = source.objects.length;
   const actionCount = source.actions.length;
 
+  // Load the generated config here rather than after the summary: the
+  // governance baseline is read off the LIVE REGISTRY (never off the generated
+  // text), and the summary has to be able to say whether it was recorded. A
+  // degraded verdict means the config does not load, so there is no registry to
+  // read and no baseline is written — `sync` then reports the absent baseline
+  // exactly as it does for a project that predates the file.
+  const config = verdict.ok ? await loadGeneratedConfig({ cwd }) : null;
+  const baseline = config === null ? null : recordInitialBaseline({ config, cwd });
+
   // A three-beat confirmation of what init just did — scanned, generated, and
   // (per the chosen preset) how writes are governed. The gate line states the
   // preset's real behavior rather than a blanket claim: `approval-for-writes`
@@ -179,11 +244,38 @@ export const runInit = async ({
         ? `${actionCount} write action(s) — sandbox (dry-run, nothing executes)`
         : `${actionCount} write action(s) gated behind human approval`;
 
+  // The governance beat, in whichever of its two forms is true. When the config
+  // loaded, the posture is on disk and what is left is a review. When it did not
+  // — the deps are not installed yet, the common first run — there was no live
+  // registry to read, and the honest thing is to name the one command that
+  // closes the gap rather than record a posture derived from somewhere else.
+  const governanceBeat =
+    actionCount === 0
+      ? { tick: '', body: '' }
+      : baseline === null
+        ? {
+            tick: `  ⚠  no governance baseline recorded — the generated config did not load\n`,
+            body:
+              `  ${GOVERNANCE_FILE} is what makes a later "someone deleted an approval gate" visible.\n` +
+              '  Recording it needs the config to load, so run `orangerail sync --accept-governance`\n' +
+              '  once the step below is done, and commit the file.\n',
+          }
+        : {
+            tick: `  ✓  recorded that posture in ${GOVERNANCE_FILE} — commit it\n`,
+            body:
+              `  ${GOVERNANCE_FILE} holds the posture init just generated, which nobody has reviewed yet.\n` +
+              '  From now on `orangerail sync` fails when an action gets weaker than that file, and\n' +
+              '  `orangerail mcp` refuses to serve it. Read the file, then run\n' +
+              '  `orangerail sync --accept-governance` to vouch for it as reviewed.\n',
+          };
+
   process.stdout.write(
     `  ✓  scanned your sources — ${objectCount} object(s), ${actionCount} action(s)\n` +
       '  ✓  generated a governed MCP server under ontology/\n' +
-      `  ✓  ${gateLine}\n\n` +
-      '  These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n',
+      `  ✓  ${gateLine}\n` +
+      governanceBeat.tick +
+      '\n  These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n' +
+      governanceBeat.body,
   );
 
   // Both degrade kinds land here: the files are on disk either way, and only
@@ -196,8 +288,6 @@ export const runInit = async ({
   }
 
   const configPath = join(cwd, 'orangerail.config.mjs');
-  const module: unknown = await import(pathToFileURL(configPath).href);
-  const config = (module as { default?: OrangerailConfig }).default;
 
   if (!config) {
     process.stderr.write('orangerail init: generated config failed to load.\n');

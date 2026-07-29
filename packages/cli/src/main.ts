@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 import { keepAliveFor, parseArgs, type ParsedArgs } from './args';
-import { loadConfig } from './config';
+import { loadConfig, resolveConfigPath } from './config';
 import {
   approvalsApprove,
   approvalsList,
@@ -24,10 +25,12 @@ Usage:
                 [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
                                                  scan a repo and assemble the ontology
   orangerail sync [--config <path>] [--accept-new] [--accept-governance]
-                                                   re-scan and report drift (exit 1 on drift);
+                                                   re-scan and report drift
+                                                   exit 0 nothing to act on / 1 unresolved drift / 2 could not check
                                                    --accept-governance re-records orangerail.governance.json
   orangerail mcp [--config <path>]                 launch the MCP server over stdio
-  orangerail status [--config <path>]              show the governance posture (gated actions, audit, pending)
+                                                   (withholds actions weaker than the recorded baseline)
+  orangerail status [--config <path>]              show the governance posture (gated actions, baseline, audit, pending)
   orangerail studio [--config <path>] [--port <n>] [--no-open]  serve the map-mode studio locally
   orangerail docs [--config <path>] [--out <dir>]  generate the agent-facing domain doc
   orangerail approvals list [--config <path>]      list pending approvals
@@ -118,13 +121,19 @@ const dispatch = async ({ args }: { args: ParsedArgs }): Promise<number> => {
 
   const config = await loadConfig({ configPath });
 
+  // The governance baseline sits next to the config that declares the registry
+  // it describes, so `orangerail mcp --config /elsewhere/orangerail.config.mjs`
+  // checks the project it is actually serving rather than whatever directory it
+  // was launched from. With no `--config` this is the cwd.
+  const projectRoot = dirname(resolveConfigPath({ configPath }));
+
   if (command === 'mcp') {
-    await runMcp({ config });
+    await runMcp({ config, projectRoot });
     return 0;
   }
 
   if (command === 'status') {
-    return runStatus({ config });
+    return runStatus({ config, projectRoot });
   }
 
   if (command === 'studio') {

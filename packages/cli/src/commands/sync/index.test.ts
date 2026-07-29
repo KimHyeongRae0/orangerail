@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { runSync } from './index';
-import { GOVERNANCE_FILE } from './governance';
+import { isDrift, runSync } from './index';
+import { GOVERNANCE_FILE, writeBaseline, type ActionPosture } from '../../governance';
 
 /**
  * `runSync` end-to-end over a throwaway repo. Run dirs live under the repo's own
@@ -284,5 +284,95 @@ model Refund {
     expect(readFileSync(join(cwd, 'ontology', 'Refund.mjs'), 'utf8')).toContain(
       'new PrismaClient({ adapter: new PrismaPg(url) })',
     );
+  });
+});
+
+/**
+ * ONT-050 — one contract, and every path follows it. `sync --help` promised
+ * "exit 1 on drift" while an unregistered ontology file — a file the config
+ * loader never imports, which can hold a whole set of governed actions the user
+ * believes are live — printed its warning and then `ontology is in sync with
+ * your sources`, exit 0.
+ */
+describe('runSync — the exit-code contract', () => {
+  it('classifies the drift record in one place', () => {
+    const clean = { proposals: 0, fieldDrift: 0, unregistered: 0, governance: 0 };
+
+    expect(isDrift({ findings: clean })).toBe(false);
+    for (const key of ['proposals', 'fieldDrift', 'unregistered', 'governance'] as const) {
+      expect(isDrift({ findings: { ...clean, [key]: 1 } })).toBe(true);
+    }
+  });
+
+  it('exits 1 on an unregistered ontology file and stops calling the ontology in sync', async () => {
+    writeConfig({ actions: GATED_DELETE });
+    await sync({ acceptGovernance: true });
+    writeFileSync(join(cwd, 'ontology', 'stray.ts'), 'export const stray = true;\n', 'utf8');
+    out = [];
+
+    const code = await sync();
+
+    expect(printed()).toContain('unregistered ontology file: ontology/stray.ts');
+    // Pre-fix: this exact run printed the warning, then "ontology is in sync
+    // with your sources; governance matches the recorded baseline.", exit 0.
+    expect(printed()).not.toContain('in sync with your sources');
+    expect(code).toBe(1);
+  });
+
+  it('exits 2 — never 1 — when it could not answer the question at all', async () => {
+    writeConfig({ actions: GATED_DELETE });
+    writeFileSync(join(cwd, GOVERNANCE_FILE), '{"version":42,"actions":[]}', 'utf8');
+
+    expect(await sync()).toBe(2);
+  });
+
+  it('never claims "in sync" from a run that just wrote files', async () => {
+    writeConfig({ actions: GATED_DELETE });
+    await sync({ acceptGovernance: true });
+    out = [];
+
+    expect(await sync({ acceptNew: true })).toBe(0);
+    // The registry it compared against was loaded before `--accept-new` ran, so
+    // it is in no position to call the result in sync.
+    expect(printed()).not.toContain('in sync with your sources');
+  });
+});
+
+describe('runSync — a baseline recorded by init is a starting point, not an approval', () => {
+  /** The posture of {@link GATED_DELETE}, as `orangerail init` would have recorded it. */
+  const GENERATED: ActionPosture[] = [
+    { name: 'deleteOrder', approval: 'required', roles: [], where: null, target: 'Order#id' },
+  ];
+
+  const recordAsInit = (): void => {
+    writeBaseline({ projectRoot: cwd, postures: GENERATED, recordedBy: 'init' });
+  };
+
+  it('detects drift against it from the first run — the whole point of writing it', async () => {
+    recordAsInit();
+    // The tester's edit, in a project that never ran `--accept-governance`.
+    writeConfig({ actions: UNGATED_DELETE });
+
+    expect(await sync()).toBe(1);
+    // Pre-fix, with no baseline at all, this run could only say it could not tell.
+    expect(printed()).toContain('governance: deleteOrder — approval gate removed');
+    expect(printed()).not.toContain('no recorded baseline');
+  });
+
+  it('says so on every run, and exits 0 — an unreviewed baseline is not drift', async () => {
+    recordAsInit();
+    writeConfig({ actions: GATED_DELETE });
+
+    expect(await sync()).toBe(0);
+    expect(printed()).toContain('recorded by `orangerail init`');
+    expect(printed()).toContain('nobody has reviewed');
+
+    out = [];
+    expect(await sync({ acceptGovernance: true })).toBe(0);
+
+    out = [];
+    expect(await sync()).toBe(0);
+    expect(printed()).not.toContain('nobody has reviewed');
+    expect(printed()).toContain('governance matches the recorded baseline');
   });
 });

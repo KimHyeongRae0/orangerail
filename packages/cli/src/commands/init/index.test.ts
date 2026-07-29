@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { parseBaseline } from '../../governance';
 import { runInit } from './index';
 import type { InitFlags } from './wizard';
 
@@ -97,6 +98,34 @@ describe('runInit front door', () => {
     expect(code).toBe(0);
     expect(existsSync(join(repoDir, 'orangerail.config.mjs'))).toBe(true);
     expect(existsSync(join(repoDir, 'ontology', 'Article.mjs'))).toBe(true);
+  });
+
+  /**
+   * ONT-050 — without this file a fresh project cannot detect the one edit that
+   * disarms it: `sync` could only report that it had nothing to compare
+   * against. ONT-043 declined to write it because a baseline asserts a human
+   * reviewed the posture; the file now records WHO wrote it, so init can state a
+   * starting point without claiming an approval.
+   */
+  it('records the generated posture as an init-provenance baseline, and says so', async () => {
+    const repoDir = makeRepo({ prefix: 'ont-050-init-baseline-' });
+
+    const { code, stdout } = await runCaptured({ cwd: repoDir });
+    const path = join(repoDir, 'orangerail.governance.json');
+
+    expect(code).toBe(0);
+    expect(existsSync(path)).toBe(true);
+
+    const baseline = parseBaseline({ source: readFileSync(path, 'utf8') });
+    expect(baseline.recordedBy).toBe('init');
+    // Every generated action is gated, so the recorded starting point is the
+    // strongest posture the tool can produce — it cannot launder a weak one.
+    expect(baseline.actions.length).toBeGreaterThan(0);
+    expect(baseline.actions.every((row) => row.approval === 'required')).toBe(true);
+
+    expect(stdout).toContain('orangerail.governance.json');
+    expect(stdout).toContain('nobody has reviewed');
+    expect(stdout).toContain('orangerail sync --accept-governance');
   });
 
   it('refuses when a TypeScript config already exists (the documented name)', async () => {
