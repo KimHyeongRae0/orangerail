@@ -250,6 +250,37 @@ both logs consistently and pass verification. See
 
 ### Documentation
 
+- **The README leads with what the project generates, not with the gate.** It opened on
+  approval gates and audit logs; that is one feature of the surface, not the reason the
+  surface exists. It now opens on the surface itself — a `get` and a `list` tool per object
+  and one typed action per write, generated from your schema, with no `execute_sql` and
+  nothing on the list that takes a query — shown as the actual tool table `orangerail docs`
+  emits for a three-model schema. Approval is presented as a property of an action from there
+  on. Nothing in the security wording moved.
+- **The relation graph is described where it actually goes.** `orangerail init` derives a
+  `defineLink` per relation pair with a `cardinality`, and the README used to leave a reader
+  to assume the agent sees it. It does not: `packages/mcp` never calls `listLinks()`, so the
+  only consumers today are `orangerail studio` and `orangerail docs`. The studio section now
+  says that outright, and no part of the README describes the MCP surface as relation-aware.
+- **Four scope limits are stated in the body rather than implied.** A second route to the
+  database defeats the gate — demonstrated, not hypothesized: with orangerail installed and
+  every write gated, a co-resident Postgres MCP server on the same database deleted five rows
+  with zero approvals and nothing on the chain. There is no aggregation, no join and no
+  free-form query: the generated reads are a `findUnique` and a `findMany` capped at 200 rows,
+  which also means a fan-trap aggregate cannot be asked through orangerail — an absence of
+  capability, not a guard, and the README says so in those words. There is no DDL, so
+  migrations go around orangerail entirely and belong in your migration tool. And a bulk
+  intent costs one approval per row today, because the generated actions take a single id and
+  there is no approve-all.
+- **A comparison section, with every claim checked against the shipped package.**
+  `openapi-mcp-generator` is acknowledged as prior art on the OpenAPI half and named as the
+  better choice if one tool per REST operation is all you want; Prisma's local and hosted MCP
+  servers are described by the tools they actually register; Supabase's `list_tables` is
+  described exactly, including that foreign keys arrive as a `foreign_key_constraints` array
+  inside the introspection payload and only under `verbose: true` — and that orangerail is not
+  ahead of it on relations in the way that could be read to imply.
+- `orangerail docs` is listed under v0 scope. It shipped in `0.1.0` and was the only command
+  the scope list omitted.
 - The audit log is no longer described as "tamper-evident" anywhere. What
   `orangerail audit verify` does and does not prove is stated exactly in
   [What the audit log proves](./README.md#what-the-audit-log-proves), along with
