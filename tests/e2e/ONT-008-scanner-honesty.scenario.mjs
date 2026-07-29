@@ -15,9 +15,12 @@
  *     hits are scanned (root first) — RootWidget (root) and NestedGadget
  *     (nested) ontology files both exist.
  *   Phase 4 (AC-3, MCP on RUN monorepo): booting `orangerail mcp` WITHOUT a
- *     generated Prisma client and calling a generated read tool returns an
- *     ACTIONABLE diagnostic — the error names the object, `@prisma/client`,
- *     `prisma generate`, and DATABASE_URL, not a raw module-resolution error.
+ *     generated Prisma client and calling a generated read tool surfaces an
+ *     ACTIONABLE failure. Retargeted at ONT-032's contract (ONT-045): the call
+ *     returns a tool RESULT with `isError: true`, a typed `resolve_error`, a
+ *     `correlationId`, and a diagnostic CLASS; the agent-facing text names the
+ *     object and the fix; and the FULL text — with the raw module error as its
+ *     detail — is on the operator sink under that same correlationId.
  *   Phase 5 (AC-4, RUN monorepo): the generated .orangerail/generated/AGENTS.md
  *     governed-actions section explains the not-implemented stub path (rejected
  *     before staging).
@@ -105,12 +108,25 @@ const snapshotDir = ({ dir }) => {
   return out;
 };
 
-/** Minimal MCP stdio client (ONT-006/007 pattern) over the generated config. */
+/**
+ * Minimal MCP stdio client (ONT-006/007 pattern) over the generated config.
+ *
+ * stderr is CAPTURED rather than inherited (ONT-045): it is the operator
+ * channel §3.10 promises the full failure text on, so phase 4 has to read it to
+ * prove the promise instead of taking it on faith. It is also echoed through,
+ * so a failing run still shows the server's output.
+ */
 const openMcpSession = async ({ cwd }) => {
   const child = spawn('node', [CLI, 'mcp', '--config', 'orangerail.config.mjs'], {
     cwd,
     env: { ...process.env },
-    stdio: ['pipe', 'pipe', 'inherit'],
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString('utf8');
+    process.stderr.write(chunk);
   });
 
   let nextId = 1;
@@ -178,7 +194,7 @@ const openMcpSession = async ({ cwd }) => {
     await exited;
   };
 
-  return { request, close };
+  return { request, close, operatorLog: () => stderr };
 };
 
 // ─────────── phase 1 — monorepo: nested schema detected + generated ───────────
@@ -261,28 +277,84 @@ assert({
   message: `tools/list missing the generated read tool Post_list (got: ${toolNames.join(', ')})`,
 });
 
-let callError;
-try {
-  await session.request({ method: 'tools/call', params: { name: 'Post_list', arguments: {} } });
-} catch (err) {
-  callError = err;
-}
+// The call no longer THROWS, and that is the correct behavior, not a
+// regression (ONT-032, #35). A resolver throw used to escape `tools/call`
+// uncaught, so the SDK turned it into a JSON-RPC error whose `message` was the
+// raw driver text — a leak on a tool with no approval gate in front of it.
+// ONT-032 catches it, reports the full text to the operator sink, and answers
+// the agent with a tool RESULT carrying `isError: true`. This scenario is named
+// "scanner honesty", so the assertion follows the honesty to where it now
+// lives: the agent must be told, clearly and actionably, that the call failed
+// and why — and the operator must still be able to read the full text under the
+// same correlationId.
+const called = await session.request({
+  method: 'tools/call',
+  params: { name: 'Post_list', arguments: {} },
+});
+const operatorLog = session.operatorLog();
 await session.close();
 
 assert({
-  ok: callError !== undefined,
-  message: 'calling Post_list without a generated Prisma client must surface an error',
+  ok: called?.isError === true,
+  message: `calling Post_list without a generated Prisma client must surface a failure — got ${JSON.stringify(called)}`,
 });
 
-const errText = callError?.message ?? '';
-for (const needle of ['Post', '@prisma/client', 'prisma generate', 'DATABASE_URL']) {
+const structured = called?.structuredContent ?? {};
+assert({
+  ok: structured.status === 'resolve_error',
+  message: `the failure must be typed resolve_error in structuredContent, got ${JSON.stringify(structured)}`,
+});
+
+const correlationId = structured.correlationId;
+assert({
+  ok: typeof correlationId === 'string' && correlationId.length > 0,
+  message: `the failure must hand the agent a correlationId to quote, got ${JSON.stringify(structured)}`,
+});
+
+const agentText = called?.content?.[0]?.text ?? '';
+assert({
+  ok: agentText.includes(correlationId),
+  message: `the agent-facing message must carry the correlationId, got:\n${agentText}`,
+});
+
+// The classification (ONT-045). WHICH class depends on the state of the SHARED
+// workspace Prisma client, which is genuinely ambiguous here and must not be
+// asserted as if it were not: on a clean checkout `@prisma/client` resolves but
+// has never been generated, so the import fails module-resolution
+// (datasource_client_missing); after ONT-018's `prisma db push` has generated a
+// client for ITS schema, the import succeeds and `prisma.post` is undefined
+// instead (datasource_model_missing). Both are correct, orangerail-authored,
+// and actionable; scenario order decides which one runs. What must hold either
+// way is that a class was assigned at all — a bare "the datasource rejected the
+// action" would mean the diagnostic never made it out of the resolver.
+const CLASSES = ['datasource_client_missing', 'datasource_model_missing'];
+assert({
+  ok: CLASSES.includes(structured.diagnostic),
+  message: `the failure must be CLASSIFIED as one of ${CLASSES.join(' | ')}, got ${JSON.stringify(structured)}`,
+});
+
+for (const needle of ['Post', 'prisma generate']) {
   assert({
-    ok: errText.includes(needle),
-    message: `resolve diagnostic must name "${needle}" (the raw module error is a detail, not the headline) — got:\n${errText}`,
+    ok: agentText.includes(needle),
+    message: `the agent-facing diagnostic must name "${needle}" so the agent can act on it — got:\n${agentText}`,
   });
 }
 
-console.log('[phase 4] OK');
+// The other half of the §3.10 contract: the FULL text the agent did not get
+// still reaches the operator, under the same id the agent was handed.
+const reported = operatorLog
+  .split('\n')
+  .find((line) => line.includes(correlationId) && line.includes('resolve_error'));
+assert({
+  ok: reported !== undefined,
+  message: `the operator sink must carry the full failure under correlationId "${correlationId}" — stderr was:\n${operatorLog}`,
+});
+assert({
+  ok: reported.includes('Post') && reported.includes('prisma generate'),
+  message: `the operator line must carry the full actionable diagnostic, got:\n${reported}`,
+});
+
+console.log(`[phase 4] OK — classified ${structured.diagnostic}, correlated ${correlationId}`);
 
 // ──────────── phase 5 — AGENTS.md governed-actions stub wording (AC-4) ────────
 

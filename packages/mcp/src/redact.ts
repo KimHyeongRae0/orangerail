@@ -17,7 +17,16 @@
  * It names what KIND of error was withheld — a datasource error and a store
  * error are not the same thing — and points only at a channel that actually
  * holds the text for that failure, never at an audit record that cannot exist.
+ *
+ * ONT-045 adds ONE thing, and it is not a hole in the above. Where orangerail
+ * could positively CLASSIFY the failure, core hands up a `PublicDiagnostic` —
+ * a code from a closed enum plus an identifier-shaped subject, never a string
+ * from the failing layer. This module owns the sentence for each code. So the
+ * classification selects orangerail's own prose; it never carries prose in. The
+ * underlying text is still withheld, and the message still says so.
  */
+
+import type { PublicDiagnostic, PublicDiagnosticCode } from 'orangerail-core';
 
 /** The failure statuses whose detail may carry raw datasource/driver text. */
 export type FailureStatus = 'failed' | 'resolve_error' | 'audit_blocked' | 'internal_error';
@@ -38,7 +47,46 @@ export interface RedactedFailure {
   status: FailureStatus;
   message: string;
   correlationId: string;
+  /** Present only when the failure was classified; echoed for machine callers. */
+  diagnostic?: PublicDiagnosticCode;
 }
+
+/**
+ * The sentence orangerail prints for each diagnosable failure class. These are
+ * the ONLY strings the carve-out can produce, and they live here — in the
+ * transport — so no failing layer can supply one. `subject` is an identifier
+ * core already revalidated; the subject-less form covers the case where it was
+ * absent or rejected.
+ *
+ * Each is written for the reader who can act: it names the fault, the fix, and
+ * nothing about the datasource's own state.
+ */
+const DIAGNOSTIC: Record<
+  PublicDiagnosticCode,
+  { cause: string; advice: ({ subject }: { subject?: string }) => string }
+> = {
+  datasource_client_missing: {
+    cause: 'the datasource client is not installed or has never been generated',
+    advice: ({ subject }) =>
+      `Run \`npm install @prisma/client && npx prisma generate\` in the orangerail project${
+        subject === undefined ? '' : ` so object "${subject}" can be read`
+      }, then retry.`,
+  },
+  datasource_model_missing: {
+    cause: 'the datasource client carries no such model',
+    advice: ({ subject }) =>
+      `The installed client was generated from a different schema than the one this ontology was scanned from${
+        subject === undefined ? '' : `, and exposes nothing for object "${subject}"`
+      }. Re-run \`npx prisma generate\`, then retry.`,
+  },
+  datasource_not_configured: {
+    cause: 'the datasource is not configured, so the client could not connect',
+    advice: () =>
+      'Its connection URL is missing or unusable — for a Prisma project that is the DATABASE_URL ' +
+      'environment variable, which must be set for the process running the orangerail server. ' +
+      'Set it, then retry.',
+  },
+};
 
 /**
  * Per status: the domain-level cause (WHERE in the lifecycle it broke — what
@@ -87,19 +135,37 @@ export const redactFailure = ({
   tool,
   correlationId,
   channel,
+  diagnostic,
 }: {
   status: FailureStatus;
   tool: string;
   correlationId: string;
   channel?: FailureChannel;
+  /** The classification core attached, if it could make one. */
+  diagnostic?: PublicDiagnostic;
 }): RedactedFailure => {
   const failure = FAILURE[status];
+  const classified = diagnostic === undefined ? undefined : DIAGNOSTIC[diagnostic.code];
+
+  // A classified failure replaces the generic cause with the specific one and
+  // adds the fix. The withholding clause stays either way: the underlying text
+  // is still not here, and saying otherwise would be the dishonest version of
+  // this feature.
+  const cause = classified?.cause ?? failure.cause;
+  const advice =
+    classified === undefined
+      ? ''
+      : `${classified.advice({ ...(diagnostic?.subject === undefined ? {} : { subject: diagnostic.subject }) })} `;
 
   return {
     status,
     correlationId,
+    // Keyed off `classified`, not off `diagnostic`: a code with no sentence in
+    // the table above is a code this transport does not know, and echoing it
+    // would put an unvetted string in front of the agent.
+    ...(classified && diagnostic ? { diagnostic: diagnostic.code } : {}),
     message:
-      `Tool "${tool}" failed: ${failure.cause}. ${failure.withheld} is withheld; ` +
+      `Tool "${tool}" failed: ${cause}. ${advice}${failure.withheld} is withheld; ` +
       `an operator can read it in ${WHERE[channel ?? failure.channel]} ` +
       `under correlationId "${correlationId}".`,
   };

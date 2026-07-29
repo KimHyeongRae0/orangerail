@@ -509,78 +509,113 @@ const stackCase = ({ count }: { count: number }): GraphSnapshot => ({
   actions: Array.from({ length: count }, (_, i) => act({ name: `post${i}`, target: 'ledger' })),
 });
 
+/**
+ * Why these two tests carry an explicit timeout (ONT-045).
+ *
+ * They are the heaviest compute in the repo's unit suites: 20 real ELK layered
+ * layouts, one of them a 20-node graph, all serial because elkjs runs
+ * single-threaded in-process. Measured on this workspace:
+ *
+ *   file alone .......................... 154ms
+ *   inside `pnpm --filter studio test` ... 312ms
+ *   inside `pnpm -r run test` ............ 683ms
+ *
+ * The work itself is not avoidable and is not accidental — every case exists to
+ * pin a specific overlap class, and `new ELK()` is already hoisted to module
+ * scope in `layout.ts` so the engine is constructed once for the whole file.
+ * What makes vitest's 5000ms default the wrong bar is the last row: the repo
+ * runs five package suites concurrently, each with its own worker pool, so this
+ * file's wall time is governed by whatever else holds the CPU. Two agents saw it
+ * cross 5000ms while an e2e run (which spawns builds, servers and `prisma db
+ * push`) shared the machine — a 30x stall on a 154ms body, which is scheduling,
+ * not a regression this assertion should be reporting.
+ *
+ * So the number is raised, not the work reduced, and it is raised far enough
+ * (30s ≈ 200x the isolated cost) that a trip means the layout genuinely hung
+ * rather than that the machine was busy.
+ */
+const LAYOUT_TIMEOUT_MS = 30_000;
+
 describe('layout edge-case invariants (adversarial QA)', () => {
-  it('holds INV-1/2/3/4 across every snapshot, at any targeted-action count', async () => {
-    const allViolations: Violation[] = [];
-    const allStacks: string[] = [];
+  it(
+    'holds INV-1/2/3/4 across every snapshot, at any targeted-action count',
+    async () => {
+      const allViolations: Violation[] = [];
+      const allStacks: string[] = [];
 
-    for (const { name, snapshot } of CASES) {
-      const positions = await computeLayout({ snapshot });
-      const { violations, stacks } = analyze({ name, snapshot, positions });
-      allViolations.push(...violations);
-      allStacks.push(...stacks.map((s) => `${name} :: ${s}`));
-    }
+      for (const { name, snapshot } of CASES) {
+        const positions = await computeLayout({ snapshot });
+        const { violations, stacks } = analyze({ name, snapshot, positions });
+        allViolations.push(...violations);
+        allStacks.push(...stacks.map((s) => `${name} :: ${s}`));
+      }
 
-    console.log('\n===== pill stacks taller than their card (the reserved case) =====');
-    for (const s of allStacks) console.log('  ' + s);
-    console.log(`\n===== VIOLATIONS (must be 0): ${allViolations.length} =====`);
-    for (const v of allViolations) console.log(`  [${v.inv}] [${v.snapshot}] ${v.detail}`);
+      console.log('\n===== pill stacks taller than their card (the reserved case) =====');
+      for (const s of allStacks) console.log('  ' + s);
+      console.log(`\n===== VIOLATIONS (must be 0): ${allViolations.length} =====`);
+      for (const v of allViolations) console.log(`  [${v.inv}] [${v.snapshot}] ${v.detail}`);
 
-    // The assertion is unconditional. It used to be filtered down to the CRUD-scan
-    // contract (≤2 targeted actions/object) because a taller stack had nowhere to go:
-    // three pills span 212px against a 75px card, so the overhang landed on whatever
-    // ELK placed above or below, and the ≥3 case could only be REPORTED. Now every
-    // card's layout box is at least as tall as its own stack, so no count is exempt.
-    expect(
-      allStacks.length,
-      'expected snapshots whose stack overhangs its card, so the ≥3 case is exercised',
-    ).toBeGreaterThan(0);
-    expect(allViolations, JSON.stringify(allViolations, null, 2)).toEqual([]);
-  });
+      // The assertion is unconditional. It used to be filtered down to the CRUD-scan
+      // contract (≤2 targeted actions/object) because a taller stack had nowhere to go:
+      // three pills span 212px against a 75px card, so the overhang landed on whatever
+      // ELK placed above or below, and the ≥3 case could only be REPORTED. Now every
+      // card's layout box is at least as tall as its own stack, so no count is exempt.
+      expect(
+        allStacks.length,
+        'expected snapshots whose stack overhangs its card, so the ≥3 case is exercised',
+      ).toBeGreaterThan(0);
+      expect(allViolations, JSON.stringify(allViolations, null, 2)).toEqual([]);
+    },
+    LAYOUT_TIMEOUT_MS,
+  );
 
-  it('stacks ≥3 targeted actions vertically and grows the reserve with the count', async () => {
-    const clearances: number[] = [];
+  it(
+    'stacks ≥3 targeted actions vertically and grows the reserve with the count',
+    async () => {
+      const clearances: number[] = [];
 
-    // 3 and 5, not just 3 — the reserve has to be the stack formula, not a constant
-    // that happens to fit three pills.
-    for (const count of [3, 5]) {
-      const snapshot = stackCase({ count });
-      const positions = await computeLayout({ snapshot });
-      const { violations } = analyze({ name: `stack-${count}`, snapshot, positions });
+      // 3 and 5, not just 3 — the reserve has to be the stack formula, not a constant
+      // that happens to fit three pills.
+      for (const count of [3, 5]) {
+        const snapshot = stackCase({ count });
+        const positions = await computeLayout({ snapshot });
+        const { violations } = analyze({ name: `stack-${count}`, snapshot, positions });
 
-      expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
+        expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
 
-      const target = snapshot.objects[0] as SnapshotObject;
-      const neighbour = snapshot.objects[1] as SnapshotObject;
-      const ledger = positions.get(objectId({ name: 'ledger' }));
-      const sibling = positions.get(objectId({ name: 'sibling' }));
-      const sink = positions.get(objectId({ name: 'sink' }));
+        const target = snapshot.objects[0] as SnapshotObject;
+        const neighbour = snapshot.objects[1] as SnapshotObject;
+        const ledger = positions.get(objectId({ name: 'ledger' }));
+        const sibling = positions.get(objectId({ name: 'sibling' }));
+        const sink = positions.get(objectId({ name: 'sink' }));
 
-      const centreY = (ledger?.y ?? 0) + cardHeight({ object: target }) / 2;
-      const stackHalf = ((count - 1) / 2) * PILL_STAGGER + PILL_HALF_HEIGHT;
+        const centreY = (ledger?.y ?? 0) + cardHeight({ object: target }) / 2;
+        const stackHalf = ((count - 1) / 2) * PILL_STAGGER + PILL_HALF_HEIGHT;
 
-      // The stack really is taller than the card it hangs off — that is the case.
-      expect(stackHalf * 2).toBeGreaterThan(cardHeight({ object: target }));
+        // The stack really is taller than the card it hangs off — that is the case.
+        expect(stackHalf * 2).toBeGreaterThan(cardHeight({ object: target }));
 
-      // The next layer clears the band horizontally (the ONT-025 reserve, unchanged).
-      expect(sink?.x ?? 0).toBeGreaterThanOrEqual(
-        (ledger?.x ?? 0) + cardWidth({ object: target }) + PILL_RIGHT_FROM_RIGHT,
-      );
+        // The next layer clears the band horizontally (the ONT-025 reserve, unchanged).
+        expect(sink?.x ?? 0).toBeGreaterThanOrEqual(
+          (ledger?.x ?? 0) + cardWidth({ object: target }) + PILL_RIGHT_FROM_RIGHT,
+        );
 
-      // `sibling` shares ledger's ELK layer, so only the vertical reserve can keep it
-      // off the stack: it must sit wholly above or wholly below the pills.
-      const siblingTop = sibling?.y ?? 0;
-      const siblingBottom = siblingTop + cardHeight({ object: neighbour });
-      const clearance = Math.max(
-        siblingTop - (centreY + stackHalf),
-        centreY - stackHalf - siblingBottom,
-      );
+        // `sibling` shares ledger's ELK layer, so only the vertical reserve can keep it
+        // off the stack: it must sit wholly above or wholly below the pills.
+        const siblingTop = sibling?.y ?? 0;
+        const siblingBottom = siblingTop + cardHeight({ object: neighbour });
+        const clearance = Math.max(
+          siblingTop - (centreY + stackHalf),
+          centreY - stackHalf - siblingBottom,
+        );
 
-      expect(clearance).toBeGreaterThanOrEqual(0);
-      clearances.push(siblingTop + (siblingBottom - siblingTop) / 2 - centreY);
-    }
+        expect(clearance).toBeGreaterThanOrEqual(0);
+        clearances.push(siblingTop + (siblingBottom - siblingTop) / 2 - centreY);
+      }
 
-    // Five pills push the neighbour further away than three do — the reserve scales.
-    expect(Math.abs(clearances[1] ?? 0)).toBeGreaterThan(Math.abs(clearances[0] ?? 0));
-  });
+      // Five pills push the neighbour further away than three do — the reserve scales.
+      expect(Math.abs(clearances[1] ?? 0)).toBeGreaterThan(Math.abs(clearances[0] ?? 0));
+    },
+    LAYOUT_TIMEOUT_MS,
+  );
 });

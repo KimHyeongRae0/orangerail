@@ -1,4 +1,6 @@
+import { readPublicDiagnostic } from 'orangerail-core';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import type { IrAction, IrObject, ScannedSource } from '../ir';
 import { emptySource } from '../ir';
@@ -8,6 +10,7 @@ import {
   accessorName,
   buildResolveDiagnostic,
   emitObjectFile,
+  prismaClientBlock,
   wrapResolveError,
 } from './emit-object';
 import { emitActionFile } from './emit-action';
@@ -215,6 +218,166 @@ describe('wrapResolveError (I4 — resolve-time diagnostic logic)', () => {
     // the misdiagnosis is gone.
     expect(wrapped.message).not.toContain('not generated or installed');
     expect(wrapped.message).not.toContain('npm install @prisma/client');
+  });
+});
+
+describe('wrapResolveError — public diagnostic marking (ONT-045)', () => {
+  it('marks a missing client so the MCP transport can name the fix', () => {
+    const raw = Object.assign(new Error('nope'), { code: 'ERR_MODULE_NOT_FOUND' });
+    const wrapped = wrapResolveError({ objectName: 'Post', accessor: 'post', error: raw });
+
+    expect(readPublicDiagnostic({ error: wrapped })).toEqual({
+      code: 'datasource_client_missing',
+      subject: 'Post',
+    });
+  });
+
+  it('marks a schema mismatch with its own distinct code', () => {
+    const raw = new TypeError("Cannot read properties of undefined (reading 'findMany')");
+    const wrapped = wrapResolveError({ objectName: 'Post', accessor: 'post', error: raw });
+
+    expect(readPublicDiagnostic({ error: wrapped })).toEqual({
+      code: 'datasource_model_missing',
+      subject: 'Post',
+    });
+  });
+
+  it('marks a Prisma initialization failure WITHOUT rewriting its message', () => {
+    // The unset-DATABASE_URL case. Prisma's text is the operator's evidence and
+    // stays intact for the host log; the mark is what the agent gets rendered
+    // from, and it is orangerail's own sentence.
+    const raw = new Error('Environment variable not found: DATABASE_URL.');
+    raw.name = 'PrismaClientInitializationError';
+
+    const wrapped = wrapResolveError({ objectName: 'Note', accessor: 'note', error: raw });
+
+    expect(wrapped).toBe(raw);
+    expect((wrapped as Error).message).toBe('Environment variable not found: DATABASE_URL.');
+    expect(readPublicDiagnostic({ error: wrapped })).toEqual({
+      code: 'datasource_not_configured',
+    });
+  });
+
+  it('leaves a genuine query failure unmarked, so it stays fully redacted', () => {
+    const raw = new Error('Unique constraint failed on the fields: (`email`)');
+
+    const wrapped = wrapResolveError({ objectName: 'User', accessor: 'user', error: raw });
+
+    expect(wrapped).toBe(raw);
+    expect(readPublicDiagnostic({ error: wrapped })).toBeUndefined();
+  });
+
+  it('emits the same marking inline into the generated file', () => {
+    const { content } = emitObjectFile({ object: product });
+
+    // The generated file must be able to mark without importing orangerail —
+    // it is a user-owned .mjs whose only imports are zod, the registry, and the
+    // Prisma client. The global symbol registry is what makes that possible.
+    expect(content).toContain("Symbol.for('orangerail.publicDiagnostic')");
+    expect(content).toContain("'datasource_client_missing'");
+    expect(content).toContain("'datasource_model_missing'");
+    expect(content).toContain("'datasource_not_configured'");
+    expect(content).toContain("error.name === 'PrismaClientInitializationError'");
+    // enumerable: false — the mark must never show up in a JSON dump or a spread.
+    expect(content).toContain('enumerable: false');
+  });
+
+  it('awaits inside the try, so the diagnostic wrapper is actually reachable', async () => {
+    // The bug this pins (ONT-045): `try { return prisma.x.op(...) } catch {}` in
+    // an async function settles the promise AFTER the try block is left, so the
+    // catch never runs and the raw driver error escapes unwrapped. Every
+    // generated write and every `get` resolve had it, which made the whole
+    // `wrapPrismaError` layer dead code on those paths. Asserting on the emitted
+    // TEXT would pass on a `return await` that was never exercised, so this
+    // executes the emitted body against a rejecting client instead.
+    const objectFile = emitObjectFile({ object: product }).content;
+    const actionFile = emitActionFile({
+      action: {
+        name: 'createProduct',
+        method: 'POST',
+        path: '/products',
+        source: 'prisma',
+        prisma: { model: 'Product', sourceModel: 'Product', op: 'create' },
+        write: true,
+        input: [{ name: 'sku', kind: 'scalar', scalar: 'string', optional: false }],
+      },
+    }).content;
+
+    const rejection = new TypeError("Cannot read properties of undefined (reading 'create')");
+
+    for (const [label, source] of [
+      ['object get', objectFile],
+      ['action execute', actionFile],
+    ] as const) {
+      // Re-run the emitted body with a client that rejects, replacing only the
+      // lazy client factory. Everything else — the try/catch, the await, the
+      // wrapper — is the emitted text verbatim.
+      const body = source
+        .slice(source.indexOf('const getPrisma'))
+        .replace(
+          /const getPrisma = \(\(\) => \{[\s\S]*?\}\)\(\);/,
+          'const getPrisma = async () => new Proxy({}, { get: () => new Proxy({}, { get: () => () => Promise.reject(REJECTION) }) });',
+        )
+        .replace(/export const \w+ = registry\.define\w+\(\{/, 'const definition = ({')
+        .replace(/\}\);\s*$/, '});');
+
+      const factory = new Function('REJECTION', 'z', `${body}\nreturn definition;`) as (
+        rejection: unknown,
+        zod: unknown,
+      ) => Record<string, unknown>;
+      const definition = factory(rejection, z);
+
+      const run =
+        label === 'object get'
+          ? () =>
+              (definition['resolve'] as { get: (a: { id: string }) => Promise<unknown> }).get({
+                id: '1',
+              })
+          : () =>
+              (definition['execute'] as (a: { input: unknown }) => Promise<unknown>)({
+                input: { sku: 's' },
+              });
+
+      const caught = await run().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(caught, `${label}: the rejection must reach the catch`).toBeInstanceOf(Error);
+      expect(readPublicDiagnostic({ error: caught }), label).toEqual({
+        code: 'datasource_model_missing',
+        subject: 'Product',
+      });
+    }
+  });
+
+  it('the emitted wrapper behaves exactly like the exported one', async () => {
+    // The generated JS is a hand-written mirror of `wrapResolveError`. Evaluate
+    // it and drive both through the same inputs, so the mirror cannot drift.
+    const block = prismaClientBlock({ diagnosticName: 'Post', sourceModel: 'Post' });
+    const factory = new Function(`${block}\nreturn wrapPrismaError;`) as () => (
+      error: unknown,
+    ) => unknown;
+    const emitted = factory();
+
+    const initError = new Error('Environment variable not found: DATABASE_URL.');
+    initError.name = 'PrismaClientInitializationError';
+
+    const cases: unknown[] = [
+      Object.assign(new Error('nope'), { code: 'ERR_MODULE_NOT_FOUND' }),
+      Object.assign(new Error('nope'), { code: 'MODULE_NOT_FOUND' }),
+      new TypeError("Cannot read properties of undefined (reading 'findMany')"),
+      initError,
+      new Error('Unique constraint failed on the fields: (`email`)'),
+    ];
+
+    for (const error of cases) {
+      expect(readPublicDiagnostic({ error: emitted(error) })).toEqual(
+        readPublicDiagnostic({
+          error: wrapResolveError({ objectName: 'Post', accessor: 'post', error }),
+        }),
+      );
+    }
   });
 });
 

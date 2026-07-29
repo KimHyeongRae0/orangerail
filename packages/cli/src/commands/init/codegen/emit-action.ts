@@ -98,6 +98,13 @@ const assignLine = ({ name, indent }: { name: string; indent: string }): string 
  * guarded by the shared `getPrisma`/`wrapPrismaError` plumbing (plan D3). Field
  * keys on both the `data`/`where` object literals and the `input[...]` reads go
  * through `escapeStringLiteral` (hostile field names stay inert, D10).
+ *
+ * The call is `return await`, deliberately (ONT-045). A bare `return
+ * prisma.x.create(...)` inside `try` settles after the try block has already
+ * been left, so the `catch` never runs: every generated write degraded with the
+ * RAW Prisma text instead of orangerail's actionable diagnostic, and the whole
+ * wrapper was dead code on this path. It surfaced as ONT-018's phase 2 asserting
+ * a diagnostic that could not exist.
  */
 const renderPrismaExecute = ({
   prisma,
@@ -112,7 +119,7 @@ const renderPrismaExecute = ({
 
   if (prisma.op === 'create') {
     callLines.push(
-      `      return ${member}.create({`,
+      `      return await ${member}.create({`,
       '        data: {',
       ...action.input.map((field) => assignLine({ name: field.name, indent: '          ' })),
       '        },',
@@ -123,7 +130,7 @@ const renderPrismaExecute = ({
     const dataFields = action.input.filter((field) => field.name !== prisma.idField);
 
     callLines.push(
-      `      return ${member}.update({`,
+      `      return await ${member}.update({`,
       `        where: { ${idKey}: input[${idKey}] },`,
       '        data: {',
       ...dataFields.map((field) => assignLine({ name: field.name, indent: '          ' })),
@@ -132,7 +139,9 @@ const renderPrismaExecute = ({
     );
   } else {
     const idKey = escapeStringLiteral({ value: prisma.idField ?? '' });
-    callLines.push(`      return ${member}.delete({ where: { ${idKey}: input[${idKey}] } });`);
+    callLines.push(
+      `      return await ${member}.delete({ where: { ${idKey}: input[${idKey}] } });`,
+    );
   }
 
   return [

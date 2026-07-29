@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { hashApprovalInput } from '../audit/chain';
 import { isNotImplemented } from '../define/action';
+import { readPublicDiagnostic, type PublicDiagnostic } from '../diagnostic';
 import { authorizeApprover } from '../identity/contract';
 import { evaluateWhere } from '../policy/where';
 import type { Registry } from '../registry';
@@ -31,10 +32,17 @@ export type RedactAudit = (args: { actionName: string; input: unknown }) => unkn
  * on its audit records. It is exactly the key `verifyAudit` pairs records on
  * (`approvalId ?? correlationId`), so an operator can find the full text in the
  * audit log from what the agent was told.
+ *
+ * `diagnostic` is the AGENT-facing half and is deliberately not text: it is a
+ * code from a closed set (plus an identifier-shaped subject), set only where the
+ * failing layer could positively classify itself. A transport may render its own
+ * sentence for that code; it still must not forward `error`. Absent on any
+ * failure orangerail cannot classify, which is the default.
  */
 export interface FailureDetail {
   error: string;
   correlationId: string;
+  diagnostic?: PublicDiagnostic;
 }
 
 /** Result of {@link Engine.execute} (also folded into {@link StageResult} for auto actions). */
@@ -87,7 +95,22 @@ export type RejectResult =
 const errorMessage = ({ err }: { err: unknown }): string =>
   err instanceof Error ? err.message : String(err);
 
-type WhereCheck = { kind: 'pass' } | { kind: 'fail' } | { kind: 'resolve_error'; error: string };
+/**
+ * Split a caught value into its two audiences: the full text (operator) and the
+ * classification, if the throwing layer attached one (agent). Every failure
+ * capture in this file goes through it, so the two never drift apart and no
+ * capture can accidentally forget the diagnostic half.
+ */
+const failureOf = ({ err }: { err: unknown }): { error: string; diagnostic?: PublicDiagnostic } => {
+  const diagnostic = readPublicDiagnostic({ error: err });
+
+  return { error: errorMessage({ err }), ...(diagnostic ? { diagnostic } : {}) };
+};
+
+type WhereCheck =
+  | { kind: 'pass' }
+  | { kind: 'fail' }
+  | ({ kind: 'resolve_error' } & Omit<FailureDetail, 'correlationId'>);
 
 /**
  * The governed action lifecycle engine (§3.4 / §4.5). Binds a registry + store;
@@ -159,7 +182,7 @@ export const createEngine = ({
   }): Promise<
     | { kind: 'no_target' }
     | { kind: 'ok'; object: unknown }
-    | { kind: 'resolve_error'; error: string }
+    | ({ kind: 'resolve_error' } & Omit<FailureDetail, 'correlationId'>)
   > => {
     const target = action.target;
     const field = action.targetIdFrom;
@@ -174,7 +197,7 @@ export const createEngine = ({
       const object = await target.resolve.get({ id: String(id) });
       return { kind: 'ok', object };
     } catch (err) {
-      return { kind: 'resolve_error', error: errorMessage({ err }) };
+      return { kind: 'resolve_error', ...failureOf({ err }) };
     }
   };
 
@@ -195,7 +218,7 @@ export const createEngine = ({
 
     const fetched = await fetchTarget({ action, input });
     if (fetched.kind === 'resolve_error') {
-      return { kind: 'resolve_error', error: fetched.error };
+      return fetched;
     }
 
     const object = fetched.kind === 'ok' ? fetched.object : null;
@@ -211,7 +234,7 @@ export const createEngine = ({
         ? { kind: 'pass' }
         : { kind: 'fail' };
     } catch (err) {
-      return { kind: 'resolve_error', error: errorMessage({ err }) };
+      return { kind: 'resolve_error', ...failureOf({ err }) };
     }
   };
 
@@ -269,12 +292,14 @@ export const createEngine = ({
 
       return { status: 'executed', result };
     } catch (err) {
-      const error = errorMessage({ err });
+      const failure = failureOf({ err });
       await store
-        .appendAudit({ record: mkAudit({ ...correlated, phase: 'failed', error }) })
+        .appendAudit({
+          record: mkAudit({ ...correlated, phase: 'failed', error: failure.error }),
+        })
         .catch(() => undefined);
 
-      return { status: 'failed', error, correlationId };
+      return { status: 'failed', ...failure, correlationId };
     }
   };
 
@@ -325,7 +350,12 @@ export const createEngine = ({
         }),
       });
 
-      return { status: 'resolve_error', error: where.error, correlationId };
+      return {
+        status: 'resolve_error',
+        error: where.error,
+        correlationId,
+        ...(where.diagnostic ? { diagnostic: where.diagnostic } : {}),
+      };
     }
     if (where.kind === 'fail') {
       await store.appendAudit({
@@ -597,7 +627,12 @@ export const createEngine = ({
         record: mkAudit({ ...audit, phase: 'resolve_error', error: where.error }),
       });
       // On the approval path the approvalId IS the correlation key (§3.10).
-      return { status: 'resolve_error', error: where.error, correlationId: approvalId };
+      return {
+        status: 'resolve_error',
+        error: where.error,
+        correlationId: approvalId,
+        ...(where.diagnostic ? { diagnostic: where.diagnostic } : {}),
+      };
     }
     if (where.kind === 'fail') {
       await store.appendAudit({ record: mkAudit({ ...audit, phase: 'condition_changed' }) });

@@ -15,8 +15,11 @@
 #     `orangerail audit verify` passes. Only the DB-dependent execute+observe
 #     sub-block is capability-gated (skip-with-loud-notice, DEV-01) — discover,
 #     staging, approval, and audit-verify always run.
-#   Phase 2 (AC-4): a write with no DATABASE_URL fails at execute with an
-#     actionable diagnostic (names the object + DATABASE_URL), never a raw crash;
+#   Phase 2 (AC-4): a write against a DELIBERATELY unconfigured datasource (the
+#     client is generated on purpose so "client missing" is off the table; no
+#     DATABASE_URL, no database file, both asserted) fails at execute with a
+#     classified diagnostic — `datasource_not_configured`, naming DATABASE_URL —
+#     while Prisma's raw text reaches only the operator sink (ONT-032/ONT-045);
 #     the generated AGENTS.md carries no false "[stub — not implemented]" line.
 #   Phase 3 (AC-6): an OpenAPI-source fixture emits a byte-identical action file
 #     vs a captured pre-ONT-018 reference (the OpenAPI stub path is untouched).
