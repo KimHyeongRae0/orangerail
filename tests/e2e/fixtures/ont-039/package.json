@@ -1,0 +1,7 @@
+{
+  "name": "ont-039-fixture-blog",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture repo for ONT-039: a blog backend with a Prisma schema only. Copied into an OUT-OF-REPO scratch dir so bare imports in generated code do NOT resolve via a monorepo-root node_modules walk-up — that walk-up is what masks the pnpm resolution bug this scenario proves."
+}

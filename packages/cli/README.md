@@ -9,10 +9,11 @@ dep `orangerail-mcp`, never a direct SDK dependency).
 
 Every command loads an ontology config — a default export
 `{ registry, store, resolveIdentity?, preset?, redactAudit? }` — from
-`orangerail.config.mjs` (or `.js`, or `--config <path>`) via plain dynamic
-`import()`. TypeScript configs work through your own TS-capable runtime
-(`tsx`, or `node --experimental-strip-types`); orangerail does not bundle a
-loader.
+`orangerail.config.mjs` (or `.js`, `.ts`, `.mts`, or `--config <path>`) via
+plain dynamic `import()`. TypeScript configs work through your own TS-capable
+runtime (`tsx`, or `node --experimental-strip-types`); orangerail does not
+bundle a loader. Every command discovers the same four names, `init` included —
+it refuses rather than regenerate over an ontology whose config is a `.ts`.
 
 Loading a config is **arbitrary code execution** (same trust level as an npm
 script) — run only configs you trust.

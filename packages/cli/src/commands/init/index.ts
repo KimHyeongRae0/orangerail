@@ -2,23 +2,30 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { OrangerailConfig } from '../../config';
+import { DEFAULT_CONFIG_NAMES, type OrangerailConfig } from '../../config';
 import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
 import { runInitFromArtifacts } from './artifacts';
 import { buildFileSet } from './codegen';
 import type { ScannedSource } from './ir';
-import { specifiersResolvable, smokeLoadStaged, writeFileSet } from './atomic';
+import {
+  clobberRefusal,
+  degradeNotice,
+  existingTargets,
+  verifyStaged,
+  writeFileSet,
+} from './atomic';
 import { hasScannedContent, scanRepo } from './scan';
 import { hasYamlSpec, YAML_HINT } from './scanners/openapi/scan';
 import { runWizard, type InitFlags, type ResolvedInit } from './wizard';
 
-/** Config filenames whose presence means the repo is already initialized (D1). */
-const CONFIG_NAMES = ['orangerail.config.mjs', 'orangerail.config.js'];
-
-/** Whether a usable config already resolves in the target repo (AC-6 front door). */
+/**
+ * Whether a usable config already resolves in the target repo (AC-6 front door).
+ * Reads the same name list every other command loads from (D1), so a config
+ * `orangerail studio` would happily run is never treated as absent here.
+ */
 const configExists = ({ cwd }: { cwd: string }): boolean =>
-  CONFIG_NAMES.some((name) => existsSync(join(cwd, name)));
+  DEFAULT_CONFIG_NAMES.some((name) => existsSync(join(cwd, name)));
 
 /**
  * Apply the wizard's source/model selection to a scanned source. `sources`
@@ -131,11 +138,19 @@ export const runInit = async ({
   const source = applyFilters({ source: scanned, options });
   const files = buildFileSet({ source, preset: options.preset });
 
-  const resolvable = specifiersResolvable({ cwd });
+  // Nothing is written until every generated path is known to be free. Without
+  // a config, a populated `ontology/` is the only trace of a previous init —
+  // and "these files are yours" has to survive the config having been renamed,
+  // moved, or deleted.
+  const existing = existingTargets({ files, baseDir: cwd });
 
-  if (resolvable) {
-    await smokeLoadStaged({ files, cwd });
+  if (existing.length > 0) {
+    process.stderr.write(clobberRefusal({ existing }));
+
+    return 1;
   }
+
+  const verdict = await verifyStaged({ files, cwd });
 
   writeFileSet({ files, baseDir: cwd });
 
@@ -161,12 +176,11 @@ export const runInit = async ({
       '  These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n',
   );
 
-  if (!resolvable) {
-    process.stdout.write(
-      '\nNext step: install the runtime deps so the generated code can load:\n' +
-        '  npm install orangerail-core zod\n' +
-        'Then run `orangerail studio` or `orangerail mcp`.\n',
-    );
+  // Both degrade kinds land here: the files are on disk either way, and only
+  // the docs/studio handoff — which needs the config to actually load — is
+  // skipped. Exit 0, because init did the job it promised.
+  if (!verdict.ok) {
+    process.stdout.write(degradeNotice({ verdict }));
 
     return 0;
   }
