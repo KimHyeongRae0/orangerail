@@ -1,16 +1,54 @@
 # orangerail
 
-> Generate a typed MCP surface from the schema you already have — a tool per entity, a tool
-> per write, and a human gate on the writes that need one.
+> Don't hand your agent a database. Hand it the list of verbs you defined — generated from
+> the schema you already have, committed to git, and reviewed once.
 
-`orangerail init` reads your `prisma/schema.prisma` or OpenAPI spec and generates an MCP
-server from it: a `get` and a `list` tool per object, one action per write with a zod input
-schema, and nothing else. It is a scanner and a code generator — no LLM calls, no API keys,
-and the generated files under `ontology/` are yours to edit. An agent pointed at it gets a
-fixed set of typed tools rather than an `execute_sql` box and a schema dump. The writes you
-do not want run unattended carry `policy: { approval: 'required' }`, which stages the call for
-a person instead of executing it, and `orangerail mcp` withholds an action whose gate has
-since been weakened against the baseline it recorded.
+**A host permission prompt asks per call, and that is its weakness, not its feature.** The
+twentieth prompt of the afternoon gets the same click as the first, and the switch that ends
+the asking already ships in the box: Claude Code's `bypassPermissions` mode "skips permission
+prompts, except those forced by explicit `ask` rules" and a short list of similar carve-outs,
+per its own [permissions reference](https://code.claude.com/docs/en/permissions). A boundary
+that has to be re-established by a person on every call erodes at exactly the rate the agent
+becomes useful. Nothing is wrong with the prompt itself; the flaw is asking a question that
+has to be answered again in ten seconds.
+
+**A generated surface is a boundary that does not erode, because there is nothing to decide
+per call.** `orangerail init` reads your `prisma/schema.prisma` or OpenAPI spec and writes an
+MCP server from it: a `get` and a `list` tool per object, one action per write with a zod
+input schema, and nothing else — no `execute_sql`, and nothing on the tool list that takes a
+query. It is a scanner and a code generator, with no LLM calls and no API keys, and the
+files it writes under `ontology/` are yours to edit. The decision about what the agent can
+touch was made once, at generation time; it is finite, it is in files a reviewer can diff,
+and you can read all of it before an agent ever connects. So the argument is not that you
+should put more friction in front of your agent. It is that **you can let it run, because
+you know what it can reach.**
+
+|  | what the agent can do |
+| --- | --- |
+| `execute_sql` on a general-purpose database MCP server | anything the connection can |
+| the same server started with `--read-only` | read anything in the database |
+| orangerail | exactly the calls you declared, argument shapes included |
+
+Until now that was the whole menu, and the middle row is narrower than it sounds, because
+`--read-only` constrains the verb and not the reach. On Supabase's server the flag leaves
+`execute_sql` on the tool list still taking the same single `query: z.string()` parameter and
+passes `read_only: true` down with it — the tool is declared `readOnlyBehavior: 'adapt'`,
+which that repo defines as "stays available in read-only mode, adapts behavior". Meanwhile
+`apply_migration` declares no such behavior (the documented default is `'exclude'`, "removed
+from tool list") and its handler throws `Cannot apply migration in read-only mode.` if it is
+reached anyway
+([`tools/database-operation-tools.ts`](https://github.com/supabase/mcp/blob/main/packages/mcp-server-supabase/src/tools/database-operation-tools.ts)
+and [`tools/util.ts`](https://github.com/supabase/mcp/blob/main/packages/mcp-server-supabase/src/tools/util.ts)
+on `main`, read 2026-07-30). That is a real distinction and a useful one. It is not an answer
+to "what can this agent see": every table, every column and every row is still one string
+away. The third row is what was missing.
+
+**Bounded is not safe, and this README will not pretend otherwise.** What a generated
+surface buys you is a reach that is *finite and legible* — not a claim that nothing harmful
+is inside it. You declared the verbs, so a destructive verb you declared is a verb the agent
+can call. The ones you do not want run unattended carry `policy: { approval: 'required' }`,
+which stages the call for a person instead of executing it, and `orangerail mcp` withholds
+an action whose gate has since been weakened against the baseline it recorded.
 
 One precondition, up front, because it decides whether any of this is worth installing:
 **orangerail governs only its own tools.** If the agent also has a shell with credentials or
@@ -22,18 +60,24 @@ CLI) plus `orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and
 `orangerail-studio`. `npx orangerail init` runs against your own project today, with no
 checkout of this repo ([Quickstart](#quickstart)). It is still v0 and under active
 development: the API described further down is the design target, and it will move before
-1.0. What has changed since `0.1.0`, and the one thing an upgrade asks of you, are in the
-[CHANGELOG](./CHANGELOG.md).
+1.0.
+
+**One thing to know before you install `0.1.0`.** It is the release whose read `filter` was
+published to the agent but never checked, so a `<Object>_list` call could read an object
+type the server never exposed — the mechanism is under
+[Typed is not enforced](#typed-is-not-enforced). The fix is merged on `main` and **not yet
+released**, so today the choice is `0.1.0` with that hole in it or a build from this
+checkout ([From source instead](#from-source-instead)). If you run `0.1.0` anyway,
+assume any object reachable by a relation from an exposed one is readable, whether or not it
+is in `ontology/`. Everything else that changed since `0.1.0`, and the one thing an upgrade
+asks of you, is in the [CHANGELOG](./CHANGELOG.md).
 
 ## What the agent gets instead of `execute_sql`
 
-Point an agent at a general-purpose database MCP server and the surface is usually two tools:
-dump the schema, then send a SQL string. Every call is an unconstrained string, and the server
-has no opinion about any of it.
-
-orangerail generates the surface from the schema instead. Run `orangerail init` on a
-three-model Prisma schema (`Order`, `OrderItem`, `Payment`) and this is the entire tool list —
-copied from the `orangerail docs` output for that generated project:
+That third row is worth spelling out, because "a finite set of calls" is the kind of phrase
+every tool claims. Run `orangerail init` on a three-model Prisma schema (`Order`,
+`OrderItem`, `Payment`) and this is the entire tool list — copied from the `orangerail docs`
+output for that generated project:
 
 ```text
 | Tool | Kind | Backing entity |
@@ -61,15 +105,51 @@ is a zod schema derived from your own columns, so `deletePayment` accepts an `id
 everything else; each read is a `findUnique` by id or a paged `findMany`. The `filter` on that
 `findMany` is derived from your columns the same way — each declared field as a value or a
 bounded set of operators (`gte`, `contains`, `in`), published in `tools/list` and **enforced
-before it reaches the database**, so it is a fixed set of predicates rather than a query
-language wearing a schema. The set is fixed at generation time, it is the same on every run
-over the same schema, and you can read all of it in `ontology/` before an agent ever connects.
+by the server before it reaches your resolver**, so it is a fixed set of predicates rather
+than a query language wearing a schema. The set is fixed at generation time, it is the same on
+every run over the same schema, and you can read all of it in `ontology/` before an agent ever
+connects.
 
 **Be exact about what that costs.** A fixed surface is a narrow one. There is no aggregation,
 no join and no free-form query here, so a question this surface cannot express has to be
 answered somewhere else — stated in full under
 [What orangerail does not govern](#what-orangerail-does-not-govern), along with the two
 larger limits: orangerail sees only its own tools, and it has no DDL.
+
+### Typed is not enforced
+
+The word **enforced** above is carrying the whole argument, and orangerail earned it the hard
+way. In `0.1.0` that same `filter` was advertised to the agent as
+`{ "type": "object" }` and handed to the object's resolver untouched — which for a generated
+Prisma resolver is `findMany({ where: filter })`, meaning Prisma's entire `where` grammar,
+relation predicates included. Against a project generated with `--models Customer`, where
+`ontology/` held no `Order` file and `tools/list` carried no `Order` tool at all, calling
+`Customer_list` with `{ "orders": { "some": { "secret": { "startsWith": "h" } } } }` returned
+the customers whose unexposed order secret began with `h`, while the same probe with `"q"`
+returned none. That difference is a boolean oracle: walked over a 36-symbol alphabet it read
+a seven-character column of a table the server never exposed, in 151 `Customer_list` calls
+and no other tool. The full account is in the [CHANGELOG](./CHANGELOG.md) under Security.
+
+The lesson is the concept and not the bug. A schema the agent is shown and the server does
+not check is documentation, and an agent is under no obligation to read your documentation.
+So the filter is now validated against the object's own declared fields before it reaches any
+resolver, and that exact probe is a regression test
+([`packages/mcp/test/read-surface.test.ts`](./packages/mcp/test/read-surface.test.ts)) which
+asserts the call now comes back
+`Filter rejected: "orders" is not a filterable field of this object (fields: email, id, name).`
+
+**Be exact about where that check lives, because it is not where you would guess.** It is in
+`orangerail-mcp`'s list handler
+([`packages/mcp/src/server.ts`](./packages/mcp/src/server.ts), `handleList`) — **not** in
+codegen. The generated resolver still builds `findMany({ where: filter })` out of whatever it
+is handed
+([`packages/cli/src/commands/init/codegen/emit-object.ts:300`](./packages/cli/src/commands/init/codegen/emit-object.ts)),
+so anything that imports `ontology/*.mjs` and calls `resolve.list` itself — your own script,
+a second server, a test — gets the unbounded `where` back. The placement is deliberate: on
+the server the check covers hand-written resolvers identically, and upgrading the package
+fixes an existing project with no re-run of `init`. But it makes the honest sentence a
+two-part one: `ontology/` is what you **review**, and `orangerail mcp` is what **enforces**.
+The ontology files are the declaration, not the boundary.
 
 ## See it stop an agent
 
@@ -122,6 +202,11 @@ The shortest true path from zero to watching an agent get blocked. Every output 
 verbatim from one run against the published `0.1.0` packages, in a scratch project holding
 nothing but a two-model Prisma schema (`Customer`, `Order`) — no checkout of this repo,
 nothing built from source.
+
+Read [Typed is not enforced](#typed-is-not-enforced) before you follow it: the read-filter
+hole described there is in `0.1.0`, and the fix is merged but unreleased. The transcripts
+below are unaffected by it — they are the approval path, not the read path — but the packages
+you install are the ones with the hole in them.
 
 **Requirements: Node 20 or newer** for the `orangerail` CLI and `orangerail-mcp` (Node 18
 for `orangerail-core`, `orangerail-docs-gen` and `orangerail-studio` on their own). Every
@@ -426,7 +511,8 @@ instead of a generic query tool — including the read `filter`, which is a clos
 predicates over declared fields that the server enforces, rather than a `where` clause the
 agent composes — and a per-action approval gate with a recorded baseline that `sync` and `mcp`
 both enforce. Each claim below was checked against the shipped package or the vendor's own
-documentation on 2026-07-29.
+documentation on 2026-07-29, and the `--read-only` reading was re-checked against source on
+2026-07-30.
 
 - **[`openapi-mcp-generator`](https://github.com/harsha-iiiv/openapi-mcp-generator)** (627
   stars; 16,389 npm downloads in the week ending 2026-07-28) is real prior art on the
@@ -458,6 +544,16 @@ documentation on 2026-07-29.
   relation either, and unlike `execute_sql` it cannot express the join that would. Compared
   against Supabase the honest summary is a narrower surface with a clearer label on it, not a
   more capable one.
+
+  Its `--read-only` flag is the middle row of the table at the top of this file, and it does
+  exactly what it says rather than more. `execute_sql` is declared
+  `readOnlyBehavior: 'adapt'`, which `src/tools/util.ts` defines as "stays available in
+  read-only mode, adapts behavior", so under the flag the tool stays on the list with the same
+  single `query: z.string()` parameter and the server passes `read_only: readOnly` down to the
+  platform call. `apply_migration` declares no `readOnlyBehavior` — the documented default is
+  `'exclude'`, "removed from tool list" — and its handler additionally throws
+  `Cannot apply migration in read-only mode.` if it is reached. So the flag decides whether
+  the SQL may write; the reach is the whole database either way.
 
 ## Wire it into your agent host
 
@@ -511,9 +607,11 @@ the JSON-RPC channel), which lands in your host's log:
 orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (0 record(s))
 ```
 
-**From source instead.** If you are working on orangerail itself, or want to run an
-unreleased change, point the host at your build rather than at npm. `dist/` is not
-committed, so build first:
+### From source instead
+
+If you are working on orangerail itself, or want to run an unreleased change — including the
+read-filter fix that is on `main` and not in `0.1.0` — point the host at your build rather
+than at npm. `dist/` is not committed, so build first:
 
 ```bash
 git clone https://github.com/KimHyeongRae0/orangerail.git

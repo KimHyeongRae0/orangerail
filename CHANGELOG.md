@@ -339,13 +339,43 @@ both logs consistently and pass verification. See
 
 ### Documentation
 
-- **The README leads with what the project generates, not with the gate.** It opened on
-  approval gates and audit logs; that is one feature of the surface, not the reason the
-  surface exists. It now opens on the surface itself — a `get` and a `list` tool per object
-  and one typed action per write, generated from your schema, with no `execute_sql` and
-  nothing on the list that takes a query — shown as the actual tool table `orangerail docs`
-  emits for a three-model schema. Approval is presented as a property of an action from there
-  on. Nothing in the security wording moved.
+- **The README leads with the argument rather than the inventory.** It opened first on
+  approval gates, then (correctly) on the generated surface — but both were descriptions of
+  outputs, and a reader finished the first screen knowing what `init` writes and not why they
+  would want it. The opening now makes the case: a host permission prompt asks *per call*, so
+  it depends on sustained human attention and erodes at the rate the agent becomes useful,
+  while a generated surface is finite, declared, committed and reviewed once, so there is
+  nothing to decide per call. The conclusion is the inversion — you can let the agent run
+  *because* you know what it can reach — with an explicit paragraph refusing the slide from
+  "bounded" to "safe". Approval remains a property of an action. The generated tool table is
+  still there, one section down. Nothing in the security wording moved, and the co-resident
+  precondition is still on the first screen.
+- **The three-row comparison is on the first screen:** `execute_sql` on a general-purpose
+  database MCP server (anything the connection can), the same server under `--read-only`
+  (read anything in the database), orangerail (exactly the calls you declared, argument shapes
+  included). The point being drawn is that the menu used to be everything-or-read-only with no
+  middle. The `--read-only` row is read off source, not asserted: in `supabase/mcp`,
+  `execute_sql` is declared `readOnlyBehavior: 'adapt'` — "stays available in read-only mode,
+  adapts behavior" — so it stays on the tool list with the same single `query: z.string()`
+  parameter, while `apply_migration` takes the default `'exclude'` and additionally throws
+  `Cannot apply migration in read-only mode.`. The flag decides whether the SQL may write; the
+  reach is the whole database either way.
+- **The filter exfiltration is in the README as an illustration, under "Typed is not
+  enforced".** It is the concrete demonstration that a schema the agent is shown and the
+  server does not check is documentation, not a boundary — the probe, the boolean oracle, the
+  151 calls, and a pointer to the full account here. It also states where the check actually
+  lives: `orangerail-mcp`'s `handleList`, **not** codegen. The generated resolver still builds
+  `findMany({ where: filter })` from whatever it is handed, so a caller that imports
+  `ontology/*.mjs` and invokes `resolve.list` directly gets the unbounded `where` back. The
+  README now says outright that `ontology/` is what you review and `orangerail mcp` is what
+  enforces.
+- **The install path discloses that `0.1.0` is the vulnerable release.** The README told a
+  reader that v0 is on npm at `0.1.0` and pointed them at `npx orangerail init` without
+  mentioning that `0.1.0` is the build whose read filter was never checked. It now says so
+  where the reader sees it before installing — on the first screen and again at the top of the
+  Quickstart — names that the fix is merged and unreleased, and states the consequence for
+  someone who installs `0.1.0` anyway: assume any object reachable by a relation from an
+  exposed one is readable, whether or not it is in `ontology/`.
 - **The relation graph is described where it actually goes.** `orangerail init` derives a
   `defineLink` per relation pair with a `cardinality`, and the README used to leave a reader
   to assume the agent sees it. It does not: `packages/mcp` never calls `listLinks()`, so the
