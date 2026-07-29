@@ -1,6 +1,7 @@
 import type { IrAction, IrPrismaAction } from '../ir';
 import { ownershipLine, prismaClientBlock, prismaMember } from './emit-object';
 import { escapeBlockComment, escapeStringLiteral, sanitizeIdentifier } from './escape';
+import { BARE_CONSTRUCTION, type PrismaConstruction } from './prisma-runtime';
 import { actionFieldExpr } from './zod';
 
 /**
@@ -186,9 +187,11 @@ const emitOpenApiActionFile = ({
 const emitPrismaActionFile = ({
   action,
   binding,
+  construction,
 }: {
   action: IrAction;
   binding: string;
+  construction: PrismaConstruction;
 }): { filename: string; content: string } => {
   // Recompute the client member at EMIT time from the SOURCE model name,
   // mirroring the read side exactly — never from the emitted JS binding — so a
@@ -215,7 +218,7 @@ const emitPrismaActionFile = ({
     "import { registry } from './_registry.mjs';",
     ...(isTargeted ? [`import { ${objectBinding} } from './${objectBinding}.mjs';`] : []),
     '',
-    prismaClientBlock({ diagnosticName: prisma.model, sourceModel }),
+    prismaClientBlock({ diagnosticName: prisma.model, sourceModel, construction }),
     '',
     `export const ${binding} = registry.defineAction({`,
     `  name: ${escapeStringLiteral({ value: action.name })},`,
@@ -241,8 +244,10 @@ const emitPrismaActionFile = ({
 /** Render the `.mjs` file for one scanned action (plan D4 branch). */
 export const emitActionFile = ({
   action,
+  construction = BARE_CONSTRUCTION,
 }: {
   action: IrAction;
+  construction?: PrismaConstruction;
 }): { filename: string; content: string } => {
   // The MCP-safe registry name may contain hyphens (e.g. GitHub-style
   // `actions/create-workflow-dispatch` operationIds), which are not legal in
@@ -253,6 +258,6 @@ export const emitActionFile = ({
   const binding = sanitizeIdentifier({ value: action.name });
 
   return action.source === 'prisma'
-    ? emitPrismaActionFile({ action, binding })
+    ? emitPrismaActionFile({ action, binding, construction })
     : emitOpenApiActionFile({ action, binding });
 };

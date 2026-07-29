@@ -105,6 +105,9 @@ export const applyFilters = ({
     })),
     enums: source.enums,
     actions,
+    // The datasource survives filtering: `--models` narrows WHICH tables are
+    // governed, never WHICH database they live in (ONT-049).
+    ...(source.datasource === undefined ? {} : { datasource: source.datasource }),
     warnings: source.warnings,
     infos: source.infos,
   };

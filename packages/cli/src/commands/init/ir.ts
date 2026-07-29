@@ -173,11 +173,28 @@ export interface IrAction {
   description?: string;
 }
 
+/**
+ * The database the scanned schema points at (ONT-049). Carried as inert facts,
+ * never as a connection: `provider` selects the driver adapter the generated
+ * code must construct on Prisma 7, and `urlEnv` is the environment variable
+ * name the schema itself named, so the generated code reads the SAME variable
+ * the project already uses instead of assuming `DATABASE_URL`.
+ *
+ * Absent for an OpenAPI-only scan, and for a Prisma 7 schema both keys can be
+ * absent independently — Prisma 7 moved `url` out of the schema entirely.
+ */
+export interface IrDatasource {
+  provider?: string;
+  urlEnv?: string;
+}
+
 /** The full result of scanning one source file. */
 export interface ScannedSource {
   objects: IrObject[];
   enums: IrEnum[];
   actions: IrAction[];
+  /** The scanned datasource, when a source declared one. */
+  datasource?: IrDatasource;
   /** Skip-with-warning diagnostics (unsupported constructs). */
   warnings: string[];
   /** Informational lines (e.g. GET operations skipped by design). */
@@ -194,10 +211,18 @@ export const emptySource = (): ScannedSource => ({
 });
 
 /** Merge two scanned sources into one (objects/enums/actions concatenated). */
-export const mergeSources = ({ a, b }: { a: ScannedSource; b: ScannedSource }): ScannedSource => ({
-  objects: [...a.objects, ...b.objects],
-  enums: [...a.enums, ...b.enums],
-  actions: [...a.actions, ...b.actions],
-  warnings: [...a.warnings, ...b.warnings],
-  infos: [...a.infos, ...b.infos],
-});
+export const mergeSources = ({ a, b }: { a: ScannedSource; b: ScannedSource }): ScannedSource => {
+  // First datasource wins. Detection order puts the ROOT schema ahead of any
+  // workspace schema, so a monorepo with several schemas keeps pointing at the
+  // one a user would call "the" database rather than at whichever sorted last.
+  const datasource = a.datasource ?? b.datasource;
+
+  return {
+    objects: [...a.objects, ...b.objects],
+    enums: [...a.enums, ...b.enums],
+    actions: [...a.actions, ...b.actions],
+    ...(datasource === undefined ? {} : { datasource }),
+    warnings: [...a.warnings, ...b.warnings],
+    infos: [...a.infos, ...b.infos],
+  };
+};

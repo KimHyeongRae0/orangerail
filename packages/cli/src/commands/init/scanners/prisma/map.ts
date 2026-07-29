@@ -197,6 +197,15 @@ export const mapPrismaToIr = ({ parsed }: { parsed: ParsedSchema }): ScannedSour
   const enums: IrEnum[] = parsed.enums.map((e) => ({ name: e.name, values: [...e.values] }));
   source.enums.push(...enums);
 
+  // The datasource travels as inert facts (ONT-049): the provider selects the
+  // driver adapter Prisma 7 requires, and the env-var name lets the generated
+  // code read the SAME variable the schema already names. Absent when the
+  // schema declares no datasource block — a Prisma 7 schema legitimately
+  // declares no `url`, so an EMPTY block still yields an object with neither key.
+  if (parsed.datasource !== undefined) {
+    source.datasource = parsed.datasource;
+  }
+
   if (parsed.invalidBlocks.length > 0) {
     // Prisma rejects these names itself, so the skip is right — but skipping in
     // silence left the user with a model count that did not match their schema.

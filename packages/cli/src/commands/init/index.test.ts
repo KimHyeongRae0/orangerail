@@ -33,6 +33,26 @@ const makeRepo = ({ prefix }: { prefix: string }): string => {
   return dir;
 };
 
+/**
+ * Plant a package manifest under the repo's own `node_modules`, which is what
+ * the Prisma-major probe reads (ONT-049). A manifest is all the probe needs —
+ * it reads `version` and nothing else — so these cases cost no install.
+ */
+const installPackage = ({
+  cwd,
+  pkg,
+  version,
+}: {
+  cwd: string;
+  pkg: string;
+  version: string;
+}): void => {
+  const dir = join(cwd, 'node_modules', ...pkg.split('/'));
+
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: pkg, version }), 'utf8');
+};
+
 /** Run `runInit` with stdout/stderr captured instead of printed. */
 const runCaptured = async ({ cwd }: { cwd: string }) => {
   const out: string[] = [];
@@ -112,5 +132,73 @@ describe('runInit front door', () => {
       '// === HAND-WRITTEN BUSINESS RULE ===\n',
     );
     expect(existsSync(join(repoDir, 'orangerail.config.mjs'))).toBe(false);
+  });
+});
+
+describe('runInit refusal exit codes (ONT-049)', () => {
+  // Every path that declines to generate has to say so in its exit code. The
+  // "no sources" path printed on stdout and returned 0, which told every
+  // scripted caller that init had succeeded over a repo it never touched.
+
+  it('exits 1 and points at the on-ramp when there is nothing to scan', async () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), 'ont-049-init-empty-'));
+    tempDirs.push(emptyDir);
+
+    const { code, stdout, stderr } = await runCaptured({ cwd: emptyDir });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain('no Prisma schema or OpenAPI JSON found');
+    // The refusal names the way OUT. A live database with no schema file is the
+    // most likely starting point, and "add a prisma/schema.prisma" is not an
+    // instruction that user can follow without being told `db pull` writes one.
+    expect(stderr).toContain('prisma db pull');
+    expect(stderr).toContain('docs/existing-database.md');
+    // A refusal is not a result: nothing about it belongs on stdout.
+    expect(stdout).toBe('');
+    expect(existsSync(join(emptyDir, 'orangerail.config.mjs'))).toBe(false);
+  });
+
+  it('exits 1 and writes nothing when Prisma 7 has no driver adapter', async () => {
+    const repoDir = makeRepo({ prefix: 'ont-049-init-prisma7-' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/client', version: '7.9.1' });
+
+    const { code, stderr } = await runCaptured({ cwd: repoDir });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain('no supported driver adapter is installed');
+    expect(stderr).toContain('npm install @prisma/adapter-pg');
+    expect(existsSync(join(repoDir, 'orangerail.config.mjs'))).toBe(false);
+    expect(existsSync(join(repoDir, 'ontology'))).toBe(false);
+  });
+
+  it('generates the adapter construction when Prisma 7 has one, and exits 0', async () => {
+    const repoDir = makeRepo({ prefix: 'ont-049-init-prisma7-ok-' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/client', version: '7.9.1' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/adapter-pg', version: '7.9.1' });
+
+    const { code } = await runCaptured({ cwd: repoDir });
+
+    expect(code).toBe(0);
+    expect(readFileSync(join(repoDir, 'ontology', 'Article.mjs'), 'utf8')).toContain(
+      'new PrismaClient({ adapter: new PrismaPg(url) })',
+    );
+  });
+
+  it('leaves Prisma 6 output byte-identical to a repo with no Prisma at all', async () => {
+    // AC-1: the pre-7 world must not move. Whatever a Prisma 6 repo emitted
+    // before this change, it emits now.
+    const six = makeRepo({ prefix: 'ont-049-init-prisma6-' });
+    installPackage({ cwd: six, pkg: '@prisma/client', version: '6.19.3' });
+    const none = makeRepo({ prefix: 'ont-049-init-noprisma-' });
+
+    expect((await runCaptured({ cwd: six })).code).toBe(0);
+    expect((await runCaptured({ cwd: none })).code).toBe(0);
+
+    expect(readFileSync(join(six, 'ontology', 'Article.mjs'), 'utf8')).toBe(
+      readFileSync(join(none, 'ontology', 'Article.mjs'), 'utf8'),
+    );
+    expect(readFileSync(join(six, 'ontology', 'Article.mjs'), 'utf8')).toContain(
+      'client = new PrismaClient();',
+    );
   });
 });

@@ -1,0 +1,18 @@
+// ONT-049 e2e fixture — one model with an @id, which is what makes the emitter
+// write a `@prisma/client` call site at all, plus a datasource whose provider
+// selects the driver adapter the Prisma 7 refusal must name.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id    Int    @id @default(autoincrement())
+  title String
+  price Float
+}

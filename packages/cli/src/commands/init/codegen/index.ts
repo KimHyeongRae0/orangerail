@@ -5,6 +5,7 @@ import { emitActionFile } from './emit-action';
 import { emitConfigFile, emitRegistryFile } from './emit-config';
 import { deriveLinks, emitLinksFile } from './emit-links';
 import { emitObjectFile } from './emit-object';
+import { BARE_CONSTRUCTION, type PrismaConstruction } from './prisma-runtime';
 
 /** A single generated file, path relative to the target repo root. */
 export interface GeneratedFile {
@@ -14,6 +15,7 @@ export interface GeneratedFile {
 
 export { deriveLinks } from './emit-links';
 export { emitObjectFile } from './emit-object';
+export * from './prisma-runtime';
 
 /**
  * Assemble the full byte-deterministic file set from a merged scanned source
@@ -30,9 +32,17 @@ export { emitObjectFile } from './emit-object';
 export const buildFileSet = ({
   source,
   preset,
+  construction = BARE_CONSTRUCTION,
 }: {
   source: ScannedSource;
   preset: McpPreset;
+  /**
+   * How the generated Prisma call sites construct their client (ONT-049).
+   * Defaults to the pre-7 bare constructor, so every caller that does not care
+   * about the target repo's Prisma major renders exactly the bytes it always
+   * rendered.
+   */
+  construction?: PrismaConstruction;
 }): GeneratedFile[] => {
   const files: GeneratedFile[] = [];
 
@@ -50,13 +60,13 @@ export const buildFileSet = ({
 
   const objects = [...source.objects].sort((a, b) => a.name.localeCompare(b.name));
   for (const object of objects) {
-    const file = emitObjectFile({ object });
+    const file = emitObjectFile({ object, construction });
     files.push({ path: `ontology/${file.filename}`, content: file.content });
   }
 
   const actions = [...source.actions].sort((a, b) => a.name.localeCompare(b.name));
   for (const action of actions) {
-    const file = emitActionFile({ action });
+    const file = emitActionFile({ action, construction });
     files.push({ path: `ontology/${file.filename}`, content: file.content });
   }
 

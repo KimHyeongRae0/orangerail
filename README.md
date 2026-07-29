@@ -70,6 +70,10 @@ OpenAPI spec. The scanner is deterministic: it reads your files, makes no LLM ca
 needs no API key. `--yes` takes the defaults instead of prompting, and `--no-studio` keeps
 the run in the terminal.
 
+Have a live database and no schema file? `prisma db pull` writes one — the whole path,
+for Prisma 6 and Prisma 7, is in
+[Adopting orangerail against an existing database](./docs/existing-database.md).
+
 ```console
 $ npx orangerail init --yes --preset approval-for-writes --no-studio
   ✓  scanned your sources — 2 object(s), 6 action(s)
@@ -464,6 +468,13 @@ route is the MCP tools, which stage, poll and read your domain, and never expose
 directory. If the agent and the operator are the same OS user on the same machine, you have
 a human checkpoint and an audit trail and no boundary — which is exactly what the section
 above says you have.
+
+## Docs
+
+- [Adopting orangerail against an existing database](./docs/existing-database.md) —
+  `prisma db pull` onto a live database, what Prisma 7 changes (a driver adapter is
+  required, and the connection URL moves to `prisma.config.ts`), and the errors you hit
+  if you skip a step.
 
 ## Examples
 

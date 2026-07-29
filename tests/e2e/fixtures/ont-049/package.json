@@ -1,0 +1,7 @@
+{
+  "name": "ont-049-fixture-shop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture repo for ONT-049: a Prisma schema only, copied OUT OF REPO so the Prisma-major probe reads the node_modules the scenario plants rather than the monorepo's own."
+}

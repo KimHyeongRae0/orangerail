@@ -6,6 +6,11 @@ import type { Registry } from 'orangerail-core';
 import { loadConfig } from '../../config';
 import { emitActionFile } from '../init/codegen/emit-action';
 import { emitObjectFile } from '../init/codegen/emit-object';
+import {
+  EXISTING_DB_DOC,
+  type PrismaConstruction,
+  resolvePrismaConstruction,
+} from '../init/codegen/prisma-runtime';
 import type { IrAction } from '../init/ir';
 import { scanRepo } from '../init/scan';
 import { diffSync, type SyncDiff } from './diff';
@@ -231,7 +236,15 @@ interface AcceptResult {
 }
 
 /** Materialize new-model / new-action proposals as NEW files only (D11). */
-const acceptNewFiles = ({ diff, cwd }: { diff: SyncDiff; cwd: string }): AcceptResult => {
+const acceptNewFiles = ({
+  diff,
+  cwd,
+  construction,
+}: {
+  diff: SyncDiff;
+  cwd: string;
+  construction: PrismaConstruction;
+}): AcceptResult => {
   let created = 0;
   let skipped = 0;
 
@@ -252,11 +265,11 @@ const acceptNewFiles = ({ diff, cwd }: { diff: SyncDiff; cwd: string }): AcceptR
   };
 
   for (const object of diff.newObjects) {
-    write(emitObjectFile({ object }));
+    write(emitObjectFile({ object, construction }));
   }
 
   for (const action of diff.newActions) {
-    write(emitActionFile({ action }));
+    write(emitActionFile({ action, construction }));
   }
 
   return { created, skipped };
@@ -324,7 +337,33 @@ export const runSync = async ({
   const governanceDrift = !acceptGovernance && (governance.weakened > 0 || governance.unvouched);
 
   if (acceptNew) {
-    const { created, skipped } = acceptNewFiles({ diff, cwd });
+    // `--accept-new` is the second doorway that writes generated Prisma call
+    // sites, so it answers the Prisma-major question exactly the way `init`
+    // does (ONT-049) — otherwise a Prisma 7 project adopting a new model would
+    // get a file with a constructor Prisma 7 rejects, from a command that
+    // reported success.
+    const prisma = resolvePrismaConstruction({
+      cwd,
+      provider: scanned.datasource?.provider,
+      urlEnv: scanned.datasource?.urlEnv,
+      hasPrismaCallSites:
+        diff.newObjects.some((object) => object.idField !== undefined) ||
+        diff.newActions.some((action) => action.source === 'prisma'),
+      docPath: EXISTING_DB_DOC,
+      command: 'orangerail sync --accept-new',
+    });
+
+    if (!prisma.ok) {
+      process.stderr.write(prisma.refusal);
+
+      return 1;
+    }
+
+    const { created, skipped } = acceptNewFiles({
+      diff,
+      cwd,
+      construction: prisma.construction,
+    });
     process.stdout.write(
       created === 0
         ? 'sync: no new proposals to create.\n'
