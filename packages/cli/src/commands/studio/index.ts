@@ -57,6 +57,16 @@ export const runStudio = async ({
 }): Promise<number> => {
   const resolvedConfigPath = resolveConfigPath({ configPath });
 
+  // A short, truthful startup readout so a first-run operator sees what the
+  // studio is doing before the browser opens: it scans the declared ontology
+  // (real object/action counts), builds the interactive map from it, then serves.
+  const objectCount = config.registry.listObjects().length;
+  const actionCount = config.registry.listActions().length;
+  process.stderr.write(
+    `orangerail studio: scanning ontology — ${objectCount} object(s), ${actionCount} action(s)\n`,
+  );
+  process.stderr.write('orangerail studio: building the interactive map…\n');
+
   let snapshot = buildSnapshot({ registry: config.registry });
   let instances: InstanceSnapshot = await gatherInstances({
     registry: config.registry,
@@ -88,7 +98,7 @@ export const runStudio = async ({
   await new Promise<void>((resolveListen) => {
     server.listen(port, '127.0.0.1', () => {
       const url = `http://127.0.0.1:${port}`;
-      process.stderr.write(`orangerail studio: serving on ${url}\n`);
+      process.stderr.write(`orangerail studio: serving on ${url} — open it in your browser\n`);
 
       stopWatch = watchConfig({
         configPath: resolvedConfigPath,

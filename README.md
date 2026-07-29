@@ -51,6 +51,21 @@ A read-only switch can't do this: the destructive tool stays **available** (not
 hidden), the agent **cannot force it through**, and the row changes **only after a
 human decided**. Run it yourself → [`examples/governed-writes`](./examples/governed-writes).
 
+## See your whole domain as a map
+
+`orangerail studio` reads your declared ontology and opens a live, read-only map of
+your domain — every object, how they relate, and every write action an agent can
+reach. Hover a table to light up its relations and actions; click one to see its
+fields, links, and the **actions you can take on it** — each with the policy that
+governs it (`deleteProduct` → approval required).
+
+![the orangerail studio map — hovering tables to reveal relations, then focusing the actions an agent can take on a table](./assets/studio-map.gif)
+
+> Crisper version: [`assets/studio-map.mp4`](./assets/studio-map.mp4). The map above is
+> one real run of `orangerail studio` on a sample commerce domain — run it on your own
+> project (or the [`governed-writes`](./examples/governed-writes) example) to explore
+> yours.
+
 ## What orangerail will be
 
 The domain rules you've been hand-writing into scattered markdown — product
