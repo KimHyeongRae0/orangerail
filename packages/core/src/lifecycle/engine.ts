@@ -17,15 +17,34 @@ export type EngineMode = 'live' | 'dry_run';
  */
 export type RedactAudit = (args: { actionName: string; input: unknown }) => unknown;
 
+/**
+ * The detail carried by every failing outcome (§3.10).
+ *
+ * `error` is the FULL underlying text (a driver/datasource message, a store
+ * failure) and is OPERATOR-facing: it names tables, constraints, and file
+ * paths. A transport that answers an untrusted agent MUST NOT forward it —
+ * `orangerail-mcp` redacts it and returns `correlationId` instead.
+ *
+ * `correlationId` is the audit lookup key: the `approvalId` when the attempt
+ * came from an approval, otherwise the id minted for this attempt and stamped
+ * on its audit records. It is exactly the key `verifyAudit` pairs records on
+ * (`approvalId ?? correlationId`), so an operator can find the full text in the
+ * audit log from what the agent was told.
+ */
+export interface FailureDetail {
+  error: string;
+  correlationId: string;
+}
+
 /** Result of {@link Engine.execute} (also folded into {@link StageResult} for auto actions). */
 export type ExecuteResult =
   | { status: 'executed'; result: unknown }
   | { status: 'consume_failed'; reason: 'not_approved' | 'not_found' | 'already_consumed' }
   | { status: 'invalidated'; reason: 'signature' | 'schema' }
   | { status: 'condition_changed' }
-  | { status: 'resolve_error'; error: string }
-  | { status: 'audit_blocked'; error: string }
-  | { status: 'failed'; error: string };
+  | ({ status: 'resolve_error' } & FailureDetail)
+  | ({ status: 'audit_blocked' } & FailureDetail)
+  | ({ status: 'failed' } & FailureDetail);
 
 /** Result of {@link Engine.stage}. */
 export type StageResult =
@@ -217,13 +236,20 @@ export const createEngine = ({
     // BOTH the execution_started and the terminal record so `verifyAudit` can
     // pair them (§3.2 / AC-2). Approval-path executions keep their approvalId
     // and no correlationId — their records hash exactly as before.
-    const correlated =
-      audit.approvalId === undefined ? { ...audit, correlationId: randomUUID() } : audit;
+    //
+    // The same key is returned on every failing outcome (§3.10): it is the one
+    // handle an agent can quote to an operator who then reads the full error
+    // off the audit record.
+    const correlationId = audit.approvalId ?? randomUUID();
+    const correlated = audit.approvalId === undefined ? { ...audit, correlationId } : audit;
 
     try {
       await store.appendAudit({ record: mkAudit({ ...correlated, phase: 'execution_started' }) });
     } catch (err) {
-      return { status: 'audit_blocked', error: errorMessage({ err }) };
+      // No audit record exists for this attempt (the append is what failed), so
+      // the full text has no audit home — the transport's operator sink is the
+      // only place it survives.
+      return { status: 'audit_blocked', error: errorMessage({ err }), correlationId };
     }
 
     try {
@@ -239,7 +265,7 @@ export const createEngine = ({
         .appendAudit({ record: mkAudit({ ...correlated, phase: 'failed', error }) })
         .catch(() => undefined);
 
-      return { status: 'failed', error };
+      return { status: 'failed', error, correlationId };
     }
   };
 
@@ -270,10 +296,19 @@ export const createEngine = ({
 
     const where = await checkWhere({ action, input: parsedInput, identity: caller });
     if (where.kind === 'resolve_error') {
+      // A staging-time resolve error precedes any approval, so there is no
+      // approvalId to key the record on. Mint the correlationId here too, so
+      // this failure is quotable by the agent and findable by the operator
+      // (§3.10) — `verifyAudit` keys started->terminal pairing on
+      // execution_started/succeeded/failed only, so a correlated
+      // `resolve_error` record adds no pairing obligation.
+      const correlationId = randomUUID();
+
       await store.appendAudit({
         record: mkAudit({
           phase: 'resolve_error',
           actionName,
+          correlationId,
           requestedBy: caller.subject,
           input: parsedInput,
           error: where.error,
@@ -281,7 +316,7 @@ export const createEngine = ({
         }),
       });
 
-      return { status: 'resolve_error', error: where.error };
+      return { status: 'resolve_error', error: where.error, correlationId };
     }
     if (where.kind === 'fail') {
       await store.appendAudit({
@@ -513,7 +548,8 @@ export const createEngine = ({
       await store.appendAudit({
         record: mkAudit({ ...audit, phase: 'resolve_error', error: where.error }),
       });
-      return { status: 'resolve_error', error: where.error };
+      // On the approval path the approvalId IS the correlation key (§3.10).
+      return { status: 'resolve_error', error: where.error, correlationId: approvalId };
     }
     if (where.kind === 'fail') {
       await store.appendAudit({ record: mkAudit({ ...audit, phase: 'condition_changed' }) });
