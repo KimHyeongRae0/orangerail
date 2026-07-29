@@ -19,13 +19,19 @@ export const approvalsList = async ({ config }: { config: OrangerailConfig }): P
   return 0;
 };
 
-/** `orangerail approvals show <id>` — full record with pretty-printed input. */
+/**
+ * `orangerail approvals show <id>` — full record with pretty-printed input. The
+ * input block is length-capped by default so the decision context stays on the
+ * approver's screen; `--full` prints the whole value.
+ */
 export const approvalsShow = async ({
   config,
   id,
+  full = false,
 }: {
   config: OrangerailConfig;
   id: string;
+  full?: boolean;
 }): Promise<number> => {
   const record = await config.store.getApproval({ id });
 
@@ -34,7 +40,7 @@ export const approvalsShow = async ({
     return 1;
   }
 
-  process.stdout.write(renderApprovalDetail({ record }));
+  process.stdout.write(renderApprovalDetail({ record, full }));
 
   return 0;
 };

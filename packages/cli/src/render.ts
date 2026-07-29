@@ -18,11 +18,65 @@ const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/g;
  */
 const CONTROL_CHARS_KEEP_NEWLINE = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g;
 
+/**
+ * Bidi and invisible-formatting code points. None of them is a control
+ * character and `JSON.stringify` escapes none of them, so before this they went
+ * straight past {@link CONTROL_CHARS} into the approver's terminal. A lone
+ * U+202E in `requestedBy` reverses the rendering of everything after it on the
+ * line in any bidi-aware terminal (iTerm2, VS Code, GNOME Terminal), so a staged
+ * `DROP TABLE orders` can be made to read as innocuous text and one agent can
+ * wear another agent's name. That is the Trojan Source class (CVE-2021-42574),
+ * aimed at exactly the surface this file exists to defend.
+ *
+ * The set is "renders as nothing, or changes how its neighbours render":
+ *   U+00AD            soft hyphen
+ *   U+061C            Arabic letter mark (a bidi control)
+ *   U+180E            Mongolian vowel separator
+ *   U+200B-U+200F     zero-width space / non-joiner / joiner, LRM, RLM
+ *   U+202A-U+202E     LRE, RLE, PDF, LRO, RLO (embeddings and overrides)
+ *   U+2028, U+2029    line / paragraph separator (line breaks JSON leaves raw)
+ *   U+2060-U+206F     word joiner, invisible operators, the U+2066-U+2069
+ *                     isolates, and the deprecated format controls
+ *   U+FEFF            zero-width no-break space / BOM
+ *   U+FFF9-U+FFFB     interlinear annotation anchors
+ *   U+E0000-U+E007F   TAG characters (the ASCII-smuggling block)
+ */
+const BIDI_AND_INVISIBLE_CHARS =
+  /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2028\u2029\u2060-\u206F\uFEFF\uFFF9-\uFFFB]|[\u{E0000}-\u{E007F}]/gu;
+
+/**
+ * Render one code point as its JSON `\uXXXX` form, emitting a surrogate pair
+ * above the BMP so the result is always plain ASCII.
+ */
+const uEscape = ({ codePoint }: { codePoint: number }): string => {
+  const unit = ({ value }: { value: number }): string =>
+    `\\u${value.toString(16).padStart(4, '0')}`;
+
+  if (codePoint <= 0xffff) {
+    return unit({ value: codePoint });
+  }
+
+  const offset = codePoint - 0x10000;
+
+  return `${unit({ value: 0xd800 + (offset >> 10) })}${unit({ value: 0xdc00 + (offset & 0x3ff) })}`;
+};
+
+/**
+ * Replace every bidi/invisible code point with a visible `\uXXXX`. Escaped
+ * rather than deleted on purpose: deleting would render a hostile string as a
+ * clean one, and the approver would never learn that something unusual was in
+ * what they are about to approve.
+ */
+const escapeInvisible = ({ value }: { value: string }): string =>
+  value.replace(BIDI_AND_INVISIBLE_CHARS, (match) =>
+    uEscape({ codePoint: match.codePointAt(0) ?? 0 }),
+  );
+
 const stripControl = ({ value }: { value: string }): string => value.replace(CONTROL_CHARS, '');
 
 /** Strip control/ANSI chars then JSON-escape an agent-supplied string. */
 export const sanitize = ({ value }: { value: string }): string =>
-  JSON.stringify(stripControl({ value }));
+  escapeInvisible({ value: JSON.stringify(stripControl({ value })) });
 
 /** A one-line, length-capped preview of agent-supplied input (already escaped). */
 export const previewInput = ({ input }: { input: unknown }): string => {
@@ -33,10 +87,12 @@ export const previewInput = ({ input }: { input: unknown }): string => {
     json = String(input);
   }
 
-  // JSON.stringify already escapes control/ANSI into safe \uXXXX; clip length.
-  const clipped = json.length > 80 ? `${json.slice(0, 77)}...` : json;
+  // JSON.stringify already escapes control/ANSI into safe \uXXXX, but not the
+  // bidi/invisible set. Neutralize BEFORE clipping, so the 80-char cap measures
+  // what the terminal will actually show rather than the pre-escape length.
+  const safe = escapeInvisible({ value: stripControl({ value: json }) });
 
-  return stripControl({ value: clipped });
+  return safe.length > 80 ? `${safe.slice(0, 77)}...` : safe;
 };
 
 const formatAge = ({ createdAt }: { createdAt: string }): string => {
@@ -82,9 +138,56 @@ export const renderApprovalList = ({ approvals }: { approvals: ApprovalRecord[] 
   return `${lines.join('\n')}\n\n${ordered.length} pending approval(s).\n`;
 };
 
-/** Render one approval's full detail with pretty-printed, sanitized input. */
-export const renderApprovalDetail = ({ record }: { record: ApprovalRecord }): string => {
-  const prettyInput = JSON.stringify(record.input, null, 2).replace(CONTROL_CHARS_KEEP_NEWLINE, '');
+/**
+ * How much staged input `approvals show` prints before it truncates. This is the
+ * view the operator is supposed to READ before deciding, so the decision context
+ * above it (id / action / status / requestedBy) has to stay on screen: a 1 MB
+ * string pretty-prints to ~13,000 wrapped lines and pushes all of it out of a
+ * default scrollback, leaving the approver deciding on a wall of one character.
+ * Both caps apply; whichever is reached first wins.
+ */
+const MAX_DETAIL_INPUT_LINES = 40;
+const MAX_DETAIL_INPUT_CHARS = 2000;
+
+/**
+ * Cap the pretty-printed input, stating exactly how much was withheld and the
+ * command that prints all of it. The notice also says the block is no longer
+ * valid JSON, so a truncated value can never be mistaken for the whole one.
+ */
+const capDetailInput = ({ pretty, id }: { pretty: string; id: string }): string => {
+  const lines = pretty.split('\n');
+
+  if (lines.length <= MAX_DETAIL_INPUT_LINES && pretty.length <= MAX_DETAIL_INPUT_CHARS) {
+    return pretty;
+  }
+
+  const byLines = lines.slice(0, MAX_DETAIL_INPUT_LINES).join('\n');
+  const shown = byLines.slice(0, MAX_DETAIL_INPUT_CHARS);
+
+  return [
+    shown,
+    `  … TRUNCATED — showing ${shown.length} of ${pretty.length} character(s), ${shown.split('\n').length} of ${lines.length} line(s).`,
+    '    This block is cut mid-value and is NOT the whole input. Print it in full with:',
+    `      orangerail approvals show ${id} --full`,
+  ].join('\n');
+};
+
+/**
+ * Render one approval's full detail with pretty-printed, sanitized input.
+ * `full` lifts the length cap for an operator who has decided they want the
+ * whole value.
+ */
+export const renderApprovalDetail = ({
+  record,
+  full = false,
+}: {
+  record: ApprovalRecord;
+  full?: boolean;
+}): string => {
+  const pretty = escapeInvisible({
+    value: JSON.stringify(record.input, null, 2).replace(CONTROL_CHARS_KEEP_NEWLINE, ''),
+  });
+  const prettyInput = full ? pretty : capDetailInput({ pretty, id: record.id });
 
   return [
     `id:           ${record.id}`,

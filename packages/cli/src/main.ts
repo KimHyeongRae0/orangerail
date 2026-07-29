@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 
+import { keepAliveFor, parseArgs, type ParsedArgs } from './args';
 import { loadConfig } from './config';
 import {
   approvalsApprove,
@@ -30,7 +31,8 @@ Usage:
   orangerail studio [--config <path>] [--port <n>] [--no-open]  serve the map-mode studio locally
   orangerail docs [--config <path>] [--out <dir>]  generate the agent-facing domain doc
   orangerail approvals list [--config <path>]      list pending approvals
-  orangerail approvals show <id> [--config <path>] show one approval
+  orangerail approvals show <id> [--full] [--config <path>]
+                                                   show one approval (--full: uncapped input)
   orangerail approvals approve <id> [--config …]   approve a staged action
   orangerail approvals reject <id> [--config …]    reject a staged action
   orangerail audit verify [--config <path>]        verify the audit chain
@@ -51,138 +53,6 @@ const readVersion = (): string => {
   return (JSON.parse(manifest) as { version: string }).version;
 };
 
-/** Parsed CLI arguments (§3.4 — hand-rolled, zero runtime deps). */
-interface ParsedArgs {
-  positional: string[];
-  configPath?: string;
-  outPath?: string;
-  port?: number;
-  open: boolean;
-  yes: boolean;
-  preset?: string;
-  sources?: string[];
-  models?: string[];
-  docs?: boolean;
-  studio?: boolean;
-  acceptNew: boolean;
-  acceptGovernance: boolean;
-  fromJira?: string;
-  fromSlack?: string;
-  /** `--help` / `-h` seen anywhere in argv, including after a subcommand. */
-  help: boolean;
-  /** `--version` / `-v` seen anywhere in argv. */
-  showVersion: boolean;
-}
-
-const splitCsv = ({ value }: { value: string | undefined }): string[] =>
-  (value ?? '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '');
-
-/** Hand-rolled arg parsing (§3.4 — no commander, zero runtime deps). */
-const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
-  const positional: string[] = [];
-  let configPath: string | undefined;
-  let outPath: string | undefined;
-  let port: number | undefined;
-  let open = true;
-  let yes = false;
-  let preset: string | undefined;
-  let sources: string[] | undefined;
-  let models: string[] | undefined;
-  let docs: boolean | undefined;
-  let studio: boolean | undefined;
-  let acceptNew = false;
-  let acceptGovernance = false;
-  let fromJira: string | undefined;
-  let fromSlack: string | undefined;
-  let help = false;
-  let showVersion = false;
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-
-    if (token === '--help' || token === '-h' || token === 'help') {
-      help = true;
-    } else if (token === '--version' || token === '-v') {
-      showVersion = true;
-    } else if (token === '--from-jira') {
-      fromJira = argv[i + 1];
-      i += 1;
-    } else if (token?.startsWith('--from-jira=')) {
-      fromJira = token.slice('--from-jira='.length);
-    } else if (token === '--from-slack') {
-      fromSlack = argv[i + 1];
-      i += 1;
-    } else if (token?.startsWith('--from-slack=')) {
-      fromSlack = token.slice('--from-slack='.length);
-    } else if (token === '--config') {
-      configPath = argv[i + 1];
-      i += 1;
-    } else if (token === '--out') {
-      outPath = argv[i + 1];
-      i += 1;
-    } else if (token === '--port') {
-      port = Number(argv[i + 1]);
-      i += 1;
-    } else if (token === '--no-open') {
-      open = false;
-    } else if (token === '--yes' || token === '-y') {
-      yes = true;
-    } else if (token === '--preset') {
-      preset = argv[i + 1];
-      i += 1;
-    } else if (token?.startsWith('--preset=')) {
-      preset = token.slice('--preset='.length);
-    } else if (token === '--sources') {
-      sources = splitCsv({ value: argv[i + 1] });
-      i += 1;
-    } else if (token?.startsWith('--sources=')) {
-      sources = splitCsv({ value: token.slice('--sources='.length) });
-    } else if (token === '--models') {
-      models = splitCsv({ value: argv[i + 1] });
-      i += 1;
-    } else if (token?.startsWith('--models=')) {
-      models = splitCsv({ value: token.slice('--models='.length) });
-    } else if (token === '--docs') {
-      docs = true;
-    } else if (token === '--no-docs') {
-      docs = false;
-    } else if (token === '--studio') {
-      studio = true;
-    } else if (token === '--no-studio') {
-      studio = false;
-    } else if (token === '--accept-new') {
-      acceptNew = true;
-    } else if (token === '--accept-governance') {
-      acceptGovernance = true;
-    } else if (token !== undefined) {
-      positional.push(token);
-    }
-  }
-
-  return {
-    positional,
-    open,
-    yes,
-    acceptNew,
-    acceptGovernance,
-    help,
-    showVersion,
-    ...(configPath === undefined ? {} : { configPath }),
-    ...(outPath === undefined ? {} : { outPath }),
-    ...(port === undefined ? {} : { port }),
-    ...(preset === undefined ? {} : { preset }),
-    ...(sources === undefined ? {} : { sources }),
-    ...(models === undefined ? {} : { models }),
-    ...(docs === undefined ? {} : { docs }),
-    ...(studio === undefined ? {} : { studio }),
-    ...(fromJira === undefined ? {} : { fromJira }),
-    ...(fromSlack === undefined ? {} : { fromSlack }),
-  };
-};
-
 const fail = ({ message }: { message: string }): number => {
   process.stderr.write(`${message}\n`);
   return 2;
@@ -196,8 +66,7 @@ const requireId = ({ id }: { id: string | undefined }): string => {
   return id;
 };
 
-const run = async (): Promise<number> => {
-  const args = parseArgs({ argv: process.argv.slice(2) });
+const dispatch = async ({ args }: { args: ParsedArgs }): Promise<number> => {
   const { positional, configPath, outPath, port, open } = args;
   const [command, sub, arg] = positional;
 
@@ -271,7 +140,7 @@ const run = async (): Promise<number> => {
       return approvalsList({ config });
     }
     if (sub === 'show') {
-      return approvalsShow({ config, id: requireId({ id: arg }) });
+      return approvalsShow({ config, id: requireId({ id: arg }), full: args.full });
     }
     if (sub === 'approve') {
       return approvalsApprove({ config, id: requireId({ id: arg }) });
@@ -302,19 +171,52 @@ const run = async (): Promise<number> => {
   return fail({ message: `unknown command: ${command}\n\n${USAGE}` });
 };
 
-/** Commands that keep the event loop alive (studio server / mcp stdio / init handoff). */
-const LONG_RUNNING = new Set(['mcp', 'studio', 'init']);
+/** The outcome of a run: the exit code, plus whether this process should stay up. */
+interface RunResult {
+  code: number;
+  keepAlive: boolean;
+}
+
+const run = async (): Promise<RunResult> => {
+  const args = parseArgs({ argv: process.argv.slice(2) });
+  const code = await dispatch({ args });
+
+  return { code, keepAlive: keepAliveFor({ args, code }) };
+};
+
+/**
+ * Exit once stdout and stderr have drained. `process.exit` discards whatever is
+ * still queued on a pipe, which silently truncated a large `approvals show`
+ * (1 MB in, 128 KB out) — the operator surface must never quietly lose output it
+ * claims to have printed. Writing an empty chunk and exiting from its callback
+ * guarantees everything queued before it has been flushed.
+ */
+const exitAfterFlush = ({ code }: { code: number }): void => {
+  let pending = 2;
+  const done = (): void => {
+    pending -= 1;
+
+    if (pending === 0) {
+      process.exit(code);
+    }
+  };
+
+  // A closed reader (`| head -1`) makes the write fail rather than drain; the
+  // callback still runs with an error, so exit is never blocked on a dead pipe.
+  process.stdout.write('', done);
+  process.stderr.write('', done);
+};
 
 run()
-  .then((code) => {
+  .then(({ code, keepAlive }) => {
     // `mcp` (stdio), `studio` (http server), and `init` (studio handoff) keep
     // the event loop alive; every other command exits here.
-    if (code !== 0 || !LONG_RUNNING.has(process.argv[2] ?? '')) {
-      process.exit(code);
+    if (!keepAlive) {
+      exitAfterFlush({ code });
     }
   })
   .catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`orangerail: ${message}\n`);
-    process.exit(1);
+    exitAfterFlush({ code: 1 });
   });

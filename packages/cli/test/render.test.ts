@@ -85,3 +85,160 @@ describe('render — approval detail (§3.5)', () => {
     expect(out).toContain('forged');
   });
 });
+
+/**
+ * The full bidi / invisible-formatting set render.ts neutralizes. Built from
+ * code points at runtime so this source file stays plain ASCII: a literal
+ * U+202E here would reverse the rendering of the test file itself.
+ */
+const INVISIBLE_CODE_POINTS = [
+  0x00ad, // soft hyphen
+  0x061c, // Arabic letter mark
+  0x180e, // Mongolian vowel separator
+  0x200b, // zero-width space
+  0x200c, // zero-width non-joiner
+  0x200d, // zero-width joiner
+  0x200e, // left-to-right mark
+  0x200f, // right-to-left mark
+  0x202a, // left-to-right embedding
+  0x202b, // right-to-left embedding
+  0x202c, // pop directional formatting
+  0x202d, // left-to-right override
+  0x202e, // RIGHT-TO-LEFT OVERRIDE - the Trojan Source lead
+  0x2028, // line separator
+  0x2029, // paragraph separator
+  0x2060, // word joiner
+  0x2066, // left-to-right isolate
+  0x2067, // right-to-left isolate
+  0x2068, // first strong isolate
+  0x2069, // pop directional isolate
+  0x206f, // nominal digit shapes (deprecated format control)
+  0xfeff, // zero-width no-break space / BOM
+  0xfff9, // interlinear annotation anchor
+  0xe0041, // TAG LATIN CAPITAL LETTER A (ASCII-smuggling block)
+];
+
+/** U+202E, never written literally. */
+const RLO = String.fromCodePoint(0x202e);
+
+describe('render - bidi and invisible formatting (Trojan Source, ONT-044 F)', () => {
+  it('escapes U+202E in requestedBy rather than letting it reverse the line', () => {
+    const out = renderApprovalList({
+      approvals: [record({ requestedBy: `agent${RLO}gnitset-efas` })],
+    });
+
+    expect(out).not.toContain(RLO);
+    expect(out).toContain('\\u202e');
+    expect(out).toContain('agent');
+  });
+
+  it('escapes U+202E inside a staged input preview', () => {
+    const out = previewInput({ input: { status: `${RLO}sredro ELBAT PORD` } });
+
+    expect(out).not.toContain(RLO);
+    expect(out).toContain('\\u202e');
+  });
+
+  it('escapes U+202E in the approval detail input block', () => {
+    const out = renderApprovalDetail({ record: record({ input: { status: `${RLO}x` } }) });
+
+    expect(out).not.toContain(RLO);
+    expect(out).toContain('\\u202e');
+  });
+
+  it('lets no code point from the neutralized set reach the terminal', () => {
+    for (const codePoint of INVISIBLE_CODE_POINTS) {
+      const raw = String.fromCodePoint(codePoint);
+      const surfaces = [
+        sanitize({ value: `a${raw}b` }),
+        previewInput({ input: { note: `a${raw}b` } }),
+        renderApprovalDetail({
+          record: record({ requestedBy: `a${raw}b`, input: { note: `a${raw}b` } }),
+        }),
+      ];
+
+      for (const surface of surfaces) {
+        expect(surface, `U+${codePoint.toString(16)} survived`).not.toContain(raw);
+      }
+    }
+  });
+
+  it('ESCAPES rather than deletes, so the operator sees something unusual is there', () => {
+    const out = sanitize({ value: `safe${RLO}` });
+
+    // A silent delete would render the hostile string as the innocent one.
+    expect(out).not.toBe('"safe"');
+    expect(out).toBe('"safe\\u202e"');
+  });
+
+  it('escapes an astral TAG character as a surrogate pair, keeping output ASCII', () => {
+    const out = sanitize({ value: `a${String.fromCodePoint(0xe0041)}b` });
+
+    expect(out).toBe('"a\\udb40\\udc41b"');
+    expect(/^[\x00-\x7f]*$/.test(out)).toBe(true);
+  });
+
+  it('leaves ordinary non-ASCII text alone', () => {
+    expect(sanitize({ value: 'caf\u00e9 \u2014 ok' })).toBe('"caf\u00e9 \u2014 ok"');
+  });
+
+  it('still caps the preview at 80 chars after escaping', () => {
+    const preview = previewInput({ input: { note: RLO.repeat(200) } });
+
+    expect(preview.length).toBeLessThanOrEqual(80);
+    expect(preview).not.toContain(RLO);
+  });
+});
+
+describe('render - approval detail input cap (ONT-044 G)', () => {
+  const flood = () => record({ id: 'e2be42b8-cafe', input: { status: 'A'.repeat(1024 * 1024) } });
+
+  it('keeps a 1 MB input from scrolling the decision context off-screen', () => {
+    const out = renderApprovalDetail({ record: flood() });
+
+    // A 1 MB value is ONE logical line; what buries the header is the ~13,000
+    // lines the terminal wraps it into. So the character count is the assertion
+    // that matters here, and the line count is checked alongside it.
+    expect(out.length).toBeLessThan(4000);
+    expect(out.split('\n').length).toBeLessThan(60);
+    expect(out).toContain('id:           e2be42b8-cafe');
+    expect(out).toContain('action:       "publish_document"');
+    expect(out).toContain('status:       pending');
+  });
+
+  it('states the truncation with exact counts and warns it is not the whole value', () => {
+    const out = renderApprovalDetail({ record: flood() });
+
+    expect(out).toContain('TRUNCATED');
+    expect(out).toMatch(/showing \d+ of \d+ character\(s\), \d+ of \d+ line\(s\)/);
+    expect(out).toContain('NOT the whole input');
+  });
+
+  it('names the command that prints the value in full', () => {
+    expect(renderApprovalDetail({ record: flood() })).toContain(
+      'orangerail approvals show e2be42b8-cafe --full',
+    );
+  });
+
+  it('prints everything under --full', () => {
+    const out = renderApprovalDetail({ record: flood(), full: true });
+
+    expect(out).not.toContain('TRUNCATED');
+    expect(out.length).toBeGreaterThan(1024 * 1024);
+  });
+
+  it('caps on line count too, not only on characters', () => {
+    const wide = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`k${i}`, i]));
+    const out = renderApprovalDetail({ record: record({ input: wide }) });
+
+    expect(out).toContain('TRUNCATED');
+    expect(out.split('\n').length).toBeLessThan(60);
+  });
+
+  it('leaves a small input untouched, with no truncation notice', () => {
+    const out = renderApprovalDetail({ record: record({ input: { documentId: 'doc-1' } }) });
+
+    expect(out).not.toContain('TRUNCATED');
+    expect(out).toContain('"documentId": "doc-1"');
+  });
+});

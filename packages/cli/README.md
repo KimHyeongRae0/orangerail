@@ -23,7 +23,8 @@ script) — run only configs you trust.
 ```
 orangerail mcp [--config <path>]                  launch the MCP server over stdio
 orangerail approvals list [--config <path>]       list pending approvals
-orangerail approvals show <id> [--config <path>]  show one approval in full
+orangerail approvals show <id> [--full] [--config <path>]
+                                                  show one approval (--full: uncapped input)
 orangerail approvals approve <id> [--config …]    approve a staged action (CAS)
 orangerail approvals reject <id> [--config …]     reject a staged action (CAS)
 orangerail audit verify [--config <path>]         verify the audit chain
@@ -34,7 +35,16 @@ orangerail store unlock [--config <path>]         clear a provably-dead store lo
 `requestedBy` (with a `[dev]` marker in dev mode), age, and a one-line input
 preview. Every agent-supplied string is stripped of ANSI/control characters and
 JSON-escaped before it reaches the terminal (approval-deception defense) — the
-staged input is always labeled agent-supplied.
+staged input is always labeled agent-supplied. Bidi and invisible-formatting
+code points (`U+202E` and the rest of the Trojan Source class, the zero-width
+characters, the TAG block) are escaped to a visible `\uXXXX` rather than
+deleted, so a hostile string can neither reorder the line nor pass as a clean
+one.
+
+`approvals show` caps the staged input so the decision context (`id`, `action`,
+`status`, `requestedBy`) always stays on screen — a 1 MB input would otherwise
+scroll it away. The truncation states exactly how much was withheld; pass
+`--full` to print the whole value.
 
 ## Identity and dev mode
 
