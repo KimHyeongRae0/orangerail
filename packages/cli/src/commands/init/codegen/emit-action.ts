@@ -1,5 +1,5 @@
 import type { IrAction, IrPrismaAction } from '../ir';
-import { accessorName, ownershipLine, prismaClientBlock } from './emit-object';
+import { ownershipLine, prismaClientBlock, prismaMember } from './emit-object';
 import { escapeBlockComment, escapeStringLiteral, sanitizeIdentifier } from './escape';
 import { actionFieldExpr } from './zod';
 
@@ -62,18 +62,18 @@ const renderOpenApiHeader = ({ action }: { action: IrAction }): string => {
 const renderPrismaHeader = ({
   action,
   prisma,
-  accessor,
+  member,
 }: {
   action: IrAction;
   prisma: IrPrismaAction;
-  accessor: string;
+  member: string;
 }): string => {
   const lines = [
     '/**',
     ` * Orangerail action \`${escapeBlockComment({ value: action.name })}\` (Prisma ${prisma.op} on model \`${escapeBlockComment({ value: prisma.model })}\`).`,
     ' *',
     ` * ${ownershipLine}`,
-    ` * Write operation: staged for human approval; on approval it runs \`prisma.${escapeBlockComment({ value: accessor })}.${prisma.op}(...)\` against your database.`,
+    ` * Write operation: staged for human approval; on approval it runs \`${escapeBlockComment({ value: member })}.${prisma.op}(...)\` against your database.`,
   ];
 
   if (prisma.op === 'delete') {
@@ -94,25 +94,25 @@ const assignLine = ({ name, indent }: { name: string; indent: string }): string 
 };
 
 /**
- * The `execute` body lines for a Prisma action — a real `prisma.<accessor>.<op>`
+ * The `execute` body lines for a Prisma action — a real `prisma.<model>.<op>`
  * guarded by the shared `getPrisma`/`wrapPrismaError` plumbing (plan D3). Field
  * keys on both the `data`/`where` object literals and the `input[...]` reads go
  * through `escapeStringLiteral` (hostile field names stay inert, D10).
  */
 const renderPrismaExecute = ({
   prisma,
-  accessor,
+  member,
   action,
 }: {
   prisma: IrPrismaAction;
-  accessor: string;
+  member: string;
   action: IrAction;
 }): string[] => {
   const callLines: string[] = [];
 
   if (prisma.op === 'create') {
     callLines.push(
-      `      return prisma.${accessor}.create({`,
+      `      return ${member}.create({`,
       '        data: {',
       ...action.input.map((field) => assignLine({ name: field.name, indent: '          ' })),
       '        },',
@@ -123,7 +123,7 @@ const renderPrismaExecute = ({
     const dataFields = action.input.filter((field) => field.name !== prisma.idField);
 
     callLines.push(
-      `      return prisma.${accessor}.update({`,
+      `      return ${member}.update({`,
       `        where: { ${idKey}: input[${idKey}] },`,
       '        data: {',
       ...dataFields.map((field) => assignLine({ name: field.name, indent: '          ' })),
@@ -132,9 +132,7 @@ const renderPrismaExecute = ({
     );
   } else {
     const idKey = escapeStringLiteral({ value: prisma.idField ?? '' });
-    callLines.push(
-      `      return prisma.${accessor}.delete({ where: { ${idKey}: input[${idKey}] } });`,
-    );
+    callLines.push(`      return ${member}.delete({ where: { ${idKey}: input[${idKey}] } });`);
   }
 
   return [
@@ -183,11 +181,13 @@ const emitPrismaActionFile = ({
   action: IrAction;
   binding: string;
 }): { filename: string; content: string } => {
-  // Recompute the client accessor at EMIT time from the (post-allocation) model
-  // name, mirroring the read side exactly — never a synthesis-time value — so a
-  // collision-rename keeps read and write on the same client member (finding 2).
+  // Recompute the client member at EMIT time from the SOURCE model name,
+  // mirroring the read side exactly — never from the emitted JS binding — so a
+  // reserved-binding or collision rename can never move the database accessor
+  // off the model Prisma actually exposes (ONT-041).
   const prisma = action.prisma as IrPrismaAction;
-  const accessor = accessorName({ name: prisma.model });
+  const sourceModel = prisma.sourceModel ?? prisma.model;
+  const member = prismaMember({ model: sourceModel });
 
   // An `update`/`delete` acts on an EXISTING row keyed by `idField`, which is a
   // key of this action's input — so it carries a `target` (the object it
@@ -206,7 +206,7 @@ const emitPrismaActionFile = ({
     "import { registry } from './_registry.mjs';",
     ...(isTargeted ? [`import { ${objectBinding} } from './${objectBinding}.mjs';`] : []),
     '',
-    prismaClientBlock({ diagnosticName: prisma.model }),
+    prismaClientBlock({ diagnosticName: prisma.model, sourceModel }),
     '',
     `export const ${binding} = registry.defineAction({`,
     `  name: ${escapeStringLiteral({ value: action.name })},`,
@@ -218,14 +218,14 @@ const emitPrismaActionFile = ({
           `  targetIdFrom: ${escapeStringLiteral({ value: prisma.idField as string })},`,
         ]
       : []),
-    ...renderPrismaExecute({ prisma, accessor, action }),
+    ...renderPrismaExecute({ prisma, member, action }),
     '});',
     '',
   ].join('\n');
 
   return {
     filename: `${binding}.mjs`,
-    content: `${renderPrismaHeader({ action, prisma, accessor })}\n${body}`,
+    content: `${renderPrismaHeader({ action, prisma, member })}\n${body}`,
   };
 };
 

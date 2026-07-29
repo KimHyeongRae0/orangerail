@@ -20,14 +20,14 @@ const getPrisma = (() => {
 
 const wrapPrismaError = (error) => {
   const code = error === null || error === undefined ? undefined : error.code;
-  const unavailable = code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND' || error instanceof TypeError;
-  if (!unavailable) {
+  const missing = code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';
+  if (!missing && !(error instanceof TypeError)) {
     return error;
   }
 
   const original = error && typeof error.message === 'string' ? error.message : '';
   const detail = original === '' ? '' : ' Original error: ' + original;
-  return new Error("Cannot resolve @prisma/client for object \"Article\": the Prisma client is not generated or installed. Fix: run `npm install @prisma/client && npx prisma generate`, and make sure DATABASE_URL is set." + detail);
+  return new Error((missing ? "Cannot resolve @prisma/client for object \"Article\": the Prisma client is not generated or installed. Fix: run `npm install @prisma/client && npx prisma generate`, and make sure DATABASE_URL is set." : "The Prisma client exposes no \"article\" model for object \"Article\": the installed client was generated from a different schema. Fix: confirm the model still exists in your Prisma schema, then re-run `npx prisma generate`.") + detail);
 };
 
 export const Article = registry.defineObject({

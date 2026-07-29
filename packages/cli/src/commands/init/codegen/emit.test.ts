@@ -153,8 +153,9 @@ describe('emitObjectFile', () => {
     expect(content).toContain('throw wrapPrismaError(error);');
 
     // The wrapper branches on both module-resolution error codes AND a
-    // TypeError (resolved-but-not-generated client) and, when matched, throws a
-    // diagnostic naming the object + the exact fix commands.
+    // TypeError, and picks the diagnostic that matches the cause (ONT-041):
+    // module-not-found = the client is not installed/generated; a TypeError =
+    // the client loaded but exposes no such model (schema mismatch).
     expect(content).toContain('ERR_MODULE_NOT_FOUND');
     expect(content).toContain('MODULE_NOT_FOUND');
     expect(content).toContain('error instanceof TypeError');
@@ -172,7 +173,7 @@ describe('wrapResolveError (I4 — resolve-time diagnostic logic)', () => {
       code: 'ERR_MODULE_NOT_FOUND',
     });
 
-    const wrapped = wrapResolveError({ objectName: 'Post', error: raw }) as Error;
+    const wrapped = wrapResolveError({ objectName: 'Post', accessor: 'post', error: raw }) as Error;
 
     expect(wrapped).toBeInstanceOf(Error);
     expect(wrapped).not.toBe(raw);
@@ -185,7 +186,7 @@ describe('wrapResolveError (I4 — resolve-time diagnostic logic)', () => {
 
   it('also matches the CJS MODULE_NOT_FOUND code', () => {
     const raw = Object.assign(new Error('nope'), { code: 'MODULE_NOT_FOUND' });
-    const wrapped = wrapResolveError({ objectName: 'Post', error: raw }) as Error;
+    const wrapped = wrapResolveError({ objectName: 'Post', accessor: 'post', error: raw }) as Error;
 
     expect(wrapped.message).toContain(buildResolveDiagnostic({ objectName: 'Post' }));
   });
@@ -193,23 +194,27 @@ describe('wrapResolveError (I4 — resolve-time diagnostic logic)', () => {
   it('rethrows a non-module error untouched (never masks a real runtime failure)', () => {
     const raw = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
 
-    expect(wrapResolveError({ objectName: 'Post', error: raw })).toBe(raw);
+    expect(wrapResolveError({ objectName: 'Post', accessor: 'post', error: raw })).toBe(raw);
   });
 
-  it('maps a resolved-but-not-generated client (TypeError on the model accessor) to the diagnostic', () => {
-    // `@prisma/client` resolves but was never generated for this model, so the
-    // accessor is undefined and the resolve throws a TypeError reading the op
-    // off it. That is the same actionable situation as a missing install — the
-    // guarantee is "actionable diagnostic, never a raw crash" (ONT-008 AC-3).
+  it('maps a missing model accessor (TypeError) to a SCHEMA-MISMATCH diagnostic, not "not installed" (ONT-041)', () => {
+    // The client loaded — it simply carries no such model, so the accessor is
+    // undefined and reading an op off it throws a TypeError. Telling the user
+    // to `npm install @prisma/client && npx prisma generate` is a dead end for
+    // a client that is already installed: it must say the client and the schema
+    // disagree, and name the accessor it looked for.
     const raw = new TypeError("Cannot read properties of undefined (reading 'findMany')");
 
-    const wrapped = wrapResolveError({ objectName: 'Post', error: raw }) as Error;
+    const wrapped = wrapResolveError({ objectName: 'Post', accessor: 'post', error: raw }) as Error;
 
     expect(wrapped).toBeInstanceOf(Error);
     expect(wrapped).not.toBe(raw);
-    for (const needle of ['Post', '@prisma/client', 'prisma generate', 'DATABASE_URL']) {
-      expect(wrapped.message).toContain(needle);
-    }
+    expect(wrapped.message).toContain('Post');
+    expect(wrapped.message).toContain('"post"');
+    expect(wrapped.message).toContain('generated from a different schema');
+    // the misdiagnosis is gone.
+    expect(wrapped.message).not.toContain('not generated or installed');
+    expect(wrapped.message).not.toContain('npm install @prisma/client');
   });
 });
 
@@ -458,8 +463,10 @@ describe('read/write accessor parity across an allocator collision-rename (findi
     // the action's model reference tracked the rename.
     expect(renamedAction.prisma?.model).toBe(renamedObject.name);
 
-    const readAccessor = accessorName({ name: renamedObject.name });
-    const writeAccessor = accessorName({ name: renamedAction.prisma!.model });
+    const readAccessor = accessorName({ model: renamedObject.sourceModel ?? renamedObject.name });
+    const writeAccessor = accessorName({
+      model: renamedAction.prisma!.sourceModel ?? renamedAction.prisma!.model,
+    });
     expect(writeAccessor).toBe(readAccessor);
 
     // and the emitted files agree at the byte level on the client member.
@@ -467,6 +474,93 @@ describe('read/write accessor parity across an allocator collision-rename (findi
     const actionFile = emitActionFile({ action: renamedAction });
     expect(objectFile.content).toContain(`prisma.${readAccessor}.findUnique`);
     expect(actionFile.content).toContain(`prisma.${writeAccessor}.create`);
+  });
+});
+
+describe('the Prisma accessor comes from the SCHEMA, not the JS binding (ONT-041 defect D)', () => {
+  const modelNamed = ({ name }: { name: string }): IrObject => ({
+    name,
+    sourceModel: name,
+    idField: 'id',
+    relations: [],
+    fields: [
+      { name: 'id', kind: 'scalar', scalar: 'string', optional: false, list: false, isId: true },
+    ],
+  });
+
+  it('emits prisma.registry for `model registry`, not the reserved-binding prisma.registry_', () => {
+    // `registry` is a legal Prisma model whose client accessor is
+    // `prisma.registry`. `sanitizeIdentifier` appends `_` for it because the
+    // generated module already declares a `registry` binding — an
+    // emitter-internal fix that must never reach the database. Routed through
+    // it, every read and write hit `prisma.registry_`, which is `undefined`.
+    const object = modelNamed({ name: 'registry' });
+
+    const objectFile = emitObjectFile({ object });
+    const actionFile = emitActionFile({
+      action: {
+        name: 'createregistry',
+        source: 'prisma',
+        prisma: { model: 'registry', sourceModel: 'registry', op: 'create' },
+        write: true,
+        input: [{ name: 'id', kind: 'scalar', scalar: 'string', optional: false }],
+      },
+    });
+
+    expect(objectFile.content).toContain('prisma.registry.findUnique');
+    expect(actionFile.content).toContain('prisma.registry.create');
+    for (const content of [objectFile.content, actionFile.content]) {
+      expect(content).not.toContain('prisma.registry_');
+    }
+    // the binding fix is still applied where it belongs — the JS export.
+    expect(objectFile.content).toContain('export const registry_ =');
+    expect(objectFile.filename).toBe('registry_.mjs');
+  });
+
+  it('keeps the accessor on the source model after a collision rename', () => {
+    // Two `User` models across a monorepo: the second is emitted as `User_2`,
+    // but both are backed by `prisma.user` — the rename is a filename fix, not
+    // a schema change, so `prisma.user_2` was a guaranteed TypeError.
+    const object: IrObject = { ...modelNamed({ name: 'User_2' }), sourceModel: 'User' };
+
+    const objectFile = emitObjectFile({ object });
+    const actionFile = emitActionFile({
+      action: {
+        name: 'createUser_2',
+        source: 'prisma',
+        prisma: { model: 'User_2', sourceModel: 'User', op: 'create' },
+        write: true,
+        input: [{ name: 'id', kind: 'scalar', scalar: 'string', optional: false }],
+      },
+    });
+
+    expect(objectFile.content).toContain('prisma.user.findUnique');
+    expect(actionFile.content).toContain('prisma.user.create');
+    for (const content of [objectFile.content, actionFile.content]) {
+      expect(content).not.toContain('prisma.user_2');
+    }
+    // the action still imports the object FILE that was actually written.
+    expect(objectFile.filename).toBe('User_2.mjs');
+  });
+
+  it('does not tell the user to install a client that is already installed', () => {
+    // A missing accessor is a schema mismatch, not a missing client — the old
+    // wrapper sent every such TypeError to `npm install @prisma/client &&
+    // npx prisma generate`, which cannot fix it.
+    const { content } = emitObjectFile({ object: modelNamed({ name: 'Post' }) });
+
+    expect(content).toContain('generated from a different schema');
+    expect(content).toContain('no \\"post\\" model');
+    // and the genuine not-installed diagnostic is still there for its own cause.
+    expect(content).toContain('not generated or installed');
+    expect(content).toContain("const missing = code === 'ERR_MODULE_NOT_FOUND'");
+  });
+
+  it('falls back to the object name when no source model is recorded', () => {
+    const withoutSource: IrObject = { ...modelNamed({ name: 'Ticket' }) };
+    delete withoutSource.sourceModel;
+
+    expect(emitObjectFile({ object: withoutSource }).content).toContain('prisma.ticket.findUnique');
   });
 });
 

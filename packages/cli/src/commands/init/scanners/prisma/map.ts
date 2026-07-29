@@ -113,6 +113,10 @@ const mapModel = ({
     fields,
     relations,
     ...(idField === undefined ? {} : { idField }),
+    // Pinned here, at the only place that still knows the schema verbatim: the
+    // emitted `name` may later be MCP-sanitized or collision-renamed, but the
+    // Prisma client accessor must keep following the schema (ONT-041).
+    sourceModel: model.name,
     provenance: `Prisma model ${model.name}`,
   };
 };

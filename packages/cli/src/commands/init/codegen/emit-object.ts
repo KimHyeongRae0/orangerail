@@ -22,15 +22,42 @@ const camelCase = ({ name }: { name: string }): string =>
   `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
 
 /**
- * The Prisma client accessor for a scanned name — `camelCase(sanitizeIdentifier)`
- * of the (post-allocation) model/object name. Shared by the read side
- * (`emitObjectFile` resolve) and the write side (`emitActionFile` execute) so
- * both derive the SAME `prisma.<accessor>` member from the SAME post-allocation
- * name, even when the global allocator renamed a colliding model
- * (plan-review finding 2). Recomputed at emit time — never embedded at synthesis.
+ * The Prisma client accessor for a SOURCE model name — Prisma Client exposes
+ * `model Foo` as `prisma.foo`, i.e. the schema's own name with its first
+ * character lowercased and nothing else changed.
+ *
+ * It is derived from `sourceModel` (the schema name), NOT from the emitted JS
+ * binding (ONT-041). `sanitizeIdentifier` exists to make a name safe as an
+ * `export const` / filename stem, and it appends `_` for the emitter's own
+ * `RESERVED_BINDINGS` — an emitter-internal fix that has no business reaching
+ * the database: `model registry` is a legal Prisma model whose accessor is
+ * `prisma.registry`, but routing it through the binding sink emitted
+ * `prisma.registry_`, which is `undefined`, so every read and write threw. The
+ * same held for a collision-renamed `User_2` emitting `prisma.user_2`.
+ *
+ * Shared by the read side (`emitObjectFile` resolve) and the write side
+ * (`emitActionFile` execute) so both land on the SAME member, recomputed at
+ * emit time — never embedded at synthesis.
  */
-export const accessorName = ({ name }: { name: string }): string =>
-  camelCase({ name: sanitizeIdentifier({ value: name }) });
+export const accessorName = ({ model }: { model: string }): string => camelCase({ name: model });
+
+/**
+ * The `prisma.<accessor>` member expression for a source model. Prisma's own
+ * grammar restricts model names to `[A-Za-z_][A-Za-z0-9_]*`, so the dot form is
+ * the normal output; a name that is somehow not a plain identifier falls back to
+ * an escaped bracket index rather than emitting a syntax error (D10 discipline).
+ */
+export const prismaMember = ({ model }: { model: string }): string => {
+  const accessor = accessorName({ model });
+
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(accessor)
+    ? `prisma.${accessor}`
+    : `prisma[${escapeStringLiteral({ value: accessor })}]`;
+};
+
+/** The source model name behind a scanned object (its own name when unknown). */
+export const objectSourceModel = ({ object }: { object: IrObject }): string =>
+  object.sourceModel ?? object.name;
 
 const renderSchema = ({ object }: { object: IrObject }): string => {
   const lines = object.fields.map(
@@ -51,38 +78,57 @@ export const buildResolveDiagnostic = ({ objectName }: { objectName: string }): 
   'Fix: run `npm install @prisma/client && npx prisma generate`, and make sure DATABASE_URL is set.';
 
 /**
- * True when an error means the Prisma client is not usable for this model:
- * either `@prisma/client` did not resolve at all (ESM/CJS module-not-found), or
- * it resolved but the model accessor is `undefined` because the client was
- * never generated (or was generated from a different schema) — that latter case
- * surfaces as a `TypeError` when the resolve reads `.findUnique`/`.create` off
- * `undefined`. Both are the same actionable situation ("not generated or
- * installed"), so both map to the diagnostic rather than a raw crash.
+ * The diagnostic for a client that resolved but exposes no such model — the
+ * `prisma.<accessor>` member is `undefined`, so reading an operation off it
+ * throws a `TypeError` (ONT-041). This is NOT "the client is not generated or
+ * installed": a client IS loaded, it simply does not carry this model, which
+ * means it was generated from a different schema than the one init scanned.
+ * Claiming "not generated or installed" here sent users to
+ * `npm install @prisma/client && npx prisma generate` for a problem that
+ * command cannot fix, so the two causes now get two messages.
  */
-const isClientUnavailable = ({ error }: { error: unknown }): boolean => {
+export const buildAccessorDiagnostic = ({
+  objectName,
+  accessor,
+}: {
+  objectName: string;
+  accessor: string;
+}): string =>
+  `The Prisma client exposes no "${accessor}" model for object "${objectName}": the installed client was generated from a different schema. ` +
+  `Fix: confirm the model still exists in your Prisma schema, then re-run \`npx prisma generate\`.`;
+
+/**
+ * True when `@prisma/client` did not resolve at all (ESM or CJS
+ * module-not-found) — the one situation the "not generated or installed"
+ * diagnostic actually describes.
+ */
+const isClientMissing = ({ error }: { error: unknown }): boolean => {
   const code = (error as { code?: unknown } | null | undefined)?.code;
-  return (
-    code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND' || error instanceof TypeError
-  );
+
+  return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';
 };
 
 /**
- * Map a resolve-time error into what the resolve should throw: a client that is
- * unavailable for this model (not installed, or not generated) becomes the
- * actionable diagnostic (cause + fix + the original message as detail); any
- * other error is returned untouched so real runtime failures (a live query
- * error, a connection refusal) are never masked. This is the exact logic
- * mirrored inline into generated object/action files; it is exported for direct
- * unit testing.
+ * Map a resolve-time error into what the resolve should throw. A missing client
+ * (module-not-found) becomes the install/generate diagnostic; a `TypeError` —
+ * the shape of reading an operation off an `undefined` model accessor — becomes
+ * the SCHEMA-MISMATCH diagnostic instead, because the client did load. Any other
+ * error is returned untouched so real runtime failures (a live query error, a
+ * connection refusal) are never masked. This is the exact logic mirrored inline
+ * into generated object/action files; it is exported for direct unit testing.
  */
 export const wrapResolveError = ({
   objectName,
+  accessor,
   error,
 }: {
   objectName: string;
+  accessor: string;
   error: unknown;
 }): unknown => {
-  if (!isClientUnavailable({ error })) {
+  const missing = isClientMissing({ error });
+
+  if (!missing && !(error instanceof TypeError)) {
     return error;
   }
 
@@ -90,7 +136,11 @@ export const wrapResolveError = ({
   const detail =
     typeof original === 'string' && original !== '' ? ` Original error: ${original}` : '';
 
-  return new Error(`${buildResolveDiagnostic({ objectName })}${detail}`);
+  const diagnostic = missing
+    ? buildResolveDiagnostic({ objectName })
+    : buildAccessorDiagnostic({ objectName, accessor });
+
+  return new Error(`${diagnostic}${detail}`);
 };
 
 const renderResolve = ({ object }: { object: IrObject }): string => {
@@ -98,7 +148,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
     return '';
   }
 
-  const accessor = accessorName({ name: object.name });
+  const member = prismaMember({ model: objectSourceModel({ object }) });
   const idKey = escapeStringLiteral({ value: object.idField });
 
   // Ids arrive at the resolve boundary as strings (ResolveGetArgs.id), but Prisma
@@ -120,7 +170,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
         '        if (Number.isNaN(key)) {',
         '          return null;',
         '        }',
-        `        return prisma.${accessor}.findUnique({ where: { ${idKey}: key } });`,
+        `        return ${member}.findUnique({ where: { ${idKey}: key } });`,
         '      } catch (error) {',
         '        throw wrapPrismaError(error);',
         '      }',
@@ -130,7 +180,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
         '    get: async ({ id }) => {',
         '      try {',
         '        const prisma = await getPrisma();',
-        `        return prisma.${accessor}.findUnique({ where: { ${idKey}: id } });`,
+        `        return ${member}.findUnique({ where: { ${idKey}: id } });`,
         '      } catch (error) {',
         '        throw wrapPrismaError(error);',
         '      }',
@@ -148,7 +198,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
     '      try {',
     '        const prisma = await getPrisma();',
     "        const take = typeof limit === 'number' && limit > 0 ? Math.min(limit, 200) : 50;",
-    `        const rows = await prisma.${accessor}.findMany({`,
+    `        const rows = await ${member}.findMany({`,
     '          ...(filter ? { where: filter } : {}),',
     `          orderBy: { ${idKey}: 'asc' },`,
     '          take: take + 1,',
@@ -169,16 +219,30 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
 /**
  * The lazy, memoized `@prisma/client` accessor plus the actionable
  * error-wrapper shared by a generated file's Prisma call sites (plan D6/I4).
- * `wrapPrismaError` mirrors `wrapResolveError`: a client that is unavailable for
- * this model — not installed (module-not-found) OR resolved-but-not-generated
- * (a `TypeError` from reading an operation off the `undefined` model accessor)
- * — is rethrown as the actionable diagnostic; any other error passes through
- * untouched. Shared verbatim by object resolve files and Prisma action files so
- * both degrade identically (plan D3, exported for `emit-action.ts`).
+ * `wrapPrismaError` mirrors `wrapResolveError`: a client that never resolved
+ * (module-not-found) is rethrown as the install/generate diagnostic, while a
+ * `TypeError` — the shape of reading an operation off an `undefined` model
+ * accessor — is rethrown as the SCHEMA-MISMATCH diagnostic, because a client
+ * that loaded but carries no such model is not fixed by installing or
+ * generating one (ONT-041). Any other error passes through untouched. Shared
+ * verbatim by object resolve files and Prisma action files so both degrade
+ * identically (plan D3, exported for `emit-action.ts`).
  */
-export const prismaClientBlock = ({ diagnosticName }: { diagnosticName: string }): string => {
-  const diagnostic = escapeStringLiteral({
+export const prismaClientBlock = ({
+  diagnosticName,
+  sourceModel,
+}: {
+  diagnosticName: string;
+  sourceModel: string;
+}): string => {
+  const missingClient = escapeStringLiteral({
     value: buildResolveDiagnostic({ objectName: diagnosticName }),
+  });
+  const missingAccessor = escapeStringLiteral({
+    value: buildAccessorDiagnostic({
+      objectName: diagnosticName,
+      accessor: accessorName({ model: sourceModel }),
+    }),
   });
 
   return [
@@ -195,14 +259,14 @@ export const prismaClientBlock = ({ diagnosticName }: { diagnosticName: string }
     '',
     'const wrapPrismaError = (error) => {',
     '  const code = error === null || error === undefined ? undefined : error.code;',
-    "  const unavailable = code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND' || error instanceof TypeError;",
-    '  if (!unavailable) {',
+    "  const missing = code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';",
+    '  if (!missing && !(error instanceof TypeError)) {',
     '    return error;',
     '  }',
     '',
     "  const original = error && typeof error.message === 'string' ? error.message : '';",
     `  const detail = original === '' ? '' : ' Original error: ' + original;`,
-    `  return new Error(${diagnostic} + detail);`,
+    `  return new Error((missing ? ${missingClient} : ${missingAccessor}) + detail);`,
     '};',
   ].join('\n');
 };
@@ -229,7 +293,15 @@ export const emitObjectFile = ({
     "import { z } from 'zod';",
     '',
     "import { registry } from './_registry.mjs';",
-    ...(resolve === '' ? [] : ['', prismaClientBlock({ diagnosticName: object.name })]),
+    ...(resolve === ''
+      ? []
+      : [
+          '',
+          prismaClientBlock({
+            diagnosticName: object.name,
+            sourceModel: objectSourceModel({ object }),
+          }),
+        ]),
     '',
     `export const ${binding} = registry.defineObject({`,
     `  name: ${escapeStringLiteral({ value: object.name })},`,

@@ -154,3 +154,33 @@ export const sanitizeMcpName = ({ value }: { value: string }): string => {
 
   return out.slice(0, 64);
 };
+
+/**
+ * The longest suffix the MCP server appends to an OBJECT's registry name when
+ * it derives that object's read tools (`packages/mcp/src/server.ts` emits
+ * `<name>_get` and `<name>_list`). An action's registry name becomes a tool name
+ * verbatim, so only objects pay this budget.
+ */
+const OBJECT_TOOL_SUFFIX = '_list';
+
+/**
+ * Sanitize a string into a registry name that is legal for an OBJECT — one the
+ * MCP server can derive `<name>_get` / `<name>_list` from and still land inside
+ * `[a-zA-Z0-9_-]{1,64}` (ONT-041). Object names previously skipped the MCP sink
+ * entirely and were emitted raw, so a 61-char model name produced a 65-char
+ * `<name>_get` and `orangerail mcp` refused to boot on generated output — the
+ * exact hazard this module already documents for actions, left uncovered for
+ * objects.
+ *
+ * Deliberately MINIMAL, and NOT `sanitizeMcpName`: it only replaces characters
+ * the charset forbids and trims to the suffix budget. `sanitizeMcpName`
+ * additionally NORMALIZES (collapses `_` runs, strips leading/trailing `_`/`-`),
+ * which would rename perfectly legal Prisma models like `my__model` or
+ * `_Internal` and churn every existing generated project. An object name is a
+ * user-visible registry name, so it changes only when it must.
+ */
+export const sanitizeObjectName = ({ value }: { value: string }): string => {
+  const out = value.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64 - OBJECT_TOOL_SUFFIX.length);
+
+  return out === '' ? 'object' : out;
+};

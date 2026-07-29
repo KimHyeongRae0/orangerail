@@ -7,7 +7,6 @@ import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
 import { runInitFromArtifacts } from './artifacts';
 import { buildFileSet } from './codegen';
-import type { ScannedSource } from './ir';
 import {
   clobberRefusal,
   degradeNotice,
@@ -17,7 +16,8 @@ import {
 } from './atomic';
 import { hasScannedContent, scanRepo } from './scan';
 import { hasYamlSpec, YAML_HINT } from './scanners/openapi/scan';
-import { runWizard, type InitFlags, type ResolvedInit } from './wizard';
+import { applyFilters, assertSelection } from './select';
+import { runWizard, type InitFlags } from './wizard';
 
 /**
  * Whether a usable config already resolves in the target repo (AC-6 front door).
@@ -26,44 +26,6 @@ import { runWizard, type InitFlags, type ResolvedInit } from './wizard';
  */
 const configExists = ({ cwd }: { cwd: string }): boolean =>
   DEFAULT_CONFIG_NAMES.some((name) => existsSync(join(cwd, name)));
-
-/**
- * Apply the wizard's source/model selection to a scanned source. `sources`
- * gates by scanner origin (objects come from Prisma, actions from OpenAPI);
- * `models` keeps only the named objects (and links referencing them). Absent
- * filters keep everything (the flag-driven default).
- */
-const applyFilters = ({
-  source,
-  options,
-}: {
-  source: ScannedSource;
-  options: ResolvedInit;
-}): ScannedSource => {
-  const keepObjects = options.sources === undefined || options.sources.includes('prisma');
-  const keepActions = options.sources === undefined || options.sources.includes('openapi');
-
-  const models = options.models;
-
-  const objects = !keepObjects
-    ? []
-    : models === undefined
-      ? source.objects
-      : source.objects.filter((o) => models.includes(o.name));
-
-  const objectNames = new Set(objects.map((o) => o.name));
-
-  return {
-    objects: objects.map((o) => ({
-      ...o,
-      relations: o.relations.filter((r) => objectNames.has(r.target)),
-    })),
-    enums: source.enums,
-    actions: keepActions ? source.actions : [],
-    warnings: source.warnings,
-    infos: source.infos,
-  };
-};
 
 /**
  * `orangerail init` (plan D1/D9/D12). Dispatches WITHOUT a config (it creates
@@ -135,6 +97,11 @@ export const runInit = async ({
   }
 
   const options = result.options;
+
+  // A `--sources` / `--models` value that selects nothing is refused here,
+  // before a byte is written — the same contract `--preset` already has.
+  assertSelection({ source: scanned, options });
+
   const source = applyFilters({ source: scanned, options });
   const files = buildFileSet({ source, preset: options.preset });
 

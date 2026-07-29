@@ -1,3 +1,4 @@
+import { validateToolName } from 'orangerail-mcp';
 import { describe, expect, it } from 'vitest';
 
 import { sanitizeIdentifier } from './codegen/escape';
@@ -156,5 +157,166 @@ describe('allocateNames — determinism + order (ONT-015)', () => {
     expect(out.objects.map((o) => o.name)).toEqual(['Product', 'Customer']);
     expect(out.actions.map((a) => a.name)).toEqual(['placeOrder', 'issueRefund']);
     expect(out.warnings).toEqual([]);
+  });
+});
+
+describe('allocateNames — case-insensitive filesystem collisions (ONT-041 defect A)', () => {
+  it('de-collides two model names that differ only in case', () => {
+    // `model user` + `model User` is legal Prisma. Keying the allocation on the
+    // case-SENSITIVE identifier let both through, so init emitted `user.mjs`
+    // and `User.mjs` — the same file on macOS/Windows. The second write
+    // clobbered the first, `deleteuser.mjs` still imported `./User.mjs`, and
+    // Node's URL-keyed ESM loader evaluated the one surviving inode twice, so
+    // `defineObject` ran twice and the project died with "duplicate object
+    // name" — a message naming neither model nor the word "case".
+    const source = emptySource();
+    source.objects = [objectNamed({ name: 'user' }), objectNamed({ name: 'User' })];
+
+    const out = allocateNames({ source });
+    const names = out.objects.map((o) => o.name);
+
+    expect(names[0]).toBe('user');
+    expect(names[1]).not.toBe('User');
+    // the emitted filename stems are distinct even compared the way a
+    // case-insensitive filesystem compares them.
+    const stems = names.map((name) => bindingOf({ name }).toLowerCase());
+    expect(new Set(stems).size).toBe(2);
+  });
+
+  it('names BOTH colliding models in the warning and says the match is case-insensitive', () => {
+    const source = emptySource();
+    source.objects = [objectNamed({ name: 'user' }), objectNamed({ name: 'User' })];
+
+    const out = allocateNames({ source });
+
+    expect(out.warnings).toHaveLength(1);
+    const warning = out.warnings[0]!;
+    expect(warning).toContain("'User'");
+    expect(warning).toContain("'user'");
+    expect(warning).toContain('case-insensitively');
+    expect(warning).toContain('renamed to');
+  });
+
+  it('allocates identically regardless of the host filesystem (deterministic, platform-free)', () => {
+    // The allocation reads no filesystem at all, so the file set generated on
+    // Linux is the file set generated on macOS — the published CLI produced two
+    // different projects for the same schema depending on the host.
+    const build = () => {
+      const source = emptySource();
+      source.objects = [objectNamed({ name: 'user' }), objectNamed({ name: 'User' })];
+      source.actions = [actionNamed({ name: 'deleteuser' }), actionNamed({ name: 'deleteUser' })];
+      return allocateNames({ source });
+    };
+
+    expect(build()).toEqual(build());
+
+    const out = build();
+    const stems = [
+      ...out.objects.map((o) => bindingOf({ name: o.name })),
+      ...out.actions.map((a) => bindingOf({ name: a.name })),
+    ].map((stem) => stem.toLowerCase());
+
+    expect(new Set(stems).size).toBe(stems.length);
+  });
+});
+
+describe('allocateNames — object names are MCP tool-name stems (ONT-041 defect C)', () => {
+  it('keeps <Object>_get / <Object>_list legal for a 61-char model name', () => {
+    // A 61-char model produced a 65-char `<name>_get`, so `orangerail mcp`
+    // refused to boot on a project `init` had just reported as a success.
+    const long = `Order${'X'.repeat(56)}`;
+    expect(long).toHaveLength(61);
+
+    const source = emptySource();
+    source.objects = [objectNamed({ name: long })];
+
+    const out = allocateNames({ source });
+    const name = out.objects[0]!.name;
+
+    expect(() => validateToolName({ name: `${name}_get` })).not.toThrow();
+    expect(() => validateToolName({ name: `${name}_list` })).not.toThrow();
+    expect(out.warnings[0]).toContain('MCP tool-name stem');
+  });
+
+  it('replaces charset-illegal characters in an object name', () => {
+    const source = emptySource();
+    source.objects = [objectNamed({ name: 'Order.Line' })];
+
+    const out = allocateNames({ source });
+    const name = out.objects[0]!.name;
+
+    expect(() => validateToolName({ name: `${name}_get` })).not.toThrow();
+    expect(name).not.toContain('.');
+  });
+
+  it('leaves an already-legal object name — including underscore runs — untouched', () => {
+    // Legality, not normalization: `my__model` and `_Internal` are legal Prisma
+    // models AND legal tool-name stems, so renaming them would churn every
+    // existing generated project for nothing.
+    const source = emptySource();
+    source.objects = [objectNamed({ name: 'my__model' }), objectNamed({ name: '_Internal' })];
+
+    const out = allocateNames({ source });
+
+    expect(out.objects.map((o) => o.name)).toEqual(['my__model', '_Internal']);
+    expect(out.warnings).toEqual([]);
+  });
+});
+
+describe('allocateNames — the source model name never moves (ONT-041 defect D)', () => {
+  it('pins sourceModel to the pre-rename name when it renames an object', () => {
+    const source = emptySource();
+    source.objects = [
+      { ...objectNamed({ name: 'User' }), sourceModel: 'User' },
+      { ...objectNamed({ name: 'user' }), sourceModel: 'user' },
+    ];
+
+    const out = allocateNames({ source });
+
+    expect(out.objects[1]!.name).not.toBe('user');
+    expect(out.objects[1]!.sourceModel).toBe('user');
+  });
+
+  it('tracks the rename onto a Prisma action model while pinning its sourceModel', () => {
+    const source = emptySource();
+    source.objects = [
+      { ...objectNamed({ name: 'User' }), sourceModel: 'User' },
+      { ...objectNamed({ name: 'user' }), sourceModel: 'user' },
+    ];
+    source.actions = [
+      {
+        name: 'deleteuser',
+        source: 'prisma',
+        prisma: { model: 'user', sourceModel: 'user', op: 'delete', idField: 'id' },
+        write: true,
+        input: [{ name: 'id', kind: 'scalar', scalar: 'string', optional: false }],
+      },
+    ];
+
+    const out = allocateNames({ source });
+    const renamed = out.objects[1]!.name;
+
+    // the import target follows the file that was actually written…
+    expect(out.actions[0]!.prisma?.model).toBe(renamed);
+    // …while the database accessor keeps following the schema.
+    expect(out.actions[0]!.prisma?.sourceModel).toBe('user');
+  });
+
+  it('re-points a relation target at the renamed object so its link survives', () => {
+    const source = emptySource();
+    source.objects = [
+      objectNamed({ name: 'A__B' }),
+      objectNamed({ name: 'A_B' }),
+      {
+        ...objectNamed({ name: 'Parent' }),
+        relations: [{ field: 'kids', target: 'A_B', cardinality: 'many' as const }],
+      },
+    ];
+
+    const out = allocateNames({ source });
+    const renamed = out.objects[1]!.name;
+
+    expect(renamed).not.toBe('A_B');
+    expect(out.objects[2]!.relations[0]!.target).toBe(renamed);
   });
 });

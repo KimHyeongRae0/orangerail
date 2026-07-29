@@ -79,7 +79,12 @@ describe('synthesizePrismaActions', () => {
     expect(opt.title).toBe(true);
     expect(opt.body).toBe(true);
     expect(opt.done).toBe(true);
-    expect(update!.prisma).toEqual({ model: 'Note', op: 'update', idField: 'id' });
+    expect(update!.prisma).toEqual({
+      model: 'Note',
+      sourceModel: 'Note',
+      op: 'update',
+      idField: 'id',
+    });
   });
 
   it('delete carries only the required identifier', () => {
@@ -87,7 +92,12 @@ describe('synthesizePrismaActions', () => {
 
     expect(inputNames(del!.input)).toEqual(['id']);
     expect(del!.input[0]!.optional).toBe(false);
-    expect(del!.prisma).toEqual({ model: 'Note', op: 'delete', idField: 'id' });
+    expect(del!.prisma).toEqual({
+      model: 'Note',
+      sourceModel: 'Note',
+      op: 'delete',
+      idField: 'id',
+    });
   });
 
   it('a model with no single @id gets create only, with a surfaced warning (D2)', () => {
