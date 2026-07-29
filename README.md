@@ -1,7 +1,21 @@
 # orangerail
 
-> Declare your domain once — and every AI agent that touches it is guided,
-> governed, and visible.
+> Generate a typed MCP surface from the schema you already have — a tool per entity, a tool
+> per write, and a human gate on the writes that need one.
+
+`orangerail init` reads your `prisma/schema.prisma` or OpenAPI spec and generates an MCP
+server from it: a `get` and a `list` tool per object, one action per write with a zod input
+schema, and nothing else. It is a scanner and a code generator — no LLM calls, no API keys,
+and the generated files under `ontology/` are yours to edit. An agent pointed at it gets a
+fixed set of typed tools rather than an `execute_sql` box and a schema dump. The writes you
+do not want run unattended carry `policy: { approval: 'required' }`, which stages the call for
+a person instead of executing it, and `orangerail mcp` withholds an action whose gate has
+since been weakened against the baseline it recorded.
+
+One precondition, up front, because it decides whether any of this is worth installing:
+**orangerail governs only its own tools.** If the agent also has a shell with credentials or
+a second database MCP server, it can go around the rail — see
+[What orangerail does not govern](#what-orangerail-does-not-govern).
 
 **Status: pre-release, and installable.** v0 is on npm at `0.1.0` — `orangerail` (the
 CLI) plus `orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and
@@ -11,11 +25,56 @@ development: the API described further down is the design target, and it will mo
 1.0. What has changed since `0.1.0`, and the one thing an upgrade asks of you, are in the
 [CHANGELOG](./CHANGELOG.md).
 
+## What the agent gets instead of `execute_sql`
+
+Point an agent at a general-purpose database MCP server and the surface is usually two tools:
+dump the schema, then send a SQL string. Every call is an unconstrained string, and the server
+has no opinion about any of it.
+
+orangerail generates the surface from the schema instead. Run `orangerail init` on a
+three-model Prisma schema (`Order`, `OrderItem`, `Payment`) and this is the entire tool list —
+copied from the `orangerail docs` output for that generated project:
+
+```text
+| Tool | Kind | Backing entity |
+| --- | --- | --- |
+| `Order_get` | read (get) | Order |
+| `Order_list` | read (list) | Order |
+| `OrderItem_get` | read (get) | OrderItem |
+| `OrderItem_list` | read (list) | OrderItem |
+| `Payment_get` | read (get) | Payment |
+| `Payment_list` | read (list) | Payment |
+| `createOrder` | action | createOrder |
+| `createOrderItem` | action | createOrderItem |
+| `createPayment` | action | createPayment |
+| `deleteOrder` | action | deleteOrder |
+| `deleteOrderItem` | action | deleteOrderItem |
+| `deletePayment` | action | deletePayment |
+| `updateOrder` | action | updateOrder |
+| `updateOrderItem` | action | updateOrderItem |
+| `updatePayment` | action | updatePayment |
+| `check_approval` | approval-check | — |
+```
+
+There is no `execute_sql` on that list, and nothing on it takes a query. Each action's input
+is a zod schema derived from your own columns, so `deletePayment` accepts an `id` and refuses
+everything else; each read is a `findUnique` by id or a paged `findMany`. The set is fixed at
+generation time, it is the same on every run over the same schema, and you can read all of it
+in `ontology/` before an agent ever connects.
+
+**Be exact about what that costs.** A fixed surface is a narrow one. There is no aggregation,
+no join and no free-form query here, so a question this surface cannot express has to be
+answered somewhere else — stated in full under
+[What orangerail does not govern](#what-orangerail-does-not-govern), along with the two
+larger limits: orangerail sees only its own tools, and it has no DDL.
+
 ## See it stop an agent
 
-A real MCP client (the same kind an agent host uses) tries a destructive delete. The
-server shows up and blocks it — and the agent cannot force it through. Only after a
-human decides does it run, on a verifiable audit chain.
+Approval is a property of an action, not the reason the project exists — but it is real, and
+it is the part that is easiest to show working. A real MCP client (the same kind an agent
+host uses) tries a destructive delete. The server shows up and blocks it — and the agent
+cannot force it through. Only after a human decides does it run, on a verifiable audit
+chain.
 
 ![orangerail blocks a destructive agent action, then runs it only after a human approves](./examples/governed-writes/demo.gif)
 
@@ -253,6 +312,14 @@ governs it (`deleteProduct` → approval required).
 > project (or the [`governed-writes`](./examples/governed-writes) example) to explore
 > yours.
 
+The relations drawn there come from `ontology/_links.mjs`, which `orangerail init` derives
+from your Prisma relations — one `defineLink` per relation pair, carrying a `cardinality` of
+`one` or `many`. **Be clear about where that graph goes today: to `orangerail studio` and to
+`orangerail docs`, and nowhere else.** `orangerail mcp` never reads it. An agent talking to
+the server is not told which of your relations are one-to-many, because no tool on the surface
+exposes them. That is a gap, not a design position, and it is why nothing else in this README
+calls the generated surface relation-aware.
+
 ## What orangerail will be
 
 The domain rules you've been hand-writing into scattered markdown — product
@@ -324,9 +391,13 @@ it cannot rot into something that never compiled.
   there is nothing to act on, **1** for any unresolved drift — a proposal, a changed
   field, an ontology file the loader never imports, a weakened posture — and **2** when
   it could not answer at all (the config would not load, the baseline could not be read).
-- `orangerail mcp` — typed MCP server over your declared objects, links, and actions.
+- `orangerail mcp` — typed MCP server over your declared objects and actions. (Not your
+  links: the server does not read the link graph, so relations are not on the tool surface.)
   It withholds any action whose posture is weaker than the recorded baseline: not listed,
   not resolvable, not executable, while everything else is served.
+- `orangerail docs` — the agent-facing domain document (the prompt rail): the tool table,
+  the object fields, the link table with its cardinality column, and every action with the
+  policy that governs it. Written to `.orangerail/generated/AGENTS.md`.
 - `orangerail approvals` — CLI approval queue for staged actions.
 - `orangerail audit verify` — hash-chain verification of the audit log, cross-checked
   against the approvals store. Read [What the audit log proves](#what-the-audit-log-proves)
@@ -335,6 +406,39 @@ it cannot rot into something that never compiled.
 
 Everything here runs from your repository alone — no external exports, no accounts,
 no keys. Point it at your own code and it works.
+
+## How this compares
+
+Deterministic codegen from a spec into MCP tools is not new, and neither is a database MCP
+server. What is specific here is the pair: typed per-entity tools generated from your schema
+instead of a generic query tool, and a per-action approval gate with a recorded baseline that
+`sync` and `mcp` both enforce. Each claim below was checked against the shipped package or the
+vendor's own documentation on 2026-07-29.
+
+- **[`openapi-mcp-generator`](https://github.com/harsha-iiiv/openapi-mcp-generator)** (627
+  stars; 16,389 npm downloads in the week ending 2026-07-28) is real prior art on the
+  OpenAPI half, and good at it. Its `extractToolsFromApi` walks paths × methods and emits
+  exactly one tool per operation — deterministic, zod-validated, no LLM anywhere in it, with
+  content-hash name de-collision so a reordered spec produces the same output. What it does
+  not have is any approval policy: an operation that deletes becomes a tool that deletes, and
+  it runs when the agent calls it. That is the whole of the difference — it is not behind
+  orangerail on relations, because orangerail does not put relations on the tool surface
+  either. If one tool per REST operation is all you want, it is more mature at that than
+  orangerail is.
+- **Prisma's own MCP servers** are CLI and platform operations, not per-model tools. The
+  local server in `prisma@7.9.1` (`npx prisma mcp`) registers three tools — `migrate-status`,
+  `migrate-dev` and `Prisma-Studio` — each shelling out to the Prisma CLI. The
+  [hosted server](https://www.prisma.io/docs/postgres/integrations/mcp-server) covers
+  databases, backups, recovery and connection strings, plus `ExecuteSqlQueryTool` and
+  `IntrospectSchemaTool`. Neither generates anything typed per model.
+- **[Supabase's MCP server](https://github.com/supabase/mcp)** exposes `list_tables` and
+  `execute_sql`. Foreign keys are not missing — each table in a `list_tables` response can
+  carry a `foreign_key_constraints` array of constraint rows (name, source and target table,
+  source and target columns), but only when the call passes `verbose: true`; without it the
+  handler returns the compact table and drops them. That is an introspection payload for the
+  agent to interpret, not a declared relation carrying a cardinality — though orangerail is
+  not ahead here in the way it might sound: it derives cardinality at scan time and then does
+  not put it on the MCP surface either.
 
 ## Wire it into your agent host
 
@@ -461,6 +565,46 @@ the audit chain is concerned.
 So the guarantee is a conditional one, and it is worth stating exactly: **when orangerail's
 tools are the agent's only route to your domain, every write is staged, approved and
 audited.** Closing off the other routes is your job, not the rail's.
+
+This is not a theoretical caveat. In a validation run against live PostgreSQL, with
+orangerail installed and every write action gated, a second Postgres MCP server was added on
+the same database and the agent deleted five rows through it with zero approvals and nothing
+on the audit chain. The gate held on its own tools and was simply not on the path. Treat "the
+agent has exactly one route to this database" as a precondition of installing orangerail, not
+as advice.
+
+**There is no aggregation, no join, and list results are capped.** The generated read tools
+are exactly two shapes: a `findUnique` by id, and a `findMany` with your filter, ordered by
+id, returning 50 rows by default and 200 at most, with a cursor to page. There is no
+`groupBy`, no `_sum`, no `_count` and no join anywhere in the generated code, so "what did we
+bill this customer last quarter" is not a question this surface can answer — the agent must
+page the rows and do the arithmetic itself, or the question goes somewhere else entirely.
+
+One consequence is worth naming, because it is easy to mistake for a feature. An aggregate
+spanning two one-to-many relations off the same parent — the classic *fan trap*, where the
+number comes back silently multiplied and no error is raised — cannot be asked through
+orangerail. That is the absence of a capability, not a guard against a mistake. Nothing in
+`orangerail mcp` knows your cardinalities; the relation graph exists but is only read by
+`orangerail studio` and `orangerail docs`. If the agent has any other route to SQL, it can
+still write that query, and orangerail will neither see it nor say anything about it.
+
+**There is no DDL.** From a Prisma schema the scanner emits row-level writes only — create,
+update and delete per model, one row at a time, and create alone for a model with no single
+`@id` — and nothing at all for schema change. `CREATE TABLE`, `ALTER TABLE`,
+`DROP TABLE` and every migration have no generated action, so they go around orangerail
+entirely and are neither gated nor audited. Keep migrations where they already are: in your
+migration tool, reviewed in a pull request, run by CI or by a person — not by the agent. If
+the agent needs to propose one, have it write the migration file and let the normal review
+path decide, because that path is a human checkpoint orangerail is not offering here.
+
+**A bulk intent costs one approval per row.** "Delete the 40 stale drafts" is 40 calls to
+`deleteArticle`, 40 staged approvals, and 40 decisions — the generated actions take a single
+id, `orangerail approvals approve` takes a single id, and there is no batch action and no
+approve-all. That is honest about the ergonomics today rather than a design position. Where a
+bulk operation is a real part of your workflow, the way out is to hand-write one
+`defineAction` whose `execute` performs the whole batch, so a single approval covers a single
+reviewed intent — the generated per-row actions are a starting point, and `ontology/` is
+yours to edit.
 
 ## What the audit log proves
 
