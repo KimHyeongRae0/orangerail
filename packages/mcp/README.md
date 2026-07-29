@@ -20,7 +20,8 @@ core engine.
   `check_approval` to complete it.
 - `check_approval` — the re-check surface. `pending` / `rejected` report status;
   an `approved` approval is **executed in this server process** and the result
-  returned; `consumed` reports consumed (idempotent re-poll).
+  returned; `consumed` reports consumed (idempotent re-poll). Under the `sandbox`
+  preset it records a `dry_run` instead — see Presets.
 
 Tool names are validated against `^[a-zA-Z0-9_-]{1,64}$` and checked for
 collisions at build time (fail fast).
@@ -29,6 +30,11 @@ collisions at build time (fail fast).
 
 - `approval-for-writes` (default) — actions exposed as declared.
 - `sandbox` — engine `dry_run` mode; actions return `dry_run`, never execute.
+  This covers `check_approval` too: the engine refuses **before** the consume CAS,
+  so a sandbox server sharing a store with a live one neither executes an approval
+  the live server staged nor burns it — the approval stays `approved` and the live
+  engine still completes it. The destructive tool stays visible and simply cannot
+  cause an effect, which is the same design as an approval gate.
 - `readonly` — no action tools, no `check_approval`.
 
 ## Identity and dev mode
@@ -102,3 +108,11 @@ The FULL text goes to the operator instead:
   operator artifact — it holds the unredacted failure text on purpose.
 - **Config is code**: loading an ontology config is arbitrary code execution
   (same trust level as an npm script); v0 is stdio only, no network exposure.
+- **The audit log is an audit trail behind a human checkpoint, not a
+  tamper-evident boundary.** `verifyAudit` cross-checks the chain against the
+  approvals store, but the chain hash is unkeyed and its anchor is unsigned and
+  sits in the same directory, so an attacker who can write the store can rewrite
+  both logs consistently. Put the store somewhere the governed agent cannot write
+  — `orangerail init` scaffolds it inside the scanned project by default. Stated
+  exactly under
+  [What the audit log proves](https://github.com/KimHyeongRae0/orangerail#what-the-audit-log-proves).

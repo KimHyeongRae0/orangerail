@@ -13,7 +13,11 @@ servers ("add your own approval/guardrails — that's out of scope").
 Orangerail removes the binary. A write stays **available** to the agent, but calling
 it **stages the operation for human approval** instead of executing it: the tool
 returns an `approvalId`, a human approves out of band, and only then does it run —
-with every executed write recorded on a tamper-evident, hash-chained audit log.
+with every executed write recorded on a hash-chained audit log that `orangerail audit
+verify` checks against itself and against the approvals store. That log is an audit
+trail behind a human checkpoint, not a tamper-evident boundary against someone who can
+write the store directory — the limit is stated exactly in
+[What the audit log proves](../../README.md#what-the-audit-log-proves).
 
 This example is a tiny content database (`Article`, `Comment`). `deleteArticle` is
 the destructive tool.
@@ -149,7 +153,11 @@ non-zero so a script can gate on it.
 - `orangerail.config.mjs` — self-discovers `ontology/*.mjs`, wires a file store, and
   uses the `approval-for-writes` preset. It opts into `allowDevMode` for a
   single-user local run; before exposing the server to anyone else, add a
-  `resolveIdentity` adapter and remove that flag.
+  `resolveIdentity` adapter and remove that flag. The store is
+  `createFileStore({ dir: join(here, '.orangerail', 'store') })` — inside this folder,
+  which is right for a scripted walkthrough and wrong for a real agent that has file
+  tools over the repo. See
+  [Keep the store out of the agent's reach](../../README.md#keep-the-store-out-of-the-agents-reach).
 
 ## Honest caveat
 

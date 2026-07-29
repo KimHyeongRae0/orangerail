@@ -1,35 +1,113 @@
 # orangerail
 
-The `orangerail` command-line interface: the human-facing approval and audit
-surface, plus the MCP server launcher. Hand-rolled argument parsing, zero
-runtime third-party dependencies (reaches the MCP server through the workspace
-dep `orangerail-mcp`, never a direct SDK dependency).
+Give an AI agent tools over your domain, and destructive operations come along for
+the ride. `orangerail` is the command-line side of a governed MCP server: a write
+action stays **available** to the agent, but calling it stages the operation for a
+human instead of executing it. The agent gets an `approvalId`; you decide in your
+own terminal; only then does it run, on a hash-chained audit log.
 
-## Configuration
+This package is the operator surface — the approval queue, the audit and posture
+readouts, the scanner that generates the server, and the launcher the agent host
+spawns. The full story, with real recorded output and a walkthrough you can run,
+is in the [project README](https://github.com/KimHyeongRae0/orangerail#readme).
 
-Every command loads an ontology config — a default export
-`{ registry, store, resolveIdentity?, preset?, redactAudit? }` — from
-`orangerail.config.mjs` (or `.js`, `.ts`, `.mts`, or `--config <path>`) via
-plain dynamic `import()`. TypeScript configs work through your own TS-capable
-runtime (`tsx`, or `node --experimental-strip-types`); orangerail does not
-bundle a loader. Every command discovers the same four names, `init` included —
-it refuses rather than regenerate over an ontology whose config is a `.ts`.
+Zero runtime third-party dependencies: argument parsing is hand-rolled, and the
+MCP server is reached through the workspace package `orangerail-mcp`, never a
+direct SDK dependency.
 
-Loading a config is **arbitrary code execution** (same trust level as an npm
-script) — run only configs you trust.
+## Install
+
+Nothing to install to try it — the agent host and your terminal can both fetch it
+on demand:
+
+```bash
+npx orangerail init
+```
+
+To pin it in a project:
+
+```bash
+npm install --save-dev orangerail
+```
+
+The generated code imports `orangerail-core` and `zod` at runtime, so install
+those in the project you scanned:
+
+```bash
+npm install orangerail-core zod
+```
+
+## Get started
+
+```bash
+npx orangerail init --yes --preset approval-for-writes --no-studio
+npm install orangerail-core zod
+npx orangerail status
+npx orangerail sync --accept-governance   # then commit orangerail.governance.json
+```
+
+`init` scans a `prisma/schema.prisma` or an OpenAPI spec, generates
+`ontology/*.mjs` plus an `orangerail.config.mjs`, and gates every write action
+behind human approval. The scanner is deterministic: it reads your files, makes no
+LLM calls, and needs no API key. **The generated files are yours** — `init`
+refuses to run again over them, and `orangerail sync` reports drift rather than
+editing them.
+
+Then point your agent host at the server. For Claude Code, a `.mcp.json` in your
+project root:
+
+```json
+{
+  "mcpServers": {
+    "orangerail": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "orangerail", "mcp"],
+      "env": { "DATABASE_URL": "file:./dev.db" }
+    }
+  }
+}
+```
+
+`orangerail mcp` is a stdio server: the host spawns it, speaks JSON-RPC over its
+stdin/stdout, and it dies when the host does. You never start it by hand.
+`status`, `approvals` and `audit verify` are ordinary commands you run in your own
+terminal against the same store while the host's server is up.
 
 ## Commands
 
 ```
-orangerail mcp [--config <path>]                  launch the MCP server over stdio
-orangerail approvals list [--config <path>]       list pending approvals
+orangerail init [--yes] [--preset <p>] [--sources <csv>] [--models <csv>]
+              [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
+                                               scan a repo and assemble the ontology
+orangerail sync [--config <path>] [--accept-new] [--accept-governance]
+                                               re-scan and report drift (exit 1 on drift);
+                                               --accept-governance re-records the baseline
+orangerail mcp [--config <path>]               launch the MCP server over stdio
+orangerail status [--config <path>]            show the governance posture
+orangerail studio [--config <path>] [--port <n>] [--no-open]
+                                               serve the read-only domain map locally
+orangerail docs [--config <path>] [--out <dir>]
+                                               generate the agent-facing domain doc
+orangerail approvals list [--config <path>]    list pending approvals
 orangerail approvals show <id> [--full] [--config <path>]
-                                                  show one approval (--full: uncapped input)
-orangerail approvals approve <id> [--config …]    approve a staged action (CAS)
-orangerail approvals reject <id> [--config …]     reject a staged action (CAS)
-orangerail audit verify [--config <path>]         verify the audit chain
-orangerail store unlock [--config <path>]         clear a provably-dead store lock
+                                               show one approval (--full: uncapped input)
+orangerail approvals approve <id> [--config …] approve a staged action (CAS)
+orangerail approvals reject <id> [--config …]  reject a staged action (CAS)
+orangerail audit verify [--config <path>]      verify the audit chain
+orangerail store unlock [--config <path>]      clear a provably-dead store lock
+
+--help, -h     print this usage (accepted anywhere, e.g. `orangerail init --help`)
+--version, -v  print the CLI version
 ```
+
+Exit codes: `0` clean, `1` a finding the command exists to report (drift, a broken
+chain), `2` an error. An unrecognized flag is a hard error naming the valid set —
+it is never silently ignored, because `orangerail status --confg /path/to/prod`
+reporting a confident green result for the *local* project is worse than no
+report.
+
+## The approval display
 
 `approvals list` renders the approver decision surface: full id, action,
 `requestedBy` (with a `[dev]` marker in dev mode), age, and a one-line input
@@ -46,6 +124,39 @@ one.
 scroll it away. The truncation states exactly how much was withheld; pass
 `--full` to print the whole value.
 
+## Governance drift
+
+`orangerail sync` re-scans your sources and reports drift, and it also reviews the
+**governance posture** — something the scan structurally cannot do, because the
+scanner has no opinion on policy. The posture is read from the live registry and
+compared against `orangerail.governance.json`, a baseline you record deliberately
+with `orangerail sync --accept-governance`.
+
+Commit that file. Its whole value is that a pull request removing an approval gate
+shows `"approval": "required"` turning into `null` in its own diff, in front of a
+reviewer, before CI runs. `sync` exits 1 when the posture *weakens* — a gate
+removed, a `where` guard removed or rewritten, approver roles widened, an action
+retargeted, or a new action that is not gated — and reports a tightening quietly.
+
+Two deliberate behaviors: a project with at least one action and **no** baseline
+exits 1 until you record one, and a **functional** `where` predicate records as
+the constant `functional`, so a rewrite of its body is invisible to the diff.
+`sync` states that limit in its own output rather than implying coverage it does
+not have.
+
+## Configuration
+
+Every command loads an ontology config — a default export
+`{ registry, store, resolveIdentity?, preset?, redactAudit?, allowDevMode? }` —
+from `orangerail.config.mjs` (or `.js`, `.ts`, `.mts`, or `--config <path>`) via
+plain dynamic `import()`. TypeScript configs work through your own TS-capable
+runtime (`tsx`, or `node --experimental-strip-types`); orangerail does not
+bundle a loader. Every command discovers the same four names, `init` included —
+it refuses rather than regenerate over an ontology whose config is a `.ts`.
+
+Loading a config is **arbitrary code execution** (same trust level as an npm
+script) — run only configs you trust.
+
 ## Identity and dev mode
 
 `approve` / `reject` resolve the caller with `resolveCaller({ transport: 'cli',
@@ -53,6 +164,27 @@ request: { osUser } })`. A config `resolveIdentity` adapter maps the OS user to
 `{ subject, roles }` (role mapping lives in the config). With no adapter the
 local CLI runs in **dev mode**: the `local-dev` identity approves anything and
 stamps `devMode: true` into audit records.
+
+## Where the store lives
+
+`init` scaffolds the approval and audit store **inside the project it just
+scanned** — the generated config builds it as
+`createFileStore({ dir: join(here, '.orangerail', 'store') })`. That is right for
+a local single-user run and wrong the moment the governed agent also has file
+tools over that repo, because the agent can then write the very log that records
+what it did.
+
+There is no CLI flag for this. The location is the `dir` argument of
+`createFileStore` in your own `orangerail.config.mjs`, which orangerail never
+regenerates, so relocating the store is a one-line edit:
+
+```js
+const store = createFileStore({ dir: '/var/lib/orangerail/store' });
+```
+
+Point it somewhere the agent's tools cannot reach. The audit log's guarantees, and
+their limits, are stated exactly under
+[What the audit log proves](https://github.com/KimHyeongRae0/orangerail#what-the-audit-log-proves).
 
 ## Store lock recovery
 
@@ -68,3 +200,22 @@ Approvals and audit records store action inputs — and audit records also
 results and error messages — in plaintext by default. Supply `redactAudit` in
 the config to mask audit records (approval records persist verbatim by design);
 do not put secrets in action inputs.
+
+## Upgrading from 0.1.0
+
+Two things an upgrade asks of you. The full list is in the
+[CHANGELOG](https://github.com/KimHyeongRae0/orangerail/blob/main/CHANGELOG.md).
+
+- **Re-stage any approval that was still `pending`.** An approval created by
+  `0.1.0` carries no `inputHash`, so `execute` cannot bind the payload to the
+  approval and refuses: the call returns `{ status: 'invalidated', reason:
+  'input' }` and the approval is spent. Ask the agent to call the tool again.
+  Existing audit chains verify unchanged, and a missing hash is never reported as
+  tampering.
+- **Run `orangerail sync --accept-governance` once, and commit the file.** Until
+  you do, a project with at least one action exits 1 with `governance: no recorded
+  baseline`. That first red run is intentional.
+
+## License
+
+[MIT](https://github.com/KimHyeongRae0/orangerail/blob/main/LICENSE)

@@ -2,7 +2,7 @@
   "name": "orangerail",
   "version": "0.1.0",
   "type": "module",
-  "description": "orangerail cli (npm bin `orangerail`): approvals list/show/approve/reject, audit verify, store unlock, mcp server launcher",
+  "description": "orangerail cli (npm bin `orangerail`): scan a repo into a governed MCP server (init/sync), launch it (mcp), and run the operator surface — approvals, audit verify, status, studio, docs, store unlock",
   "keywords": [
     "ontology",
     "agent",
