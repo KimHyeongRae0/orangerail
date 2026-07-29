@@ -226,6 +226,11 @@ it cannot rot into something that never compiled.
 - `orangerail init` — deterministic scanner (Prisma / OpenAPI) that extracts your
   ontology from code instead of asking you to type it. No LLM calls, no API keys —
   ever.
+- `orangerail sync` — re-scan your sources and report drift, including a change in
+  the governance posture itself. It compares the approval gates, approver roles,
+  `where` guards and targets against `orangerail.governance.json` (a committed
+  baseline you record with `orangerail sync --accept-governance`), so a removed
+  approval gate fails the run instead of passing as "in sync". Exit 1 on drift.
 - `orangerail mcp` — typed MCP server over your declared objects, links, and actions.
 - `orangerail approvals` — CLI approval queue for staged actions.
 - `orangerail audit verify` — hash-chain verification of the audit log.

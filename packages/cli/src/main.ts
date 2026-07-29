@@ -22,7 +22,9 @@ Usage:
   orangerail init [--yes] [--preset <p>] [--sources <csv>] [--models <csv>]
                 [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
                                                  scan a repo and assemble the ontology
-  orangerail sync [--config <path>] [--accept-new] re-scan and report drift (exit 1 on drift)
+  orangerail sync [--config <path>] [--accept-new] [--accept-governance]
+                                                   re-scan and report drift (exit 1 on drift);
+                                                   --accept-governance re-records orangerail.governance.json
   orangerail mcp [--config <path>]                 launch the MCP server over stdio
   orangerail status [--config <path>]              show the governance posture (gated actions, audit, pending)
   orangerail studio [--config <path>] [--port <n>] [--no-open]  serve the map-mode studio locally
@@ -63,6 +65,7 @@ interface ParsedArgs {
   docs?: boolean;
   studio?: boolean;
   acceptNew: boolean;
+  acceptGovernance: boolean;
   fromJira?: string;
   fromSlack?: string;
   /** `--help` / `-h` seen anywhere in argv, including after a subcommand. */
@@ -91,6 +94,7 @@ const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
   let docs: boolean | undefined;
   let studio: boolean | undefined;
   let acceptNew = false;
+  let acceptGovernance = false;
   let fromJira: string | undefined;
   let fromSlack: string | undefined;
   let help = false;
@@ -151,6 +155,8 @@ const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
       studio = false;
     } else if (token === '--accept-new') {
       acceptNew = true;
+    } else if (token === '--accept-governance') {
+      acceptGovernance = true;
     } else if (token !== undefined) {
       positional.push(token);
     }
@@ -161,6 +167,7 @@ const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
     open,
     yes,
     acceptNew,
+    acceptGovernance,
     help,
     showVersion,
     ...(configPath === undefined ? {} : { configPath }),
@@ -232,7 +239,12 @@ const run = async (): Promise<number> => {
 
   // `sync` loads the config itself (registry = source of truth, plan D11).
   if (command === 'sync') {
-    return runSync({ acceptNew: args.acceptNew, cwd: process.cwd(), configPath });
+    return runSync({
+      acceptGovernance: args.acceptGovernance,
+      acceptNew: args.acceptNew,
+      cwd: process.cwd(),
+      configPath,
+    });
   }
 
   const config = await loadConfig({ configPath });
