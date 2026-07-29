@@ -79,17 +79,29 @@ const assert = ({ ok, message }) => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Poll until the predicate returns something truthy, and hand that value back.
+ *
+ * Returning the winning sample matters: a wait predicate must cover every fact
+ * the assertions after it read, and the cheapest way to keep the two in step is
+ * for the assertions to judge the very sample the wait accepted, rather than
+ * re-reading a page that has moved on.
+ */
 const waitFor = async ({ label, fn, timeoutMs = 30_000, intervalMs = 500 }) => {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    if (await fn()) {
-      return;
+    const value = await fn();
+
+    if (value) {
+      return value;
     }
+
     await sleep(intervalMs);
   }
 
   fail({ message: `timed out waiting for: ${label}` });
+  return undefined;
 };
 
 /** Runs an `orangerail` CLI command to completion inside a run dir. */
@@ -324,30 +336,52 @@ assert({
 });
 
 // studio serves the generated graph — real browser via agent-browser
+const RENDERED_MODELS = ['Product', 'Customer', 'Order'];
+const PAGE_PROBE_JS = `JSON.stringify({ nodes: document.querySelectorAll('.react-flow__node').length, text: document.body.innerText.slice(0, 4000) })`;
+
 ab({ args: ['open', BASE] });
-await waitFor({
-  label: 'studio renders generated object cards',
+
+// Wait for the TEXT the assertions read, not merely for nodes to exist in the
+// DOM. `innerText` is defined over rendered text and skips any `visibility:
+// hidden` subtree, and React Flow marks a node hidden until it has measured it
+// — asynchronously, one pass after the node is already in the DOM and already
+// counted by `.react-flow__node`. Measured against this very project, the nodes
+// are in the DOM at 69-434ms while `innerText` still holds 58-90 characters and
+// no model name at all; with the measurement pass stalled, the names only land
+// ~3.1s in. Counting nodes therefore released the probe below into a page whose
+// cards were all still invisible, which is the `studio page does not show
+// generated object Product` failure seen in CI on a markdown-only PR.
+const pageProbe = await waitFor({
+  label: 'studio to render the generated object cards as visible text',
   fn: () => {
-    const res = abEval({
-      js: `JSON.stringify({ nodes: document.querySelectorAll('.react-flow__node').length, text: document.body.innerText.slice(0, 4000) })`,
-    });
-    return res !== undefined && JSON.parse(res).nodes >= MODELS.length;
+    const res = abEval({ js: PAGE_PROBE_JS });
+
+    if (res === undefined) {
+      return undefined;
+    }
+
+    const probe = JSON.parse(res);
+
+    return probe.nodes >= MODELS.length && RENDERED_MODELS.every((m) => probe.text.includes(m))
+      ? probe
+      : undefined;
   },
   timeoutMs: 30_000,
 });
 
-const pageProbe = JSON.parse(
-  abEval({
-    js: `JSON.stringify({ nodes: document.querySelectorAll('.react-flow__node').length, text: document.body.innerText.slice(0, 4000) })`,
-  }),
-);
-for (const model of ['Product', 'Customer', 'Order']) {
+for (const model of RENDERED_MODELS) {
   assert({
     ok: pageProbe.text.includes(model),
     message: `studio page does not show generated object ${model}`,
   });
 }
 ab({ args: ['screenshot', join(SHOT_DIR, 'init-01-studio-overview.png')] });
+
+// Close the browser as soon as the scenario is done with it. Leaving it open
+// leaked a Chrome process per run, and — because agent-browser reuses a live
+// session — carried one run's browser into the next, which quietly defeats any
+// per-run browser configuration.
+ab({ args: ['close'] });
 
 console.log(
   `[phase 1] OK — ${ontologyFiles.length} ontology files, studio up with ${pageProbe.nodes} nodes`,

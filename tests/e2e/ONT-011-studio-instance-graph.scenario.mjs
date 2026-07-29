@@ -455,11 +455,24 @@ const main = async () => {
     console.log('Phase 3: human instance graph — person + service nodes, help edges');
     selectCategory({ category: 'human' });
 
+    // Wait for the edges and the person text too, not just the node counts.
+    // React Flow renders an edge only after both its endpoints have been
+    // measured, asynchronously, one pass after those nodes are already in the
+    // DOM — so a predicate that stops at the node counts can be satisfied on a
+    // frame where `edgeCount` is still 0 and the assertion below fails on a
+    // perfectly healthy app. (Same defect ONT-054 fixed in ONT-005 phase 2.)
     const human = await waitFor({
-      label: 'person instance nodes to render in the human view',
+      label: 'the human view to render its person and service nodes AND their help edges',
       fn: () => {
         const g = readHuman();
-        return g.personCount >= 11 && g.serviceCount >= 1 ? g : undefined;
+
+        return g.personCount >= 11 &&
+          g.serviceCount >= 1 &&
+          g.nodeCount >= g.personCount + g.serviceCount &&
+          g.hasFelix &&
+          g.edgeCount > 0
+          ? g
+          : undefined;
       },
     });
 

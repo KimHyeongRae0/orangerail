@@ -639,10 +639,10 @@ const main = async () => {
     selectCategory({ category: 'human' });
 
     const tabs = await waitFor({
-      label: 'the human-category view switcher (network/matrix/ownership tabs)',
+      label: 'the human-category view switcher (network/matrix/ownership tabs, network active)',
       fn: () => {
         const t = readViewTabs();
-        return t.network && t.matrix && t.ownership ? t : undefined;
+        return t.network && t.matrix && t.ownership && t.networkActive ? t : undefined;
       },
     });
     assert({
@@ -682,11 +682,15 @@ const main = async () => {
     console.log(
       'Phase 3: Network — node-size cap, collision-free layout, one relationship, threshold',
     );
+    // `edgeCount > 0` is weaker than the assertion below, which wants the EXACT
+    // helps edge set: a partially mounted edge layer satisfies the predicate and
+    // then fails the count. Wait for the number that is actually asserted.
     const net = await waitFor({
-      label: 'the network view to render person + service nodes',
+      label: 'the network view to render person nodes and the whole helps edge set',
       fn: () => {
         const g = readNetwork();
-        return g.personCount >= 11 && g.edgeCount > 0 ? g : undefined;
+
+        return g.personCount >= 11 && g.edgeCount === edges.helps.length ? g : undefined;
       },
     });
 
@@ -761,11 +765,16 @@ const main = async () => {
       message: 'could not locate the Felix Braun person node to click',
     });
 
+    // Focus does two things in one pass: it dims the non-ego nodes AND pulls the
+    // ego's works_on services into the rendered set. Waiting only for the dim
+    // lets the service assertion below read a frame where the second half has
+    // not landed.
     const focused = await waitFor({
-      label: 'focus mode to dim the non-ego nodes',
+      label: 'focus mode to dim the non-ego nodes and pull in the ego services',
       fn: () => {
         const g = readNetwork();
-        return g.dimmedCount > 0 ? g : undefined;
+
+        return g.dimmedCount > 0 && g.felixDimmed === false && g.serviceCount >= 1 ? g : undefined;
       },
     });
     assert({
@@ -880,11 +889,18 @@ const main = async () => {
     console.log('Phase 6: Ownership — people <-> services bipartite columns');
     selectView({ view: 'ownership' });
 
+    // This view was just switched in from the Matrix, so React Flow remounts:
+    // nodes commit first, edges only once those nodes have been measured. The
+    // node counts alone therefore do not establish either fact asserted below —
+    // not the works_on edges, and not the two disjoint x-ranges, whose bounding
+    // rectangles collapse together until layout and measurement have settled.
+    // Gating on the edges covers both, since an edge implies measured endpoints.
     const own = await waitFor({
-      label: 'the ownership bipartite view to render people + service nodes',
+      label: 'the ownership bipartite view to render its columns AND the works_on edges',
       fn: () => {
         const o = readOwnership();
-        return o.personCount >= 11 && o.serviceCount >= 1 ? o : undefined;
+
+        return o.personCount >= 11 && o.serviceCount >= 1 && o.edgeCount > 0 ? o : undefined;
       },
     });
     const peopleLeft = own.personMaxX < own.serviceMinX;
