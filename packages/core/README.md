@@ -41,6 +41,19 @@ const engine = createEngine({
   input/`where` validation (before any approval record) and audits phase
   `not_implemented`.
 
+## Failure detail is operator-facing
+
+Every failing engine outcome (`failed`, `resolve_error`, `audit_blocked`)
+carries `{ error, correlationId }`. `error` is the FULL underlying text — the
+driver message, verbatim, because an operator debugging a write needs the
+constraint name. A transport answering an untrusted agent MUST redact it and
+return `correlationId` instead (`orangerail-mcp` does).
+
+`correlationId` is the audit lookup key: the `approvalId` when the failure came
+from an approval, otherwise the id stamped on that attempt's audit records —
+the same key `verifyAudit` pairs records on. So the id the agent quotes is the
+id that finds the full text in the log.
+
 ## File-store locking and recovery
 
 The file store serializes all mutations with an exclusive **directory lock**

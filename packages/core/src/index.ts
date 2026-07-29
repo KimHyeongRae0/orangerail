@@ -52,6 +52,7 @@ export type {
   Engine,
   EngineMode,
   ExecuteResult,
+  FailureDetail,
   RedactAudit,
   RejectResult,
   StageResult,

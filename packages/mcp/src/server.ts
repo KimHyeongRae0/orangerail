@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -15,16 +17,42 @@ import {
   type RedactAudit,
   type Registry,
   type ResolveIdentity,
+  type ResolveListResult,
   type RuntimeAction,
   type StageResult,
   type Store,
 } from 'orangerail-core';
 
 import { validateToolName } from './names';
+import { redactFailure, type FailureChannel, type FailureStatus } from './redact';
 import { deriveInputSchema, type JsonSchema } from './schema';
 
 /** Runtime preset controlling which tools are exposed and the engine mode (§3.6). */
 export type McpPreset = 'readonly' | 'sandbox' | 'approval-for-writes';
+
+/**
+ * Operator-side sink for the FULL, unredacted failure text (§3.10). The agent
+ * gets the redacted form; this is where the driver message actually survives,
+ * keyed by the same `correlationId` the agent was handed.
+ *
+ * Defaults to STDERR: on a stdio transport stdout IS the JSON-RPC channel, so
+ * stderr is the only stream a server may write to (the same rule the CLI's
+ * startup signal follows). Injectable so a host can route it into its own
+ * logger instead.
+ */
+export type ReportFailure = (args: {
+  status: FailureStatus;
+  tool: string;
+  correlationId: string;
+  error: string;
+}) => void;
+
+const defaultReportFailure: ReportFailure = ({ status, tool, correlationId, error }) => {
+  process.stderr.write(`orangerail: ${status} in "${tool}" [${correlationId}]: ${error}\n`);
+};
+
+const errorMessage = ({ err }: { err: unknown }): string =>
+  err instanceof Error ? err.message : String(err);
 
 /** Arguments to {@link createMcpServer}. */
 export interface CreateMcpServerArgs {
@@ -33,6 +61,8 @@ export interface CreateMcpServerArgs {
   resolveIdentity?: ResolveIdentity;
   preset?: McpPreset;
   redactAudit?: RedactAudit;
+  /** Where the FULL failure text goes (§3.10). Defaults to STDERR. */
+  reportFailure?: ReportFailure;
   /**
    * Secure default (§3.3 / AC-4): with NO `resolveIdentity` adapter, dev mode is
    * entered only when this is explicitly `true`. Defaults to `false`, so a
@@ -189,7 +219,27 @@ const buildTools = ({ registry, preset }: { registry: Registry; preset: McpPrese
   return tools;
 };
 
-const mapStage = ({ result }: { result: StageResult }): ToolResult => {
+/**
+ * Turns a core {@link FailureDetail} into the agent-facing result: reports the
+ * full text to the operator sink, returns only the redacted form (§3.10).
+ * Bound per tool call, so every failure path is forced through one funnel —
+ * there is no branch left that can hand `result.error` to the client.
+ */
+type FailureMapper = (args: {
+  status: FailureStatus;
+  error: string;
+  correlationId: string;
+  /** Overrides the status default where the text has no audit home. */
+  channel?: FailureChannel;
+}) => ToolResult;
+
+const mapStage = ({
+  result,
+  failure,
+}: {
+  result: StageResult;
+  failure: FailureMapper;
+}): ToolResult => {
   switch (result.status) {
     case 'approval_pending':
       return ok({
@@ -221,7 +271,7 @@ const mapStage = ({ result }: { result: StageResult }): ToolResult => {
     case 'rejected_where':
       return err({ status: 'rejected_where', message: 'Precondition (where) not satisfied.' });
     case 'resolve_error':
-      return err({ status: 'resolve_error', message: result.error });
+      return failure({ ...result, status: 'resolve_error' });
     case 'condition_changed':
       return err({ status: 'condition_changed', message: 'Target changed since staging.' });
     case 'invalidated':
@@ -231,9 +281,9 @@ const mapStage = ({ result }: { result: StageResult }): ToolResult => {
         extra: { reason: result.reason },
       });
     case 'audit_blocked':
-      return err({ status: 'audit_blocked', message: result.error });
+      return failure({ ...result, status: 'audit_blocked' });
     case 'failed':
-      return err({ status: 'failed', message: result.error });
+      return failure({ ...result, status: 'failed' });
     case 'consume_failed':
       return err({ status: 'consume_failed', message: `Consume failed (${result.reason}).` });
     default:
@@ -241,7 +291,13 @@ const mapStage = ({ result }: { result: StageResult }): ToolResult => {
   }
 };
 
-const mapExecute = ({ result }: { result: ExecuteResult }): ToolResult => {
+const mapExecute = ({
+  result,
+  failure,
+}: {
+  result: ExecuteResult;
+  failure: FailureMapper;
+}): ToolResult => {
   switch (result.status) {
     case 'executed':
       return ok({
@@ -261,11 +317,11 @@ const mapExecute = ({ result }: { result: ExecuteResult }): ToolResult => {
     case 'condition_changed':
       return err({ status: 'condition_changed', message: 'Target changed since approval.' });
     case 'resolve_error':
-      return err({ status: 'resolve_error', message: result.error });
+      return failure({ ...result, status: 'resolve_error' });
     case 'audit_blocked':
-      return err({ status: 'audit_blocked', message: result.error });
+      return failure({ ...result, status: 'audit_blocked' });
     case 'failed':
-      return err({ status: 'failed', message: result.error });
+      return failure({ ...result, status: 'failed' });
     default:
       return err({ status: 'error', message: 'Unexpected execute result.' });
   }
@@ -284,6 +340,11 @@ const mapExecute = ({ result }: { result: ExecuteResult }): ToolResult => {
  *
  * Presets: `readonly` (no action tools, no check_approval), `sandbox` (engine
  * dry-run mode), `approval-for-writes` (default; actions as declared).
+ *
+ * Failures are redacted before they reach the caller (§3.10): the agent gets a
+ * stable status, a domain-level cause, and a `correlationId`; the full driver
+ * text goes to {@link ReportFailure} (stderr by default) and, where one exists,
+ * the audit record for that same id.
  */
 export const createMcpServer = ({
   registry,
@@ -291,6 +352,7 @@ export const createMcpServer = ({
   resolveIdentity,
   preset = 'approval-for-writes',
   redactAudit,
+  reportFailure = defaultReportFailure,
   allowDevMode = false,
 }: CreateMcpServerArgs): { server: Server; serve: () => Promise<void> } => {
   const engine = createEngine({
@@ -309,6 +371,25 @@ export const createMcpServer = ({
   const tools = buildTools({ registry, preset });
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
 
+  const failureFor =
+    ({ tool }: { tool: string }): FailureMapper =>
+    ({ status, error, correlationId, channel }) => {
+      reportFailure({ status, tool, correlationId, error });
+
+      const redacted = redactFailure({
+        status,
+        tool,
+        correlationId,
+        ...(channel ? { channel } : {}),
+      });
+
+      return err({
+        status: redacted.status,
+        message: redacted.message,
+        extra: { correlationId },
+      });
+    };
+
   const server = new Server(
     { name: 'orangerail', version: '0.0.0' },
     { capabilities: { tools: {} } },
@@ -326,17 +407,35 @@ export const createMcpServer = ({
     object,
     args,
     caller,
+    failure,
   }: {
     object: ObjectDefinition;
     args: Record<string, unknown>;
     caller: Identity | null;
+    failure: FailureMapper;
   }): Promise<ToolResult> => {
     if (object.readAccess === 'authenticated' && caller === null) {
       return err({ status: 'denied', message: 'Authentication required to read this object.' });
     }
 
     const id = String(args['id'] ?? '');
-    const result = await object.resolve?.get({ id });
+
+    // A read resolver is datasource code too (§3.10). Uncaught, its throw would
+    // escape as a JSON-RPC internal error carrying the driver text verbatim —
+    // the same leak as a failing write, on a tool with no approval gate in
+    // front of it. Caught here so it takes the redacted resolve_error path.
+    // Reads are not audited, so the host log is the only channel to name.
+    let result: unknown;
+    try {
+      result = await object.resolve?.get({ id });
+    } catch (caught) {
+      return failure({
+        status: 'resolve_error',
+        error: errorMessage({ err: caught }),
+        correlationId: randomUUID(),
+        channel: 'host-log',
+      });
+    }
 
     if (result === null || result === undefined) {
       return err({ status: 'not_found', message: `No ${object.name} with id "${id}".` });
@@ -349,10 +448,12 @@ export const createMcpServer = ({
     object,
     args,
     caller,
+    failure,
   }: {
     object: ObjectDefinition;
     args: Record<string, unknown>;
     caller: Identity | null;
+    failure: FailureMapper;
   }): Promise<ToolResult> => {
     if (object.readAccess === 'authenticated' && caller === null) {
       return err({ status: 'denied', message: 'Authentication required to list this object.' });
@@ -365,7 +466,19 @@ export const createMcpServer = ({
       ...(args['cursor'] !== undefined ? { cursor: String(args['cursor']) } : {}),
       ...(args['limit'] !== undefined ? { limit: Number(args['limit']) } : {}),
     };
-    const result = await object.resolve?.list?.(listArgs);
+    // Same fail-closed guard as `handleGet` — a throwing list adapter must not
+    // escape uncaught with its driver text attached (§3.10).
+    let result: ResolveListResult<unknown> | undefined;
+    try {
+      result = await object.resolve?.list?.(listArgs);
+    } catch (caught) {
+      return failure({
+        status: 'resolve_error',
+        error: errorMessage({ err: caught }),
+        correlationId: randomUUID(),
+        channel: 'host-log',
+      });
+    }
 
     return ok({
       message: JSON.stringify(result ?? { items: [] }),
@@ -373,24 +486,32 @@ export const createMcpServer = ({
     });
   };
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const tool = byName.get(request.params.name);
+  const handleCall = async ({
+    name,
+    args,
+    failure,
+  }: {
+    name: string;
+    args: Record<string, unknown>;
+    failure: FailureMapper;
+  }): Promise<ToolResult> => {
+    const tool = byName.get(name);
     if (!tool) {
-      return err({ status: 'unknown_tool', message: `Unknown tool: ${request.params.name}` });
+      return err({ status: 'unknown_tool', message: `Unknown tool: ${name}` });
     }
 
-    const args = (request.params.arguments ?? {}) as Record<string, unknown>;
     const caller = await resolveCaller({ config: idConfig });
 
     if (tool.kind === 'get') {
-      return handleGet({ object: tool.object, args, caller });
+      return handleGet({ object: tool.object, args, caller, failure });
     }
     if (tool.kind === 'list') {
-      return handleList({ object: tool.object, args, caller });
+      return handleList({ object: tool.object, args, caller, failure });
     }
     if (tool.kind === 'action') {
       return mapStage({
         result: await engine.stage({ actionName: tool.action.name, input: args, caller }),
+        failure,
       });
     }
 
@@ -421,7 +542,28 @@ export const createMcpServer = ({
       return ok({ message: 'Already executed (consumed).', structured: { status: 'consumed' } });
     }
 
-    return mapExecute({ result: await engine.execute({ approvalId }) });
+    return mapExecute({ result: await engine.execute({ approvalId }), failure });
+  };
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const name = request.params.name;
+    const args = (request.params.arguments ?? {}) as Record<string, unknown>;
+    const failure = failureFor({ tool: name });
+
+    // Last-resort backstop (§3.10). Anything that still throws — a store read
+    // inside check_approval, an identity adapter, a bug — would otherwise be
+    // converted by the SDK into a JSON-RPC internal error whose `message` is
+    // the raw text. Catching here means NO path out of `tools/call` carries an
+    // unredacted error, which is the property the fix is actually claiming.
+    try {
+      return await handleCall({ name, args, failure });
+    } catch (caught) {
+      return failure({
+        status: 'internal_error',
+        error: errorMessage({ err: caught }),
+        correlationId: randomUUID(),
+      });
+    }
   });
 
   const serve = async (): Promise<void> => {
