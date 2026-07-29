@@ -93,12 +93,30 @@ export interface IrValueConstraints {
   regex?: string;
 }
 
-/** An input field on a scanned action (OpenAPI request body / path param). */
+/**
+ * An input field on a scanned action (OpenAPI request body / path param).
+ *
+ * `kind: 'object'` plus `fields` carries a nested request-body object, and
+ * `list` wraps whichever kind the field declares in an array (ONT-042 A) — a
+ * `type: array` / `type: object` property used to fall through `baseOf` to
+ * `z.string()`, which told the agent a string was acceptable and made every
+ * valid call fail validation. Both keys are ABSENT (not `false` / not `[]`) on
+ * an ordinary scalar field, so a spec that declares neither still emits exactly
+ * the bytes it emitted before.
+ *
+ * Nesting is expressed by recursion; arrays by a boolean. An array OF an array
+ * therefore has no representation here — the scanner reports it rather than
+ * flattening it into something the spec did not say (ONT-042 AC-2).
+ */
 export interface IrActionField {
   name: string;
-  kind: 'scalar' | 'enum';
+  kind: 'scalar' | 'enum' | 'object';
   scalar?: IrScalar;
   enumValues?: string[];
+  /** Present when `kind === 'object'`: the nested properties, in declared order. */
+  fields?: IrActionField[];
+  /** True when the declared type is an ARRAY of the kind above (`z.array(...)`). */
+  list?: boolean;
   optional: boolean;
   /**
    * Value constraints the source declared, honored by the emitted zod (ONT-037).

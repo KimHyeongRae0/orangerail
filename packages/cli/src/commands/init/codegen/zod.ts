@@ -106,13 +106,34 @@ const constraintSuffix = ({
   return parts.join('');
 };
 
+/**
+ * The base expression for an action input field, nested objects included
+ * (ONT-042 A). An object renders its declared properties recursively so a
+ * request body's nested shape survives into the emitted zod instead of
+ * collapsing to `z.string()`; a shape the scanner could not express never
+ * reaches here (it is reported and downgraded to `json` -> `z.unknown()`).
+ * Keys go through the one escaping layer (D10), exactly like the top level.
+ */
+const actionBaseExpr = ({ field }: { field: IrActionField }): string => {
+  if (field.kind !== 'object') {
+    return baseOf({ field }).expr;
+  }
+
+  const entries = (field.fields ?? []).map(
+    (child) =>
+      `${escapeStringLiteral({ value: child.name })}: ${actionFieldExpr({ field: child })}`,
+  );
+
+  return entries.length === 0 ? 'z.object({})' : `z.object({ ${entries.join(', ')} })`;
+};
+
 /** The full zod expression string for a scanned action input field. */
 export const actionFieldExpr = ({ field }: { field: IrActionField }): string => {
-  const base = baseOf({ field });
-
-  // `.optional()` stays outermost: the bounds constrain the value, not whether
-  // the caller has to supply one.
-  const expr = `${base.expr}${constraintSuffix({ constraints: field.constraints })}`;
+  // The constraints bind the ITEM of an array (`minLength` on `items`), so they
+  // are chained before the `z.array(...)` wrapper, and `.optional()` stays
+  // outermost: it says whether the caller has to supply the field at all.
+  const constrained = `${actionBaseExpr({ field })}${constraintSuffix({ constraints: field.constraints })}`;
+  const expr = field.list === true ? `z.array(${constrained})` : constrained;
 
   return field.optional ? `${expr}.optional()` : expr;
 };

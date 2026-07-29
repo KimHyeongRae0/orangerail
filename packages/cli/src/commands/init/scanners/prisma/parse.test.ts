@@ -120,3 +120,66 @@ describe('parsePrismaSchema', () => {
     expect(parsed.models[0]?.fields.map((f) => f.name)).toEqual(['id', 'url']);
   });
 });
+
+/**
+ * ONT-042 F — a block header the grammar could not match was skipped with zero
+ * diagnostics: three models next to one valid one reported "1 object(s)" and
+ * said nothing about the other three. Prisma rejects those names too, so the
+ * skip is correct; the silence was the defect.
+ */
+describe('parsePrismaSchema invalid block headers (ONT-042 F)', () => {
+  const SCHEMA = `
+    model Über {
+      id String @id
+    }
+    model 2Fast {
+      id String @id
+    }
+    model Do$llar {
+      id String @id
+    }
+    model OK {
+      id String @id
+    }
+  `;
+
+  it('records every header whose name is not a valid Prisma identifier', () => {
+    const parsed = parsePrismaSchema({ source: SCHEMA });
+
+    expect(parsed.invalidBlocks).toEqual(['model Über', 'model 2Fast', 'model Do$llar']);
+  });
+
+  it('still parses the valid model, and only the valid model', () => {
+    const parsed = parsePrismaSchema({ source: SCHEMA });
+
+    expect(parsed.models.map((m) => m.name)).toEqual(['OK']);
+  });
+
+  it('consumes an invalid block body so nothing inside it leaks into the scan', () => {
+    const parsed = parsePrismaSchema({
+      source: `
+        model Bad-Name {
+          nested String @id
+          enum Leaked {
+            A
+          }
+        }
+        model Good {
+          id String @id
+        }
+      `,
+    });
+
+    expect(parsed.models.map((m) => m.name)).toEqual(['Good']);
+    expect(parsed.enums).toHaveLength(0);
+    expect(parsed.invalidBlocks).toEqual(['model Bad-Name']);
+  });
+
+  it('reports nothing for a schema whose block names are all valid', () => {
+    const parsed = parsePrismaSchema({
+      source: `model OK { id String @id }\nenum Role { \n ADMIN \n }`,
+    });
+
+    expect(parsed.invalidBlocks).toEqual([]);
+  });
+});

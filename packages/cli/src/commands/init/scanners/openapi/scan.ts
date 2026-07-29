@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import type {
   IrAction,
@@ -40,6 +40,11 @@ export const YAML_HINT =
 interface JsonProperty {
   type?: string;
   enum?: unknown[];
+  /** `type: array` item schema (possibly a `$ref`). */
+  items?: unknown;
+  /** `type: object` nested properties (possibly each a `$ref`). */
+  properties?: Record<string, unknown>;
+  required?: string[];
   minimum?: unknown;
   maximum?: unknown;
   /** OpenAPI 3.0 spells this as a boolean modifier on `minimum`; 3.1 as the bound. */
@@ -49,6 +54,12 @@ interface JsonProperty {
   maxLength?: unknown;
   pattern?: unknown;
   multipleOf?: unknown;
+  nullable?: unknown;
+  minItems?: unknown;
+  maxItems?: unknown;
+  uniqueItems?: unknown;
+  minProperties?: unknown;
+  maxProperties?: unknown;
 }
 
 /** Numeric value keywords — meaningless on a non-numeric kind. */
@@ -65,6 +76,41 @@ const STRING_KEYWORDS = [
   'maxLength',
   'pattern',
 ] as const satisfies readonly (keyof JsonProperty)[];
+
+/**
+ * Keywords that are value constraints the IR does not carry on ANY kind, so they
+ * are reported wherever they appear rather than silently dropped. `multipleOf`
+ * and the array/object cardinality keywords are all expressible in zod; carrying
+ * them is simply outside the honored set, and a warning is the floor (ONT-037).
+ * `nullable` is OpenAPI 3.0's null modifier — a type change, not a bound.
+ */
+const UNHONORED_KEYWORDS = [
+  'multipleOf',
+  'nullable',
+  'minItems',
+  'maxItems',
+  'uniqueItems',
+  'minProperties',
+  'maxProperties',
+] as const satisfies readonly (keyof JsonProperty)[];
+
+/**
+ * How deep a nested request-body object is rendered before the shape is reported
+ * as beyond what the generated input expresses. The `$ref` resolver has its own
+ * cycle/depth guard, but a body can also nest through INLINE `properties`, which
+ * that guard never sees — this bound is what keeps such a document from
+ * recursing without end.
+ */
+const MAX_NESTING = 5;
+
+/**
+ * A field name that a JS object literal cannot carry as a plain key: `__proto__`
+ * in `{ "__proto__": v }` sets the prototype instead of creating an own
+ * property, so the field would disappear from the emitted zod object, from the
+ * action input, and from a Prisma `data:` payload — silently, which is exactly
+ * what this scanner's convention forbids (ONT-042 E).
+ */
+const UNSAFE_KEY = '__proto__';
 
 /** A request-body schema, possibly a `$ref` or a composed (`allOf`/`oneOf`/`anyOf`) node. */
 interface JsonBodySchema {
@@ -99,21 +145,43 @@ interface ResolutionSink {
   onComposition: () => void;
   /** A declared value constraint that the IR cannot express on this field. */
   onDroppedConstraint: ({ field, keyword }: { field: string; keyword: string }) => void;
+  /** A declared TYPE shape (array/object) the IR cannot express on this field. */
+  onDroppedShape: ({ field, detail }: { field: string; detail: string }) => void;
+  /** A composed body re-declared a property a previous branch already claimed. */
+  onShadowedProperty: ({ field }: { field: string }) => void;
+  /** A request body mapped from a non-JSON media type because no JSON one exists. */
+  onNonJsonBody: ({ label, mediaType }: { label: string; mediaType: string }) => void;
+  /** A request body whose content declares no `schema` anywhere — no inputs at all. */
+  onSkippedBody: ({ label, mediaTypes }: { label: string; mediaTypes: string }) => void;
+  /** A field whose name a JS object literal cannot carry as a plain key. */
+  onUnsafeKey: ({ field }: { field: string }) => void;
 }
 
-/** Whether a `*.json` file is an OpenAPI 3.x document (top-level `openapi`). */
-const isOpenApiJson = ({ filePath }: { filePath: string }): boolean => {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
+/** How a `*.json` file relates to this scanner: a spec, unreadable, or unrelated. */
+type JsonKind = 'openapi' | 'unparseable' | 'other';
 
-    return (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      typeof (parsed as { openapi?: unknown }).openapi === 'string'
-    );
+/**
+ * Classify a `*.json` file. A file that does not PARSE is deliberately kept
+ * distinct from one that parses into something else: a conventionally named
+ * `openapi.json` with a trailing comma is still that user's spec, and reporting
+ * it as absent (which a plain boolean forced) told them their spec did not
+ * exist — while the scanner's own `could not parse` diagnostic sat unreachable
+ * behind the same filter (ONT-042 C).
+ */
+const classifyJson = ({ filePath }: { filePath: string }): JsonKind => {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(readFileSync(filePath, 'utf8'));
   } catch {
-    return false;
+    return 'unparseable';
   }
+
+  return typeof parsed === 'object' &&
+    parsed !== null &&
+    typeof (parsed as { openapi?: unknown }).openapi === 'string'
+    ? 'openapi'
+    : 'other';
 };
 
 /** Derive an action name from method + path when there is no operationId. */
@@ -210,31 +278,39 @@ const resolveBound = ({
 };
 
 /**
+ * Which family of value keywords a mapped node can actually honor. An untyped
+ * property is `'string'`, not `'none'`: `baseOf` renders it as `z.string()`, so
+ * its `pattern` / `minLength` / `maxLength` ARE enforceable and reporting them as
+ * dropped would be a lie in the other direction (ONT-042 F). An enum, an object,
+ * an array node, a boolean and the `json` fallback honor nothing.
+ */
+type ConstraintKind = 'numeric' | 'string' | 'none';
+
+/**
  * Read a property's declared value constraints into the IR (ONT-037). Every
  * keyword that is declared but cannot be honored — wrong kind for the keyword, a
- * malformed value, an uncompilable pattern, or `multipleOf` (outside the honored
- * set) — is reported to the sink instead of vanishing, which is the same
- * skip-with-warning discipline the rest of this scanner already follows.
+ * malformed value, an uncompilable pattern, or one of `UNHONORED_KEYWORDS` — is
+ * reported to the sink instead of vanishing, which is the same skip-with-warning
+ * discipline the rest of this scanner already follows.
  */
 const collectConstraints = ({
   name,
   property,
-  field,
+  honors,
   sink,
 }: {
   name: string;
   property: JsonProperty;
-  field: IrActionField;
+  honors: ConstraintKind;
   sink: ResolutionSink;
 }): IrValueConstraints | undefined => {
   const drop = ({ keyword }: { keyword: string }): void => {
     sink.onDroppedConstraint({ field: name, keyword });
   };
 
-  const scalar = field.kind === 'scalar' ? field.scalar : undefined;
   const constraints: IrValueConstraints = {};
 
-  if (scalar === 'int' || scalar === 'float') {
+  if (honors === 'numeric') {
     const lower = resolveBound({
       inclusiveRaw: property.minimum,
       exclusiveRaw: property.exclusiveMinimum,
@@ -264,7 +340,7 @@ const collectConstraints = ({
     }
   }
 
-  if (scalar === 'string') {
+  if (honors === 'string') {
     const min = lengthValue({ value: property.minLength });
     const max = lengthValue({ value: property.maxLength });
     const regex = compilablePattern({ value: property.pattern });
@@ -292,45 +368,237 @@ const collectConstraints = ({
     }
   }
 
-  // `multipleOf` is a value constraint zod could express, but it is outside this
-  // ticket's honored set — so it is reported rather than dropped in silence.
-  if (isDeclared({ value: property.multipleOf })) {
-    drop({ keyword: 'multipleOf' });
+  for (const keyword of UNHONORED_KEYWORDS) {
+    if (isDeclared({ value: property[keyword] })) {
+      drop({ keyword });
+    }
   }
 
   return Object.keys(constraints).length === 0 ? undefined : constraints;
 };
 
-const mapProperty = ({
+/**
+ * Report every keyword a node declares that the IR cannot honor on it. Used for
+ * the array and object nodes, which carry no `IrValueConstraints` of their own:
+ * `honors: 'none'` makes every declared keyword unhonorable, so this call is
+ * purely its reporting side effect (it can only ever return `undefined`).
+ */
+const reportUnhonorableKeywords = ({
   name,
   property,
-  required,
   sink,
 }: {
   name: string;
   property: JsonProperty;
-  required: boolean;
+  sink: ResolutionSink;
+}): void => {
+  collectConstraints({ name, property, honors: 'none', sink });
+};
+
+/** Attach the honorable constraints of `property` to an already-shaped field. */
+const withConstraints = ({
+  field,
+  property,
+  honors,
+  sink,
+}: {
+  field: IrActionField;
+  property: JsonProperty;
+  honors: ConstraintKind;
   sink: ResolutionSink;
 }): IrActionField => {
-  const scalar = property.type === undefined ? undefined : JSON_TYPE_TO_SCALAR[property.type];
+  const constraints = collectConstraints({ name: field.name, property, honors, sink });
 
-  const field: IrActionField = Array.isArray(property.enum)
-    ? {
+  return constraints === undefined ? field : { ...field, constraints };
+};
+
+/**
+ * The honest fallback node for a declared shape the IR cannot express: the IR
+ * `json` scalar, which renders as `z.unknown()`. It is deliberately NOT the
+ * untyped scalar (`z.string()`) — telling the agent that an array or an object
+ * is a string is the exact defect ONT-042 A fixes, and `z.unknown()` at least
+ * admits the values the spec allows instead of rejecting all of them.
+ */
+const unknownField = ({
+  name,
+  required,
+  list,
+}: {
+  name: string;
+  required: boolean;
+  list: boolean;
+}): IrActionField => ({
+  name,
+  kind: 'scalar',
+  scalar: 'json',
+  ...(list ? { list: true } : {}),
+  optional: !required,
+});
+
+/**
+ * Map one JSON Schema property node into an action input field.
+ *
+ * `enum` wins over `type` (unchanged). Otherwise `type: array` recurses into
+ * `items` and sets `list`, and `type: object` recurses into `properties` and
+ * becomes a nested `IrActionField[]`; everything else stays the scalar/untyped
+ * mapping it was. A shape the IR has no room for — an array of arrays, an object
+ * with no declared properties, or nesting past `MAX_NESTING` — is reported and
+ * rendered as `z.unknown()` rather than quietly becoming a string.
+ */
+const mapProperty = ({
+  doc,
+  name,
+  property,
+  required,
+  sink,
+  depth = 0,
+}: {
+  doc: unknown;
+  name: string;
+  property: JsonProperty;
+  required: boolean;
+  sink: ResolutionSink;
+  depth?: number;
+}): IrActionField => {
+  if (Array.isArray(property.enum)) {
+    return withConstraints({
+      field: {
         name,
         kind: 'enum',
         enumValues: property.enum.map((v) => String(v)),
         optional: !required,
-      }
-    : {
-        name,
-        kind: 'scalar',
-        ...(scalar === undefined ? {} : { scalar }),
-        optional: !required,
-      };
+      },
+      property,
+      honors: 'none',
+      sink,
+    });
+  }
 
-  const constraints = collectConstraints({ name, property, field, sink });
+  if (property.type === 'array') {
+    return mapArrayProperty({ doc, name, property, required, sink, depth });
+  }
 
-  return constraints === undefined ? field : { ...field, constraints };
+  if (property.type === 'object') {
+    return mapObjectProperty({ doc, name, property, required, sink, depth });
+  }
+
+  const scalar = property.type === undefined ? undefined : JSON_TYPE_TO_SCALAR[property.type];
+  const honors: ConstraintKind =
+    scalar === 'int' || scalar === 'float'
+      ? 'numeric'
+      : // An untyped property renders as `z.string()`, so string keywords bind.
+        scalar === 'string' || scalar === undefined
+        ? 'string'
+        : 'none';
+
+  return withConstraints({
+    field: {
+      name,
+      kind: 'scalar',
+      ...(scalar === undefined ? {} : { scalar }),
+      optional: !required,
+    },
+    property,
+    honors,
+    sink,
+  });
+};
+
+/** Map a `type: array` property: the item's kind, carried under `list: true`. */
+const mapArrayProperty = ({
+  doc,
+  name,
+  property,
+  required,
+  sink,
+  depth,
+}: {
+  doc: unknown;
+  name: string;
+  property: JsonProperty;
+  required: boolean;
+  sink: ResolutionSink;
+  depth: number;
+}): IrActionField => {
+  // Keywords sitting on the ARRAY node itself (`minItems`, or a stray
+  // `minLength`) bind nothing the IR carries — reported here; the ITEM's own
+  // keywords are read by the recursive call below and honored there.
+  reportUnhonorableKeywords({ name, property, sink });
+
+  if (property.items === undefined) {
+    // An array of anything is exactly what was declared — nothing is dropped.
+    return { name, kind: 'scalar', scalar: 'json', list: true, optional: !required };
+  }
+
+  if (depth >= MAX_NESTING) {
+    sink.onDroppedShape({ field: name, detail: `nested deeper than ${MAX_NESTING} levels` });
+    return unknownField({ name, required, list: true });
+  }
+
+  const items = resolveSchemaNode({ doc, node: property.items, sink });
+
+  if (items === undefined) {
+    // The `$ref` was unresolvable and already counted; the array survives.
+    return unknownField({ name, required, list: true });
+  }
+
+  const item = mapProperty({
+    doc,
+    name,
+    property: items as JsonProperty,
+    required,
+    sink,
+    depth: depth + 1,
+  });
+
+  if (item.list === true) {
+    // `list` is a boolean, so an array OF an array has no representation.
+    sink.onDroppedShape({ field: name, detail: 'array of arrays' });
+    return unknownField({ name, required, list: true });
+  }
+
+  return { ...item, list: true };
+};
+
+/** Map a `type: object` property into a nested `z.object({...})` field. */
+const mapObjectProperty = ({
+  doc,
+  name,
+  property,
+  required,
+  sink,
+  depth,
+}: {
+  doc: unknown;
+  name: string;
+  property: JsonProperty;
+  required: boolean;
+  sink: ResolutionSink;
+  depth: number;
+}): IrActionField => {
+  reportUnhonorableKeywords({ name, property, sink });
+
+  if (property.properties === undefined || Object.keys(property.properties).length === 0) {
+    sink.onDroppedShape({ field: name, detail: 'object with no declared properties' });
+    return unknownField({ name, required, list: false });
+  }
+
+  if (depth >= MAX_NESTING) {
+    sink.onDroppedShape({ field: name, detail: `nested deeper than ${MAX_NESTING} levels` });
+    return unknownField({ name, required, list: false });
+  }
+
+  return {
+    name,
+    kind: 'object',
+    fields: mapObjectProperties({
+      doc,
+      schema: property as JsonBodySchema,
+      sink,
+      depth: depth + 1,
+    }),
+    optional: !required,
+  };
 };
 
 /**
@@ -374,16 +642,25 @@ const mapObjectProperties = ({
   schema,
   sink,
   forceOptional = false,
+  depth = 0,
 }: {
   doc: unknown;
   schema: JsonBodySchema;
   sink: ResolutionSink;
   forceOptional?: boolean;
+  depth?: number;
 }): IrActionField[] => {
   const fields: IrActionField[] = [];
   const requiredSet = new Set(schema.required ?? []);
 
   for (const [name, rawProperty] of Object.entries(schema.properties ?? {})) {
+    if (name === UNSAFE_KEY) {
+      // Emitting it would set the prototype of the generated object literal
+      // rather than declare the key, so the field would vanish without a trace.
+      sink.onUnsafeKey({ field: name });
+      continue;
+    }
+
     const required = !forceOptional && requiredSet.has(name);
     const ref = refOf({ value: rawProperty });
 
@@ -392,18 +669,58 @@ const mapObjectProperties = ({
 
       if (!result.ok) {
         sink.onUnresolvable({ reason: result.reason });
-        fields.push(mapProperty({ name, property: {}, required, sink }));
+        fields.push(mapProperty({ doc, name, property: {}, required, sink, depth }));
         continue;
       }
 
-      fields.push(mapProperty({ name, property: result.value as JsonProperty, required, sink }));
+      fields.push(
+        mapProperty({ doc, name, property: result.value as JsonProperty, required, sink, depth }),
+      );
       continue;
     }
 
-    fields.push(mapProperty({ name, property: rawProperty as JsonProperty, required, sink }));
+    fields.push(
+      mapProperty({ doc, name, property: rawProperty as JsonProperty, required, sink, depth }),
+    );
   }
 
   return fields;
+};
+
+/**
+ * Take the first definition of each property name across composed branches,
+ * reporting a LATER branch that redefines a name the first one already claimed
+ * (ONT-042 F). Two branches declaring an identical property raise nothing — that
+ * is the common `allOf` idiom, not a loss — but a second branch declaring
+ * `{"dup": {"type": "string", "maxLength": 3}}` against a first branch's
+ * `{"dup": {"type": "integer", "minimum": 5}}` really does lose the string
+ * definition, and that used to happen in silence.
+ */
+const firstWins = ({
+  fields,
+  seen,
+  out,
+  sink,
+}: {
+  fields: IrActionField[];
+  seen: Map<string, string>;
+  out: IrActionField[];
+  sink: ResolutionSink;
+}): void => {
+  for (const field of fields) {
+    const shape = JSON.stringify(field);
+    const kept = seen.get(field.name);
+
+    if (kept !== undefined) {
+      if (kept !== shape) {
+        sink.onShadowedProperty({ field: field.name });
+      }
+      continue;
+    }
+
+    seen.set(field.name, shape);
+    out.push(field);
+  }
 };
 
 /** Merge `allOf` branches: union of branch properties + union of required (branch order). */
@@ -417,7 +734,7 @@ const mergeAllOf = ({
   sink: ResolutionSink;
 }): IrActionField[] => {
   const fields: IrActionField[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, string>();
 
   for (const branch of branches) {
     const resolved = resolveSchemaNode({ doc, node: branch, sink });
@@ -426,14 +743,12 @@ const mergeAllOf = ({
       continue;
     }
 
-    for (const field of mapObjectProperties({ doc, schema: resolved, sink })) {
-      if (seen.has(field.name)) {
-        continue;
-      }
-
-      seen.add(field.name);
-      fields.push(field);
-    }
+    firstWins({
+      fields: mapObjectProperties({ doc, schema: resolved, sink }),
+      seen,
+      out: fields,
+      sink,
+    });
   }
 
   return fields;
@@ -469,7 +784,7 @@ const mergeUnion = ({
   sink.onComposition();
 
   const fields: IrActionField[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, string>();
 
   for (const branch of branches) {
     const resolved = resolveSchemaNode({ doc, node: branch, sink });
@@ -478,14 +793,12 @@ const mergeUnion = ({
       continue;
     }
 
-    for (const field of mapObjectProperties({ doc, schema: resolved, sink, forceOptional: true })) {
-      if (seen.has(field.name)) {
-        continue;
-      }
-
-      seen.add(field.name);
-      fields.push(field);
-    }
+    firstWins({
+      fields: mapObjectProperties({ doc, schema: resolved, sink, forceOptional: true }),
+      seen,
+      out: fields,
+      sink,
+    });
   }
 
   return fields;
@@ -519,13 +832,66 @@ const collectBodyFields = ({
   return mapObjectProperties({ doc, schema: resolved, sink });
 };
 
+/**
+ * Whether a media type carries a JSON payload. Covers the exact
+ * `application/json`, the `+json` structured-syntax suffix
+ * (`application/merge-patch+json`, `application/vnd.api+json`), and any of them
+ * carrying parameters (`application/json; charset=utf-8`).
+ */
+const isJsonMediaType = ({ mediaType }: { mediaType: string }): boolean => {
+  const base = (mediaType.split(';')[0] ?? '').trim().toLowerCase();
+
+  return base === 'application/json' || base.endsWith('+json');
+};
+
+/**
+ * Resolve a request body's `content` map to the ONE media type whose schema is
+ * mapped (plan D4, ONT-042 B). JSON is preferred; when the spec declares none,
+ * the first other entry that carries a schema is used and REPORTED, because
+ * `application/x-www-form-urlencoded`, `multipart/form-data` and
+ * `application/xml` all declare an ordinary JSON Schema and mapping it is
+ * strictly more faithful than the old behavior — which read
+ * `content['application/json']` only and turned the whole body into
+ * `z.object({})` with no diagnostic at all. A content map where nothing declares
+ * a `schema` is reported as a skipped body.
+ */
+const chooseBodySchema = ({
+  content,
+  label,
+  sink,
+}: {
+  content: Record<string, { schema?: JsonBodySchema }>;
+  label: string;
+  sink: ResolutionSink;
+}): JsonBodySchema | undefined => {
+  const mediaTypes = Object.keys(content).sort();
+  const withSchema = mediaTypes.filter((mediaType) => content[mediaType]?.schema !== undefined);
+  const chosen = withSchema.find((mediaType) => isJsonMediaType({ mediaType })) ?? withSchema[0];
+
+  if (chosen === undefined) {
+    if (mediaTypes.length > 0) {
+      sink.onSkippedBody({ label, mediaTypes: mediaTypes.join(', ') });
+    }
+
+    return undefined;
+  }
+
+  if (!isJsonMediaType({ mediaType: chosen })) {
+    sink.onNonJsonBody({ label, mediaType: chosen });
+  }
+
+  return content[chosen]?.schema;
+};
+
 const collectInput = ({
   doc,
   operation,
+  label,
   sink,
 }: {
   doc: unknown;
   operation: OpenApiOperation;
+  label: string;
   sink: ResolutionSink;
 }): IrActionField[] => {
   const fields: IrActionField[] = [];
@@ -557,8 +923,14 @@ const collectInput = ({
       continue;
     }
 
+    if (param.name === UNSAFE_KEY) {
+      sink.onUnsafeKey({ field: param.name });
+      continue;
+    }
+
     fields.push(
       mapProperty({
+        doc,
         name: param.name,
         property: param.schema ?? {},
         required: param.required === true,
@@ -567,18 +939,23 @@ const collectInput = ({
     );
   }
 
-  const jsonBody = operation.requestBody?.content?.['application/json']?.schema;
-  if (jsonBody !== undefined) {
-    fields.push(...collectBodyFields({ doc, schema: jsonBody, sink }));
+  const content = operation.requestBody?.content;
+
+  if (content !== undefined) {
+    const schema = chooseBodySchema({ content, label, sink });
+
+    if (schema !== undefined) {
+      fields.push(...collectBodyFields({ doc, schema, sink }));
+    }
   }
 
   return fields;
 };
 
-/** How many `<field>.<keyword>` entries the dropped-constraint warning names. */
+/** How many entries an aggregated skip-with-warning line names before truncating. */
 const DROPPED_SAMPLE = 10;
 
-/** Name the dropped constraints, truncating a large spec's list to stay readable. */
+/** Name the reported entries, truncating a large spec's list to stay readable. */
 const listDropped = ({ dropped }: { dropped: Set<string> }): string => {
   const entries = [...dropped];
   const shown = entries.slice(0, DROPPED_SAMPLE).join(', ');
@@ -589,7 +966,14 @@ const listDropped = ({ dropped }: { dropped: Set<string> }): string => {
 };
 
 /** Parse an OpenAPI JSON document into scanned write actions. */
-export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource => {
+export const scanOpenApiJson = ({
+  source,
+  label = 'JSON',
+}: {
+  source: string;
+  /** The file this source came from, named in the parse diagnostic (ONT-042 C). */
+  label?: string;
+}): ScannedSource => {
   const scanned = emptySource();
 
   let doc: { paths?: Record<string, Record<string, OpenApiOperation>> };
@@ -597,7 +981,7 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
     doc = JSON.parse(source) as typeof doc;
   } catch (err) {
     scanned.warnings.push(
-      `openapi: could not parse JSON — ${err instanceof Error ? err.message : String(err)}`,
+      `openapi: could not parse ${label} — ${err instanceof Error ? err.message : String(err)}. Fix the JSON syntax (a trailing comma or a comment is the usual cause) and re-run; the spec is otherwise ignored.`,
     );
     return scanned;
   }
@@ -615,6 +999,11 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
   // `<field>.<keyword>` entries, deduped and kept in scan order (paths and
   // methods are already iterated sorted, so the report is deterministic).
   const droppedConstraints = new Set<string>();
+  const droppedShapes = new Set<string>();
+  const shadowedProperties = new Set<string>();
+  const nonJsonBodies = new Set<string>();
+  const skippedBodies = new Set<string>();
+  const unsafeKeys = new Set<string>();
 
   const sink: ResolutionSink = {
     onUnresolvable: ({ reason }) => {
@@ -625,6 +1014,21 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
     },
     onDroppedConstraint: ({ field, keyword }) => {
       droppedConstraints.add(`${field}.${keyword}`);
+    },
+    onDroppedShape: ({ field, detail }) => {
+      droppedShapes.add(`${field} (${detail})`);
+    },
+    onShadowedProperty: ({ field }) => {
+      shadowedProperties.add(field);
+    },
+    onNonJsonBody: ({ label: op, mediaType }) => {
+      nonJsonBodies.add(`${op} (${mediaType})`);
+    },
+    onSkippedBody: ({ label: op, mediaTypes }) => {
+      skippedBodies.add(`${op} (${mediaTypes})`);
+    },
+    onUnsafeKey: ({ field }) => {
+      unsafeKeys.add(field);
     },
   };
 
@@ -659,7 +1063,12 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
         method: method.toUpperCase(),
         path,
         write: true,
-        input: collectInput({ doc, operation, sink }),
+        input: collectInput({
+          doc,
+          operation,
+          label: `${method.toUpperCase()} ${path}`,
+          sink,
+        }),
         ...(operation.summary === undefined ? {} : { description: operation.summary }),
       };
 
@@ -693,22 +1102,61 @@ export const scanOpenApiJson = ({ source }: { source: string }): ScannedSource =
     );
   }
 
+  if (droppedShapes.size > 0) {
+    scanned.warnings.push(
+      `openapi: ${droppedShapes.size} declared shape(s) the generated input cannot express (${listDropped({ dropped: droppedShapes })}) — emitted as z.unknown(), which accepts the value instead of rejecting it; tighten the schema by hand if the action needs it`,
+    );
+  }
+
+  if (shadowedProperties.size > 0) {
+    scanned.warnings.push(
+      `openapi: ${shadowedProperties.size} composed-body property(ies) declared differently in more than one branch (${listDropped({ dropped: shadowedProperties })}) — only the FIRST branch's definition is kept; the later one(s) are discarded`,
+    );
+  }
+
+  if (nonJsonBodies.size > 0) {
+    scanned.warnings.push(
+      `openapi: ${nonJsonBodies.size} request body(ies) declare no JSON content (${listDropped({ dropped: nonJsonBodies })}) — the inputs were mapped from that media type's schema, so they describe the declared fields, not the wire encoding; review them before wiring up execute`,
+    );
+  }
+
+  if (skippedBodies.size > 0) {
+    scanned.warnings.push(
+      `openapi: skipped ${skippedBodies.size} request body(ies) whose content declares no schema (${listDropped({ dropped: skippedBodies })}) — those actions have no inputs from their body; add them by hand if the action needs them`,
+    );
+  }
+
+  if (unsafeKeys.size > 0) {
+    scanned.warnings.push(
+      `openapi: skipped ${unsafeKeys.size} field(s) whose name a generated object literal cannot carry (${listDropped({ dropped: unsafeKeys })}) — a "${UNSAFE_KEY}" key sets the object's prototype instead of declaring the field, so it would vanish from the schema and the request; rename it in the spec or add it by hand`,
+    );
+  }
+
   return scanned;
 };
+
+/** The conventional root filenames that identify a spec by NAME, not by content. */
+const PREFERRED_SPECS = ['openapi.json', 'swagger.json'];
 
 /**
  * The OpenAPI scanner (plan D4). `detect` finds an OpenAPI 3.x JSON document at
  * the repo root (or the first `*.json` that self-identifies via `openapi`);
  * when only a YAML spec exists, it surfaces the convert-to-JSON hint as a
  * warning so a YAML-first user is never told "nothing found".
+ *
+ * A file at one of the CONVENTIONAL names is also claimed when it does not
+ * parse, so `scan` can surface the real syntax error (ONT-042 C). The
+ * content-sweep over other `*.json` files keeps requiring a successful parse:
+ * an unrelated broken JSON file elsewhere in the repo is not this scanner's to
+ * complain about.
  */
 export const openapiScanner: Scanner = {
   name: 'openapi',
 
   detect: ({ cwd }) => {
-    const preferred = ['openapi.json', 'swagger.json']
-      .map((rel) => join(cwd, rel))
-      .filter((abs) => existsSync(abs) && isOpenApiJson({ filePath: abs }));
+    const preferred = PREFERRED_SPECS.map((rel) => join(cwd, rel))
+      .filter((abs) => existsSync(abs))
+      .filter((abs) => classifyJson({ filePath: abs }) !== 'other');
 
     if (preferred.length > 0) {
       return preferred;
@@ -717,13 +1165,14 @@ export const openapiScanner: Scanner = {
     const jsonHits = readdirSync(cwd, { withFileTypes: true })
       .filter((e) => e.isFile() && e.name.endsWith('.json'))
       .map((e) => join(cwd, e.name))
-      .filter((abs) => isOpenApiJson({ filePath: abs }))
+      .filter((abs) => classifyJson({ filePath: abs }) === 'openapi')
       .sort();
 
     return jsonHits;
   },
 
-  scan: ({ filePath }) => scanOpenApiJson({ source: readFileSync(filePath, 'utf8') }),
+  scan: ({ filePath }) =>
+    scanOpenApiJson({ source: readFileSync(filePath, 'utf8'), label: basename(filePath) }),
 };
 
 /** Whether a YAML OpenAPI/Swagger spec exists at the repo root (plan D4). */
