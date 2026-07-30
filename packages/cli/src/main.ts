@@ -21,9 +21,12 @@ import { runSync } from './commands/sync';
 const USAGE = `orangerail — governed ontology runtime CLI
 
 Usage:
-  orangerail init [--yes] [--preset <p>] [--sources <csv>] [--models <csv>]
+  orangerail init [--yes] [--preset <p>] [--gate all|delete|none]
+                [--sources <csv>] [--models <csv>]
                 [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
                                                  scan a repo and assemble the ontology
+                                                 --gate picks which generated actions carry
+                                                 \`policy: { approval: 'required' }\` (default: delete)
   orangerail sync [--config <path>] [--accept-new] [--accept-governance]
                                                    re-scan and report drift
                                                    exit 0 nothing to act on / 1 unresolved drift / 2 could not check
@@ -98,6 +101,7 @@ const dispatch = async ({ args }: { args: ParsedArgs }): Promise<number> => {
         yes: args.yes,
         open: args.open,
         ...(args.preset === undefined ? {} : { preset: args.preset }),
+        ...(args.gate === undefined ? {} : { gate: args.gate }),
         ...(args.sources === undefined ? {} : { sources: args.sources }),
         ...(args.models === undefined ? {} : { models: args.models }),
         ...(args.docs === undefined ? {} : { docs: args.docs }),

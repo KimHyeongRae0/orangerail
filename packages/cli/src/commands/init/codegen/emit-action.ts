@@ -17,12 +17,70 @@ import { actionFieldExpr } from './zod';
  * - `prisma` — the action is a synthesized CRUD write; its `execute` runs the
  *   real `prisma.<accessor>.<op>(...)` through the SAME lazy client plumbing the
  *   read tools use (plan D3), degrading with the same actionable diagnostic when
- *   no client/`DATABASE_URL` is wired. It still declares `approval: 'required'`
- *   (secure by default), and a `delete` carries a DESTRUCTIVE header line (D5).
+ *   no client/`DATABASE_URL` is wired. Whether it declares
+ *   `policy: { approval: 'required' }` is the caller's {@link GatePolicy}
+ *   (ONT-056), and a `delete` carries a DESTRUCTIVE header line either way (D5).
  *
  * The registry `name:` is already the sanitized, MCP-safe identifier (plan D10
  * amendment); the hostile original is kept only as inert provenance comment data.
  */
+
+/**
+ * Which generated actions are emitted with `policy: { approval: 'required' }`
+ * (ONT-056). `init` resolves exactly one of these per run, from `--gate` or the
+ * survey, and prints which one it used.
+ *
+ * - `all` — every generated action is gated. The pre-ONT-056 behavior.
+ * - `delete` — only a Prisma `delete` is gated. The default.
+ * - `none` — no Prisma action is gated.
+ *
+ * None of these three is a claim that the un-gated actions are safe. A `create`
+ * can be the most consequential write a schema has, and an `update` overwrites a
+ * value the audit record does not preserve — the audit row for an update carries
+ * the input and the resulting row, not the prior one, so an un-gated update is
+ * not recoverable from the chain. The op is a syntactic property and danger is a
+ * semantic one, so this is a starting point a human edits, not a safety verdict.
+ * `delete` is the default because it is the op whose name most reliably predicts
+ * that a row is gone.
+ */
+export type GatePolicy = 'all' | 'delete' | 'none';
+
+/** Every accepted `--gate` value, in the order the CLI lists them. */
+export const GATE_POLICIES: GatePolicy[] = ['all', 'delete', 'none'];
+
+/** The `--gate` value `init` uses when neither the flag nor the survey chose one. */
+export const DEFAULT_GATE: GatePolicy = 'delete';
+
+/**
+ * Whether this action is emitted with an approval gate under `gate`.
+ *
+ * `init` prints its gated count through this same predicate, so the number in
+ * the closing summary and the bytes on disk cannot disagree.
+ *
+ * An `openapi` action is gated under EVERY policy. Its `execute` is
+ * `notImplemented`, which the engine rejects at staging, so un-gating it changes
+ * nothing that can run; and the IR carries no CRUD op for it, only an HTTP
+ * method, which does not classify — `POST /orders/{id}/cancel` is destructive and
+ * `DELETE /sessions/{id}` is not. Guessing from the method would be exactly the
+ * semantic claim this policy declines to make.
+ */
+export const isActionGated = ({
+  action,
+  gate,
+}: {
+  action: IrAction;
+  gate: GatePolicy;
+}): boolean => {
+  if (action.source !== 'prisma') {
+    return true;
+  }
+
+  if (gate === 'all') {
+    return true;
+  }
+
+  return gate === 'delete' && action.prisma?.op === 'delete';
+};
 
 const renderInput = ({ action }: { action: IrAction }): string => {
   if (action.input.length === 0) {
@@ -64,22 +122,43 @@ const renderPrismaHeader = ({
   action,
   prisma,
   member,
+  gated,
 }: {
   action: IrAction;
   prisma: IrPrismaAction;
   member: string;
+  gated: boolean;
 }): string => {
+  const call = `\`${escapeBlockComment({ value: member })}.${prisma.op}(...)\``;
+  const model = `\`${escapeBlockComment({ value: prisma.model })}\``;
+
   const lines = [
     '/**',
-    ` * Orangerail action \`${escapeBlockComment({ value: action.name })}\` (Prisma ${prisma.op} on model \`${escapeBlockComment({ value: prisma.model })}\`).`,
+    ` * Orangerail action \`${escapeBlockComment({ value: action.name })}\` (Prisma ${prisma.op} on model ${model}).`,
     ' *',
     ` * ${ownershipLine}`,
-    ` * Write operation: staged for human approval; on approval it runs \`${escapeBlockComment({ value: member })}.${prisma.op}(...)\` against your database.`,
   ];
+
+  // The header states what this file DOES, so it has to track the policy line
+  // below it: an un-gated action that describes itself as "staged for human
+  // approval" is a false comment sitting directly above the code that disproves
+  // it, and it is the first thing a reviewer reads (ONT-056).
+  if (gated) {
+    lines.push(
+      ` * Write operation: staged for human approval; on approval it runs ${call} against your database.`,
+    );
+  } else {
+    lines.push(
+      ` * Write operation: runs ${call} against your database whenever the agent calls it.`,
+      " * NOT approval-gated: add `policy: { approval: 'required' },` below to stage the call for a human instead.",
+    );
+  }
 
   if (prisma.op === 'delete') {
     lines.push(
-      ` * DESTRUCTIVE: permanently deletes a \`${escapeBlockComment({ value: prisma.model })}\` row on approval — an approver should confirm the identifier before authorizing.`,
+      gated
+        ? ` * DESTRUCTIVE: permanently deletes a ${model} row on approval — an approver should confirm the identifier before authorizing.`
+        : ` * DESTRUCTIVE: permanently deletes a ${model} row.`,
     );
   }
 
@@ -188,10 +267,12 @@ const emitPrismaActionFile = ({
   action,
   binding,
   construction,
+  gate,
 }: {
   action: IrAction;
   binding: string;
   construction: PrismaConstruction;
+  gate: GatePolicy;
 }): { filename: string; content: string } => {
   // Recompute the client member at EMIT time from the SOURCE model name,
   // mirroring the read side exactly — never from the emitted JS binding — so a
@@ -200,6 +281,7 @@ const emitPrismaActionFile = ({
   const prisma = action.prisma as IrPrismaAction;
   const sourceModel = prisma.sourceModel ?? prisma.model;
   const member = prismaMember({ model: sourceModel });
+  const gated = isActionGated({ action, gate });
 
   // An `update`/`delete` acts on an EXISTING row keyed by `idField`, which is a
   // key of this action's input — so it carries a `target` (the object it
@@ -212,6 +294,12 @@ const emitPrismaActionFile = ({
   const isTargeted =
     (prisma.op === 'update' || prisma.op === 'delete') && prisma.idField !== undefined;
 
+  // `target`/`targetIdFrom` are emitted independently of the gate: they name the
+  // row this action governs, which is what draws the self-loop in the studio map
+  // and what a future `where` policy resolves against. Dropping them on an
+  // un-gated action would take that structure away for no gain, and the baseline
+  // records `target` as part of the posture, so losing it would read as a
+  // weakening later.
   const body = [
     "import { z } from 'zod';",
     '',
@@ -223,7 +311,7 @@ const emitPrismaActionFile = ({
     `export const ${binding} = registry.defineAction({`,
     `  name: ${escapeStringLiteral({ value: action.name })},`,
     `  input: ${renderInput({ action })},`,
-    "  policy: { approval: 'required' },",
+    ...(gated ? ["  policy: { approval: 'required' },"] : []),
     ...(isTargeted
       ? [
           `  target: ${objectBinding},`,
@@ -237,16 +325,26 @@ const emitPrismaActionFile = ({
 
   return {
     filename: `${binding}.mjs`,
-    content: `${renderPrismaHeader({ action, prisma, member })}\n${body}`,
+    content: `${renderPrismaHeader({ action, prisma, member, gated })}\n${body}`,
   };
 };
 
-/** Render the `.mjs` file for one scanned action (plan D4 branch). */
+/**
+ * Render the `.mjs` file for one scanned action (plan D4 branch).
+ *
+ * `gate` has no default, deliberately (ONT-056). `construction` defaults so a
+ * caller that does not care about the target repo's Prisma major renders the
+ * bytes it always rendered, but a governance posture is not that kind of
+ * detail: a second, implicit default here is a second place the shipped posture
+ * could be decided from, and every caller must say which one it means.
+ */
 export const emitActionFile = ({
   action,
+  gate,
   construction = BARE_CONSTRUCTION,
 }: {
   action: IrAction;
+  gate: GatePolicy;
   construction?: PrismaConstruction;
 }): { filename: string; content: string } => {
   // The MCP-safe registry name may contain hyphens (e.g. GitHub-style
@@ -258,6 +356,6 @@ export const emitActionFile = ({
   const binding = sanitizeIdentifier({ value: action.name });
 
   return action.source === 'prisma'
-    ? emitPrismaActionFile({ action, binding, construction })
+    ? emitPrismaActionFile({ action, binding, construction, gate })
     : emitOpenApiActionFile({ action, binding });
 };

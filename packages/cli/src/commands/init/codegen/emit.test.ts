@@ -293,6 +293,7 @@ describe('wrapResolveError — public diagnostic marking (ONT-045)', () => {
     // executes the emitted body against a rejecting client instead.
     const objectFile = emitObjectFile({ object: product }).content;
     const actionFile = emitActionFile({
+      gate: 'all',
       action: {
         name: 'createProduct',
         method: 'POST',
@@ -384,7 +385,7 @@ describe('wrapResolveError — public diagnostic marking (ONT-045)', () => {
 
 describe('emitActionFile', () => {
   it('emits approval:required + notImplemented and keeps hostile raw as inert data', () => {
-    const { content } = emitActionFile({ action: coupon });
+    const { content } = emitActionFile({ action: coupon, gate: 'all' });
 
     expect(content).toContain('name: "grant_import_fs_coupon"');
     expect(content).toMatch(/approval:\s*'required'/);
@@ -404,7 +405,7 @@ describe('emitActionFile', () => {
       rawName: 'actions/create-workflow-dispatch',
     };
 
-    const { content, filename } = emitActionFile({ action: dispatch });
+    const { content, filename } = emitActionFile({ action: dispatch, gate: 'all' });
     const exported = content.match(/export const (\S+) =/)?.[1];
 
     expect(exported).toBe('actions_create_workflow_dispatch');
@@ -448,7 +449,7 @@ describe('emitActionFile', () => {
       ],
     };
 
-    const { content } = emitActionFile({ action: createProduct });
+    const { content } = emitActionFile({ action: createProduct, gate: 'all' });
 
     expect(content).toContain('"name": z.string().min(1).regex(new RegExp("^[\\"a-z]+$")),');
     expect(content).toContain('"priceCents": z.number().int().min(0),');
@@ -457,7 +458,7 @@ describe('emitActionFile', () => {
   });
 
   it('emits a constraint-free action byte-identically to the pre-ONT-037 output', () => {
-    const { content } = emitActionFile({ action: coupon });
+    const { content } = emitActionFile({ action: coupon, gate: 'all' });
 
     expect(content).toContain('"customerId": z.string(),');
     expect(content).not.toContain('.min(');
@@ -497,7 +498,7 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
   };
 
   it('emits a real prisma.<accessor>.create with a data body, not the stub', () => {
-    const { content } = emitActionFile({ action: createNote });
+    const { content } = emitActionFile({ action: createNote, gate: 'all' });
 
     expect(content).toContain('prisma.note.create');
     expect(content).toContain('data: {');
@@ -512,7 +513,7 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
   });
 
   it('emits update as where(id) + a partial data body over the non-id fields', () => {
-    const { content } = emitActionFile({ action: updateNote });
+    const { content } = emitActionFile({ action: updateNote, gate: 'all' });
 
     expect(content).toContain('prisma.note.update');
     expect(content).toContain('where: { "id": input["id"] }');
@@ -522,7 +523,7 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
   });
 
   it('emits delete as a where(id)-only call and marks it DESTRUCTIVE (AC-5)', () => {
-    const { content } = emitActionFile({ action: deleteNote });
+    const { content } = emitActionFile({ action: deleteNote, gate: 'all' });
 
     expect(content).toContain('prisma.note.delete({ where: { "id": input["id"] } })');
     expect(content).toMatch(/DESTRUCTIVE/);
@@ -535,7 +536,7 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
     // the input key. This connects the action to its object in the studio map
     // (a self-loop on the target) and lets a future `where` gate on the row.
     for (const action of [updateNote, deleteNote]) {
-      const { content } = emitActionFile({ action });
+      const { content } = emitActionFile({ action, gate: 'all' });
 
       expect(content).toContain("import { Note } from './Note.mjs';");
       expect(content).toContain('target: Note,');
@@ -547,7 +548,7 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
     // Declaring a target on create would demand a targetIdFrom key its input
     // cannot supply (defineAction would throw at load), and there is no row to
     // point at yet — so a create stays a free-standing action in the map.
-    const { content } = emitActionFile({ action: createNote });
+    const { content } = emitActionFile({ action: createNote, gate: 'all' });
 
     expect(content).not.toContain('target:');
     expect(content).not.toContain('targetIdFrom:');
@@ -555,8 +556,8 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
   });
 
   it('is byte-stable across two emits (NOLLM-01: no Date.now / Math.random)', () => {
-    expect(emitActionFile({ action: createNote }).content).toBe(
-      emitActionFile({ action: createNote }).content,
+    expect(emitActionFile({ action: createNote, gate: 'all' }).content).toBe(
+      emitActionFile({ action: createNote, gate: 'all' }).content,
     );
   });
 
@@ -571,7 +572,7 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
       ],
     };
 
-    const { content } = emitActionFile({ action: hostile });
+    const { content } = emitActionFile({ action: hostile, gate: 'all' });
 
     // The payload only ever appears as a JSON-stringified literal (its `"` are
     // backslash-escaped, so it can neither close the data key nor the input
@@ -582,6 +583,85 @@ describe('emitActionFile — Prisma-source actions (real execute, plan D3)', () 
     // never as a bare unescaped token that could break out and inject.
     expect(content).toContain(`${escaped}: input[${escaped}]`);
     expect(content).not.toContain('a"]; process.exit(1); ["b');
+  });
+
+  /**
+   * ONT-056 — which generated actions carry `policy: { approval: 'required' }`
+   * is a caller-supplied policy rather than a constant. The emitter is the only
+   * place that decides it, so this is where the three values are pinned.
+   */
+  describe('gate policy', () => {
+    const POLICY_LINE = "\n  policy: { approval: 'required' },\n";
+
+    it('gates every Prisma write under "all"', () => {
+      for (const action of [createNote, updateNote, deleteNote]) {
+        expect(emitActionFile({ action, gate: 'all' }).content).toContain(POLICY_LINE);
+      }
+    });
+
+    it('gates only the delete under "delete" (the default)', () => {
+      expect(emitActionFile({ action: createNote, gate: 'delete' }).content).not.toContain(
+        POLICY_LINE,
+      );
+      expect(emitActionFile({ action: updateNote, gate: 'delete' }).content).not.toContain(
+        POLICY_LINE,
+      );
+      expect(emitActionFile({ action: deleteNote, gate: 'delete' }).content).toContain(POLICY_LINE);
+    });
+
+    it('gates no Prisma write under "none"', () => {
+      for (const action of [createNote, updateNote, deleteNote]) {
+        expect(emitActionFile({ action, gate: 'none' }).content).not.toContain(POLICY_LINE);
+      }
+    });
+
+    it('gates an OpenAPI action under every policy', () => {
+      // Its `execute` is `notImplemented`, which the engine rejects at staging,
+      // and its IR carries an HTTP method rather than a CRUD op — a method does
+      // not classify (`POST /orders/{id}/cancel` is destructive), so guessing
+      // from it would be the semantic claim this policy declines to make.
+      for (const gate of ['all', 'delete', 'none'] as const) {
+        expect(emitActionFile({ action: coupon, gate }).content).toMatch(/approval:\s*'required'/);
+      }
+    });
+
+    it('keeps the header honest about whether the call is staged', () => {
+      const gated = emitActionFile({ action: updateNote, gate: 'all' }).content;
+      const ungated = emitActionFile({ action: updateNote, gate: 'none' }).content;
+
+      expect(gated).toContain('staged for human approval');
+      expect(gated).not.toContain('NOT approval-gated');
+      // An un-gated action describing itself as staged would be a false comment
+      // sitting directly above the code that disproves it.
+      expect(ungated).not.toContain('staged for human approval');
+      expect(ungated).toContain('NOT approval-gated');
+      expect(ungated).toContain("add `policy: { approval: 'required' },` below");
+    });
+
+    it('keeps the DESTRUCTIVE marker on a delete under every policy', () => {
+      for (const gate of ['all', 'delete', 'none'] as const) {
+        expect(emitActionFile({ action: deleteNote, gate }).content).toMatch(/DESTRUCTIVE/);
+      }
+    });
+
+    it('keeps target/targetIdFrom independent of the gate', () => {
+      // They name the row the action governs — the studio self-loop and any
+      // future `where` resolve against them, and the baseline records `target`
+      // as part of the posture, so dropping them would read as a weakening.
+      const content = emitActionFile({ action: deleteNote, gate: 'none' }).content;
+
+      expect(content).toContain('target: Note,');
+      expect(content).toContain('targetIdFrom: "id",');
+    });
+
+    it('renders byte-identically for the same gate and differently across gates', () => {
+      expect(emitActionFile({ action: createNote, gate: 'delete' }).content).toBe(
+        emitActionFile({ action: createNote, gate: 'delete' }).content,
+      );
+      expect(emitActionFile({ action: createNote, gate: 'all' }).content).not.toBe(
+        emitActionFile({ action: createNote, gate: 'none' }).content,
+      );
+    });
   });
 });
 
@@ -635,7 +715,7 @@ describe('read/write accessor parity across an allocator collision-rename (findi
 
     // and the emitted files agree at the byte level on the client member.
     const objectFile = emitObjectFile({ object: renamedObject });
-    const actionFile = emitActionFile({ action: renamedAction });
+    const actionFile = emitActionFile({ action: renamedAction, gate: 'all' });
     expect(objectFile.content).toContain(`prisma.${readAccessor}.findUnique`);
     expect(actionFile.content).toContain(`prisma.${writeAccessor}.create`);
   });
@@ -662,6 +742,7 @@ describe('the Prisma accessor comes from the SCHEMA, not the JS binding (ONT-041
 
     const objectFile = emitObjectFile({ object });
     const actionFile = emitActionFile({
+      gate: 'all',
       action: {
         name: 'createregistry',
         source: 'prisma',
@@ -689,6 +770,7 @@ describe('the Prisma accessor comes from the SCHEMA, not the JS binding (ONT-041
 
     const objectFile = emitObjectFile({ object });
     const actionFile = emitActionFile({
+      gate: 'all',
       action: {
         name: 'createUser_2',
         source: 'prisma',
@@ -732,15 +814,15 @@ describe('buildFileSet', () => {
   it('is byte-deterministic across two renders (AC-9)', () => {
     const source = sourceOf({ objects: [product, orderItem], actions: [coupon] });
 
-    const a = buildFileSet({ source, preset: 'approval-for-writes' });
-    const b = buildFileSet({ source, preset: 'approval-for-writes' });
+    const a = buildFileSet({ source, preset: 'approval-for-writes', gate: 'all' });
+    const b = buildFileSet({ source, preset: 'approval-for-writes', gate: 'all' });
 
     expect(a).toEqual(b);
   });
 
   it('emits config + registry + one link + object + action files', () => {
     const source = sourceOf({ objects: [product, orderItem], actions: [coupon] });
-    const paths = buildFileSet({ source, preset: 'approval-for-writes' })
+    const paths = buildFileSet({ source, preset: 'approval-for-writes', gate: 'all' })
       .map((f) => f.path)
       .sort();
 
@@ -784,7 +866,7 @@ describe('emitted Prisma client construction (ONT-049)', () => {
   });
 
   it('emits the identical bare construction into a Prisma action file', () => {
-    const content = emitActionFile({ action: prismaAction }).content;
+    const content = emitActionFile({ action: prismaAction, gate: 'all' }).content;
 
     expect(content).toContain('client = new PrismaClient();');
   });
@@ -851,7 +933,12 @@ describe('emitted Prisma client construction (ONT-049)', () => {
   it('threads the construction through the whole file set, objects and actions alike', () => {
     const source = sourceOf({ objects: [product], actions: [prismaAction] });
 
-    const files = buildFileSet({ source, preset: 'approval-for-writes', construction: pg });
+    const files = buildFileSet({
+      source,
+      preset: 'approval-for-writes',
+      gate: 'all',
+      construction: pg,
+    });
     const prismaFiles = files.filter((file) => file.content.includes('const getPrisma'));
 
     expect(prismaFiles.length).toBeGreaterThanOrEqual(2);
@@ -863,8 +950,8 @@ describe('emitted Prisma client construction (ONT-049)', () => {
   it('stays byte-deterministic under an adapter construction', () => {
     const source = sourceOf({ objects: [product], actions: [prismaAction] });
 
-    expect(buildFileSet({ source, preset: 'sandbox', construction: pg })).toEqual(
-      buildFileSet({ source, preset: 'sandbox', construction: pg }),
+    expect(buildFileSet({ source, preset: 'sandbox', gate: 'all', construction: pg })).toEqual(
+      buildFileSet({ source, preset: 'sandbox', gate: 'all', construction: pg }),
     );
   });
 });

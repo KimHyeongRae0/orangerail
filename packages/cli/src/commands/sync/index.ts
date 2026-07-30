@@ -256,7 +256,18 @@ const acceptNewFiles = ({
   }
 
   for (const action of diff.newActions) {
-    write(emitActionFile({ action, construction }));
+    // `--accept-new` always writes a GATED action, whatever `--gate` the project
+    // was generated with (ONT-056). `init` is the moment the posture is chosen,
+    // over a surface a human is about to read; this is a model that showed up in
+    // a later scan of a project somebody already vouched for, and the two are
+    // not the same decision.
+    //
+    // It is also the only choice that keeps the governance verdict coherent.
+    // `diffGovernance` reads a new action absent from the baseline as
+    // `strengthened` when it is gated and `weakened` when it is not — so writing
+    // it un-gated here would put the project into the state `orangerail mcp`
+    // withholds, immediately, as the direct result of a sync flag.
+    write(emitActionFile({ action, gate: 'all', construction }));
   }
 
   return { created, skipped };

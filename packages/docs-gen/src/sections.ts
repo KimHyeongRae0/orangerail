@@ -143,9 +143,28 @@ export const renderMcpTools = ({
       "Under the sandbox preset every action tool records a dry-run and returns `status: 'dry_run'` — no action ever executes and no approval is ever created; `check_approval` is served but has nothing to check.",
     );
   } else {
-    lines.push(
-      'Each action tool stages its call for human approval; `check_approval` re-checks a staged approval by id and completes execution once approved.',
-    );
+    // Counted off the registry rather than stated flat (ONT-056). Since `init`
+    // stopped gating every write it generates, a blanket "each action tool
+    // stages" is a false sentence in the one document an agent reads as
+    // instructions — and the failure mode is an agent that calls a `create`
+    // expecting an `approvalId`, gets a row instead, and has no reason to
+    // believe anything went wrong.
+    const actions = sortedActions({ registry });
+    const gatedCount = actions.filter((action) => action.policy?.approval === 'required').length;
+
+    if (gatedCount === actions.length) {
+      lines.push(
+        'Each action tool stages its call for human approval; `check_approval` re-checks a staged approval by id and completes execution once approved.',
+      );
+    } else if (gatedCount === 0) {
+      lines.push(
+        'No action tool stages: every action tool executes immediately when it is called. `check_approval` is served but has nothing to check.',
+      );
+    } else {
+      lines.push(
+        `${gatedCount} of ${actions.length} action tool(s) stage their call for human approval; the rest execute immediately when called. See **How to act in this domain** below for which is which. \`check_approval\` re-checks a staged approval by id and completes execution once approved.`,
+      );
+    }
   }
 
   return lines.join('\n');

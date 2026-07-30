@@ -49,6 +49,7 @@ const optionsOf = ({
   models?: string[];
 }): ResolvedInit => ({
   preset: 'approval-for-writes',
+  gate: 'all',
   ...(sources === undefined ? {} : { sources }),
   ...(models === undefined ? {} : { models }),
   docs: false,
@@ -61,7 +62,7 @@ const optionsOf = ({
  * is the orphan signature — the project dies at load with `Cannot find module`.
  */
 const danglingImports = ({ source }: { source: ScannedSource }): string[] => {
-  const files = buildFileSet({ source, preset: 'approval-for-writes' });
+  const files = buildFileSet({ source, preset: 'approval-for-writes', gate: 'all' });
   const written = new Set(files.map((file) => file.path));
 
   return files.flatMap((file) => {

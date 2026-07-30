@@ -119,7 +119,7 @@ describe('actionFieldExpr array and object rendering (ONT-042 A)', () => {
       },
     });
 
-    expect(emitActionFile({ action }).content).toContain(
+    expect(emitActionFile({ action, gate: 'all' }).content).toContain(
       '"value": z.array(z.object({ "id": z.string().optional() })),',
     );
   });

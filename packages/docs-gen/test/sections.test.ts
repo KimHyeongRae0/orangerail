@@ -53,6 +53,45 @@ describe('renderMcpTools', () => {
     expect(out).toContain("status: 'dry_run'");
     expect(out).toContain('no approval is ever created');
   });
+
+  // The fixture is 2-of-4 gated, which is the shape `orangerail init --gate delete`
+  // now produces. The old blanket sentence claimed all four staged, in the one
+  // document an agent reads as instructions (ONT-056).
+  it('counts the staging tools rather than claiming all of them stage (ONT-056)', () => {
+    const out = renderMcpTools({ registry: buildFixtureRegistry(), preset: 'approval-for-writes' });
+
+    expect(out).toContain('2 of 4 action tool(s) stage their call for human approval');
+    expect(out).toContain('the rest execute immediately when called');
+    expect(out).not.toContain('Each action tool stages its call');
+  });
+
+  it('keeps the blanket sentence when every action really is gated (ONT-056)', () => {
+    const registry = createRegistry();
+    registry.defineAction({
+      name: 'wipe',
+      input: z.object({ id: z.string() }),
+      policy: { approval: 'required' },
+      execute: async () => ({ ok: true }),
+    });
+
+    const out = renderMcpTools({ registry, preset: 'approval-for-writes' });
+
+    expect(out).toContain('Each action tool stages its call for human approval');
+  });
+
+  it('says nothing stages when no action is gated (ONT-056)', () => {
+    const registry = createRegistry();
+    registry.defineAction({
+      name: 'ping',
+      input: z.object({ x: z.string() }),
+      execute: async () => ({ ok: true }),
+    });
+
+    const out = renderMcpTools({ registry, preset: 'approval-for-writes' });
+
+    expect(out).toContain('No action tool stages');
+    expect(out).toContain('has nothing to check');
+  });
 });
 
 describe('renderObjectTypes', () => {

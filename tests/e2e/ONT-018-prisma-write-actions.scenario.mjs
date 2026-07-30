@@ -316,7 +316,16 @@ console.log('[phase 1] init emits real Prisma CRUD actions + drives the governed
 
 prepareRunDir({ dir: RUN_PRISMA, fixture: PRISMA_FIXTURE });
 
-const prismaInit = runCli({ args: ['init', '--no-studio', '--yes'], cwd: RUN_PRISMA });
+// `--gate all` is explicit here, and stays explicit (ONT-056). This phase is
+// about the governed write LOOP — stage, approve, execute once — and it drives
+// that loop through `createNote`, which the shipped default (`--gate delete`)
+// generates un-gated. Asking for the posture the phase needs keeps its subject
+// intact; whether the DEFAULT is right is ONT-056's scenario to answer, not this
+// one's, and the two would otherwise silently trade coverage.
+const prismaInit = runCli({
+  args: ['init', '--no-studio', '--yes', '--gate', 'all'],
+  cwd: RUN_PRISMA,
+});
 assert({
   ok: prismaInit.status === 0,
   message: `prisma init must exit 0, got ${prismaInit.status}:\n${prismaInit.stdout}\n${prismaInit.stderr}`,
@@ -482,7 +491,13 @@ console.log('[phase 2] a write with no DATABASE_URL fails with an actionable dia
 
 prepareRunDir({ dir: RUN_NODB, fixture: PRISMA_FIXTURE });
 
-const nodbInit = runCli({ args: ['init', '--no-studio', '--yes'], cwd: RUN_NODB });
+// `--gate all` for the same reason phase 1 asks for it: this phase stages
+// `createNote` and then approves it, so it needs the gate on that action to
+// reach the execute-time diagnostic it is actually testing (ONT-056).
+const nodbInit = runCli({
+  args: ['init', '--no-studio', '--yes', '--gate', 'all'],
+  cwd: RUN_NODB,
+});
 assert({
   ok: nodbInit.status === 0,
   message: `no-db init must exit 0, got ${nodbInit.status}:\n${nodbInit.stdout}\n${nodbInit.stderr}`,

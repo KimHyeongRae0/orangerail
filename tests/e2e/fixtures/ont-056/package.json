@@ -1,0 +1,11 @@
+{
+  "name": "ont-056-fixture-shop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture for the `orangerail init --gate` default: a Prisma SQLite source with Customer -> Order, which scans to exactly 2 object(s) and 6 action(s). Those are the counts the README quickstart transcript quotes, so the scenario that runs this fixture is also what keeps that transcript honest. Copied into a scratch run dir under .docs/scratch by the e2e; bare imports in generated code and the generated Prisma client resolve via the monorepo-root node_modules walk-up. Declares prisma + @prisma/client so `prisma db push` finds them without a network install.",
+  "devDependencies": {
+    "prisma": "^6",
+    "@prisma/client": "^6"
+  }
+}

@@ -55,7 +55,7 @@ const installPackage = ({
 };
 
 /** Run `runInit` with stdout/stderr captured instead of printed. */
-const runCaptured = async ({ cwd }: { cwd: string }) => {
+const runCaptured = async ({ cwd, flags = {} }: { cwd: string; flags?: Partial<InitFlags> }) => {
   const out: string[] = [];
   const err: string[] = [];
 
@@ -69,7 +69,7 @@ const runCaptured = async ({ cwd }: { cwd: string }) => {
   });
 
   try {
-    const code = await runInit({ flags: FLAGS, cwd });
+    const code = await runInit({ flags: { ...FLAGS, ...flags }, cwd });
 
     return { code, stdout: out.join(''), stderr: err.join('') };
   } finally {
@@ -118,14 +118,78 @@ describe('runInit front door', () => {
 
     const baseline = parseBaseline({ source: readFileSync(path, 'utf8') });
     expect(baseline.recordedBy).toBe('init');
-    // Every generated action is gated, so the recorded starting point is the
-    // strongest posture the tool can produce — it cannot launder a weak one.
+    // Since ONT-056 the recorded rows are the posture init GENERATED, which
+    // under the default `--gate delete` is not all-gated. The baseline is a
+    // description of the starting point, not a claim that it is strict — so
+    // what is asserted is that it MATCHES what was written, per action.
     expect(baseline.actions.length).toBeGreaterThan(0);
-    expect(baseline.actions.every((row) => row.approval === 'required')).toBe(true);
+    expect(
+      baseline.actions
+        .filter((row) => row.approval === 'required')
+        .map((row) => row.name)
+        .sort(),
+    ).toEqual(['deleteArticle']);
 
     expect(stdout).toContain('orangerail.governance.json');
     expect(stdout).toContain('nobody has reviewed');
     expect(stdout).toContain('orangerail sync --accept-governance');
+  });
+
+  /**
+   * ONT-056 — the gated count in the closing summary is derived through the same
+   * predicate the emitter branched on, so a run that leaves writes executable
+   * cannot close with a line the reader mistakes for "all of them are gated".
+   */
+  it('gates only the delete by default, and says which writes are not gated', async () => {
+    const repoDir = makeRepo({ prefix: 'ont-056-init-gate-default-' });
+
+    const { code, stdout } = await runCaptured({ cwd: repoDir });
+
+    expect(code).toBe(0);
+    expect(readFileSync(join(repoDir, 'ontology', 'deleteArticle.mjs'), 'utf8')).toContain(
+      "policy: { approval: 'required' },",
+    );
+    for (const stem of ['createArticle', 'updateArticle']) {
+      const content = readFileSync(join(repoDir, 'ontology', `${stem}.mjs`), 'utf8');
+
+      expect(content).not.toContain("\n  policy: { approval: 'required' },\n");
+      // The header cannot describe a gate the file does not declare.
+      expect(content).not.toContain('staged for human approval');
+      expect(content).toContain('NOT approval-gated');
+    }
+
+    expect(stdout).toContain('--gate delete: 1 of 3 write action(s) gated behind human approval');
+    expect(stdout).toContain('the other 2 run when the agent calls them');
+  });
+
+  it('gates every write under --gate all, and none under --gate none (ONT-056)', async () => {
+    const allDir = makeRepo({ prefix: 'ont-056-init-gate-all-' });
+    const noneDir = makeRepo({ prefix: 'ont-056-init-gate-none-' });
+
+    const all = await runCaptured({ cwd: allDir, flags: { gate: 'all' } });
+    const none = await runCaptured({ cwd: noneDir, flags: { gate: 'none' } });
+
+    expect(all.code).toBe(0);
+    expect(none.code).toBe(0);
+
+    for (const stem of ['createArticle', 'updateArticle', 'deleteArticle']) {
+      expect(readFileSync(join(allDir, 'ontology', `${stem}.mjs`), 'utf8')).toContain(
+        "policy: { approval: 'required' },",
+      );
+      expect(readFileSync(join(noneDir, 'ontology', `${stem}.mjs`), 'utf8')).not.toContain(
+        "\n  policy: { approval: 'required' },\n",
+      );
+    }
+
+    expect(all.stdout).toContain('--gate all: 3 of 3 write action(s) gated');
+    expect(all.stdout).not.toContain('run when the agent calls them');
+    expect(none.stdout).toContain('--gate none: 0 of 3 write action(s) gated');
+
+    // The baseline describes each run rather than asserting a fixed posture.
+    const noneBaseline = parseBaseline({
+      source: readFileSync(join(noneDir, 'orangerail.governance.json'), 'utf8'),
+    });
+    expect(noneBaseline.actions.every((row) => row.approval === null)).toBe(true);
   });
 
   it('refuses when a TypeScript config already exists (the documented name)', async () => {

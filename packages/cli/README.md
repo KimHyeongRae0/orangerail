@@ -51,8 +51,11 @@ npx orangerail sync --accept-governance   # review + vouch for orangerail.govern
 ```
 
 `init` scans a `prisma/schema.prisma` or an OpenAPI spec, generates
-`ontology/*.mjs` plus an `orangerail.config.mjs`, and gates every write action
-behind human approval. No schema file yet, just a live database? `prisma db pull`
+`ontology/*.mjs` plus an `orangerail.config.mjs`, and — under the default
+`--gate delete` — gates every `delete` behind human approval while leaving the
+other writes executable. Pass `--gate all` to gate every write instead, or
+`--gate none` to gate nothing; the closing line names which one ran and how many
+actions it left executable. No schema file yet, just a live database? `prisma db pull`
 writes one — see
 [Adopting orangerail against an existing database](../../docs/existing-database.md),
 which also covers what Prisma 7 changes (the generated client needs a driver
@@ -85,9 +88,13 @@ terminal against the same store while the host's server is up.
 ## Commands
 
 ```
-orangerail init [--yes] [--preset <p>] [--sources <csv>] [--models <csv>]
+orangerail init [--yes] [--preset <p>] [--gate all|delete|none]
+              [--sources <csv>] [--models <csv>]
               [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
                                                scan a repo and assemble the ontology
+                                               --gate picks which generated actions carry
+                                               `policy: { approval: 'required' }`
+                                               (default: delete)
 orangerail sync [--config <path>] [--accept-new] [--accept-governance]
                                                re-scan and report drift
                                                exit 0 nothing to act on / 1 unresolved drift /

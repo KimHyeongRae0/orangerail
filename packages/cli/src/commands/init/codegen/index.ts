@@ -1,7 +1,7 @@
 import type { McpPreset } from 'orangerail-mcp';
 
 import type { ScannedSource } from '../ir';
-import { emitActionFile } from './emit-action';
+import { emitActionFile, type GatePolicy } from './emit-action';
 import { emitConfigFile, emitRegistryFile } from './emit-config';
 import { deriveLinks, emitLinksFile } from './emit-links';
 import { emitObjectFile } from './emit-object';
@@ -13,6 +13,7 @@ export interface GeneratedFile {
   content: string;
 }
 
+export { DEFAULT_GATE, GATE_POLICIES, isActionGated, type GatePolicy } from './emit-action';
 export { deriveLinks } from './emit-links';
 export { emitObjectFile } from './emit-object';
 export * from './prisma-runtime';
@@ -32,10 +33,16 @@ export * from './prisma-runtime';
 export const buildFileSet = ({
   source,
   preset,
+  gate,
   construction = BARE_CONSTRUCTION,
 }: {
   source: ScannedSource;
   preset: McpPreset;
+  /**
+   * Which generated actions declare `policy: { approval: 'required' }`
+   * (ONT-056). Required, with no default — see `emitActionFile`.
+   */
+  gate: GatePolicy;
   /**
    * How the generated Prisma call sites construct their client (ONT-049).
    * Defaults to the pre-7 bare constructor, so every caller that does not care
@@ -66,7 +73,7 @@ export const buildFileSet = ({
 
   const actions = [...source.actions].sort((a, b) => a.name.localeCompare(b.name));
   for (const action of actions) {
-    const file = emitActionFile({ action, construction });
+    const file = emitActionFile({ action, gate, construction });
     files.push({ path: `ontology/${file.filename}`, content: file.content });
   }
 
