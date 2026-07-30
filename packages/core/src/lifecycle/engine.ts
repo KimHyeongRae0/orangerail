@@ -54,8 +54,18 @@ export type ExecuteResult =
    * input no longer parses; `input` — the staged input no longer matches the
    * `inputHash` stamped when it was approved, i.e. the payload was swapped in
    * the store after a human approved it (§3.4 / ONT-040).
+   *
+   * `stale_approval` — the record carries NO `inputHash` at all, so the payload
+   * cannot be bound to the approval either way. Execution refuses identically
+   * (§3.4 fails closed on both), but the two are not the same finding and must
+   * never share a name: `input` accuses somebody of editing the store, and
+   * `stale_approval` says the approval was written by a core older than the one
+   * running it — the ordinary result of upgrading the `orangerail` CLI while a
+   * project's own `orangerail-core` stays at `0.1.0` (ONT-058). Reporting the
+   * upgrade as tampering sent one operator hunting a breach and another
+   * concluding the tool could not complete a write at all.
    */
-  | { status: 'invalidated'; reason: 'signature' | 'schema' | 'input' }
+  | { status: 'invalidated'; reason: 'signature' | 'schema' | 'input' | 'stale_approval' }
   | { status: 'condition_changed' }
   /** A `dry_run` engine (sandbox preset) refuses to complete an approval (§3.6). */
   | { status: 'dry_run' }
@@ -600,6 +610,22 @@ export const createEngine = ({
     // executes on a payload whose approval cannot be bound to it. The approval
     // is already consumed here, exactly as on a signature/schema mismatch: a
     // tampered approval is spent, not retried.
+    //
+    // It refuses under its OWN reason, though (ONT-058). Failing closed was
+    // always right; folding the two into `input` was not. Absence is a definite
+    // statement about WHO WROTE the record — no core that stamps the hash can
+    // produce it — so it identifies a version skew between the core that
+    // created the approval and the core executing it, which is a thing an
+    // operator fixes in a minute once told. Presence-but-mismatch is a
+    // statement about somebody having edited an approved payload. Answering
+    // both with "the payload was swapped after a human approved it" is how a
+    // routine CLI upgrade reads as a break-in, and how a project whose every
+    // governed write had stopped got diagnosed as a policy decision.
+    if (record.inputHash === undefined) {
+      await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
+      return { status: 'invalidated', reason: 'stale_approval' };
+    }
+
     if (record.inputHash !== hashApprovalInput({ input: record.input })) {
       await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
       return { status: 'invalidated', reason: 'input' };

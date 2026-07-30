@@ -127,15 +127,26 @@ export const renderApprovalList = ({ approvals }: { approvals: ApprovalRecord[] 
 
   const lines = ordered.map((record) => {
     const dev = record.devMode ? ' [dev]' : '';
+    // ONT-058: a record with no `inputHash` cannot execute, so it is not really
+    // a decision waiting on a human — it is a queue entry that will consume
+    // itself. Marked here so an operator does not spend attention on it, and
+    // above all does not read the queue draining as work getting done.
+    const stale = record.inputHash === undefined ? ' [UNEXECUTABLE]' : '';
     const by = sanitize({ value: record.requestedBy });
     const action = sanitize({ value: record.actionName });
     const age = formatAge({ createdAt: record.createdAt });
     const preview = previewInput({ input: record.input });
 
-    return `${record.id}  ${action}  by ${by}${dev}  ${age} ago  input=${preview}`;
+    return `${record.id}  ${action}  by ${by}${dev}${stale}  ${age} ago  input=${preview}`;
   });
 
-  return `${lines.join('\n')}\n\n${ordered.length} pending approval(s).\n`;
+  const staleCount = ordered.filter((record) => record.inputHash === undefined).length;
+  const note =
+    staleCount === 0
+      ? ''
+      : `\n${staleCount} of them cannot execute: created by an older orangerail-core, so approving them writes\nnothing. Run \`orangerail status\`, align the versions, and re-stage.\n`;
+
+  return `${lines.join('\n')}\n\n${ordered.length} pending approval(s).\n${note}`;
 };
 
 /**
@@ -173,6 +184,29 @@ const capDetailInput = ({ pretty, id }: { pretty: string; id: string }): string 
 };
 
 /**
+ * The line `approvals show` prints for a record with no `inputHash` (ONT-058).
+ *
+ * This is the one thing about an approval that decides whether deciding on it
+ * is worth anything, and it was invisible: an operator read the id, the action,
+ * the status and the payload, approved it, and watched execution consume the
+ * approval and do nothing. Nothing on this surface said the record could never
+ * run. It says so now, before the decision rather than after it.
+ *
+ * Empty for every record a current core created, so the detail view is
+ * unchanged in the ordinary case.
+ */
+const unverifiableLine = ({ record }: { record: ApprovalRecord }): string[] =>
+  record.inputHash === undefined
+    ? [
+        'binding:      NONE — this approval carries no inputHash, so its payload cannot be bound',
+        '              to it and execution will refuse (`invalidated (stale_approval)`), spending',
+        '              the approval without writing anything. It was created by an orangerail-core',
+        '              older than the one running. Approving it changes nothing; re-stage the',
+        '              action once the versions agree. Run `orangerail status` for the diagnosis.',
+      ]
+    : [];
+
+/**
  * Render one approval's full detail with pretty-printed, sanitized input.
  * `full` lifts the length cap for an operator who has decided they want the
  * whole value.
@@ -196,6 +230,7 @@ export const renderApprovalDetail = ({
     `requestedBy:  ${sanitize({ value: record.requestedBy })}${record.devMode ? ' [dev]' : ''}`,
     `roles:        ${JSON.stringify(record.requestedByRoles)}`,
     `createdAt:    ${record.createdAt}`,
+    ...unverifiableLine({ record }),
     `input (agent-supplied):`,
     prettyInput,
     '',

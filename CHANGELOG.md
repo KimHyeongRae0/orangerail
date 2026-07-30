@@ -59,9 +59,14 @@ language, declare those fields in the object's zod schema.
 `execute` recomputes it before running anything. A record written by `0.1.0`
 carries no such hash, so `execute` cannot bind the payload to the approval it is
 about to act on and **refuses**: the approval is consumed and the call returns
-`{ status: 'invalidated', reason: 'input' }`, with an `invalidated` record on the
-audit chain. Nothing runs on an unverifiable payload. Ask the agent to call the
-tool again and approve the fresh approval.
+`{ status: 'invalidated', reason: 'stale_approval' }`, with an `invalidated`
+record on the audit chain. Nothing runs on an unverifiable payload. Ask the agent
+to call the tool again and approve the fresh approval.
+
+That reason is its own value, distinct from the `input` you get when a hash is
+present and disagrees. Absence means the record was written by an older core;
+`input` means somebody edited an approved payload. They are not the same finding
+and orangerail no longer answers both with the same word — see Fixed.
 
 Nothing else about an existing store changes:
 
@@ -287,6 +292,48 @@ both logs consistently and pass verification. See
   file set and only skip the docs/studio handoff.
 
 ### Fixed
+
+- **An approval orangerail could not verify was reported as one somebody had
+  tampered with — and the version skew that produces it was invisible.** A
+  project whose `orangerail.config.mjs` resolves `orangerail-core@0.1.0` while
+  the `orangerail` binary running it resolves a newer core loads two cores in
+  one process. The old one creates approvals without an `inputHash`; the new one
+  refuses to execute an approval it cannot bind to its payload. The composition
+  reports success at every step and completes nothing: staging returns an id,
+  `approvals approve` prints `approve ok (approved)`, and execution consumes the
+  approval and performs no write. A reviewer who hit this concluded orangerail
+  could not complete a governed write at all, and nothing in the tool contradicted
+  them — the refusal came back as `Invalidated (input).`, whose documented meaning
+  is "the payload was swapped in the store after a human approved it".
+
+  Refusing is still right and is unchanged: an unbindable payload never runs, and
+  the approval is still spent. What changed is that orangerail now tells the two
+  apart. An ABSENT hash returns `reason: 'stale_approval'` — the record predates
+  the running core and the action must be staged again — while a hash that is
+  present and disagrees keeps `reason: 'input'`, the tampering case. The MCP
+  message tells an agent the approval is spent and that re-staging is the move,
+  and deliberately says nothing about which versions are installed: that is the
+  operator's, and it goes to the operator.
+
+  The skew itself is now detected before it can cost an approval. `orangerail
+  mcp` and `orangerail status` check whether the `orangerail-core` your config
+  imports is the one the CLI runs on, and say so in the same block as the
+  governance warnings — naming the consequence (no governed write will complete),
+  the fix (align the versions, then re-stage anything pending), and what it means
+  if you did not just upgrade. `orangerail status` exits 1 on a skew. Two copies
+  of the SAME version are reported as a duplicate install and are not an error;
+  they agree today and are one partial upgrade from not agreeing.
+
+  The check is keyed on module-instance identity — a `Symbol.for` token
+  `createRegistry` stamps — and not on a version string. The version string was
+  never trustworthy here (`orangerail-core` exports `version = '0.0.0'` while its
+  `package.json` says `0.1.0`), the copy whose version matters most predates any
+  field a check could read, and equal versions do not imply one instance anyway.
+
+  The approval surfaces carry it too. `approvals show` prints a `binding: NONE`
+  block above the payload for a record that cannot execute, `approvals list`
+  marks those rows `[UNEXECUTABLE]` and counts them, and `approvals approve`
+  warns on stderr next to its `approve ok` that nothing will be written.
 
 - **`orangerail studio` watched your whole `node_modules` on Linux.** Live
   reload used one `fs.watch(..., { recursive: true })` over the config

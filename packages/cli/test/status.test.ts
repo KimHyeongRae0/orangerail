@@ -108,6 +108,7 @@ const base: StatusReport = {
     weakenedActions: [],
   },
   withheld: [],
+  skew: { state: 'aligned' },
 };
 
 describe('computeStatus — governance posture from registry + store', () => {

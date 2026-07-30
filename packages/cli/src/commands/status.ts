@@ -1,6 +1,7 @@
 import { verifyAudit } from 'orangerail-core';
 
 import type { OrangerailConfig } from '../config';
+import { reviewCoreSkew, type CoreSkewReview } from '../core-skew';
 import {
   GOVERNANCE_FILE,
   isUnreviewed,
@@ -61,6 +62,17 @@ export interface StatusReport {
    * `weakened`.
    */
   withheld: string[];
+  /**
+   * Whether the `orangerail-core` this config imports is the one the CLI runs
+   * on (ONT-058).
+   *
+   * It sits on this report because it qualifies every other field the same way
+   * the baseline does. A skewed project reports its gates, its clean chain and
+   * its pending queue perfectly accurately and cannot complete a single write —
+   * the numbers are not wrong, they are describing a machine with a seam
+   * through the middle of it, and nothing else on the readout can say so.
+   */
+  skew: CoreSkewReview;
 }
 
 /** Gather the current governance posture from the config's registry and store. */
@@ -68,6 +80,7 @@ export const computeStatus = async ({
   config,
   projectRoot,
   governance: reviewed,
+  skew: skewed,
 }: {
   config: OrangerailConfig;
   /** Where `orangerail.governance.json` lives; defaults to the cwd. */
@@ -80,6 +93,14 @@ export const computeStatus = async ({
    * self-reporting lie this whole change exists to remove.
    */
   governance?: GovernanceReview | undefined;
+  /**
+   * Likewise already computed against the DECLARED registry, and for a sharper
+   * reason: the withheld-actions wrapper is an object THIS package builds, so
+   * it carries no core instance mark at all. Re-deriving the skew from it would
+   * report every drifted project as version-skewed — a false alarm produced by
+   * the very filtering that is supposed to be the safe response to drift.
+   */
+  skew?: CoreSkewReview | undefined;
 }): Promise<StatusReport> => {
   const actions = config.registry.listActions();
   const gatedCount = actions.filter((action) => action.policy?.approval === 'required').length;
@@ -107,6 +128,7 @@ export const computeStatus = async ({
     server,
     governance,
     withheld: governance.weakenedActions,
+    skew: skewed ?? reviewCoreSkew({ config }),
   };
 };
 
@@ -133,6 +155,25 @@ const governanceClause = ({ report }: { report: StatusReport }): string => {
 };
 
 /**
+ * The core-skew clause. Short, and present on every variant of the line for the
+ * same reason the governance clause is: a line that reports a healthy chain and
+ * live gates on a project that cannot complete a write is telling half the
+ * truth, and the half it tells is the reassuring one. The detail is in the
+ * block written above this line — the clause exists so the line itself never
+ * reads as an all-clear.
+ */
+const skewClause = ({ report }: { report: StatusReport }): string => {
+  switch (report.skew.state) {
+    case 'stale':
+      return ' · CORE VERSION SKEW — no governed write can complete (see above)';
+    case 'duplicated':
+      return ' · two copies of orangerail-core loaded';
+    case 'aligned':
+      return '';
+  }
+};
+
+/**
  * A single-line confidence signal for the MCP server startup (written to
  * stderr, never stdout — stdout is the JSON-RPC channel). It leads with
  * `serving` because the caller prints it once the process is up and the
@@ -145,7 +186,7 @@ export const formatStatusLine = ({ report }: { report: StatusReport }): string =
     // The governance clause rides along even here: a broken chain and a weakened
     // posture are different failures, and swallowing one because the other is
     // louder is how a readout ends up telling half the truth.
-    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'${governanceClause({ report })}`;
+    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'${governanceClause({ report })}${skewClause({ report })}`;
   }
 
   const gate = report.readOnly
@@ -153,7 +194,7 @@ export const formatStatusLine = ({ report }: { report: StatusReport }): string =
     : `${report.gatedCount} action(s) approval-gated`;
   const pending = report.pendingCount > 0 ? ` · ${report.pendingCount} pending approval(s)` : '';
 
-  return `orangerail mcp: serving · governance active · ${gate}${governanceClause({ report })} · audit chain OK (${report.audit.count} record(s))${pending}`;
+  return `orangerail mcp: serving · governance active · ${gate}${governanceClause({ report })} · audit chain OK (${report.audit.count} record(s))${pending}${skewClause({ report })}`;
 };
 
 /**
@@ -210,15 +251,52 @@ const writeBaselineBlock = ({ report }: { report: StatusReport }): void => {
 };
 
 /**
+ * The `runtime:` block — which `orangerail-core` is actually loaded (ONT-058).
+ *
+ * It is printed ABOVE the counts, unlike the baseline block, because it is the
+ * one finding that decides whether the counts describe a working machine at
+ * all. A drifted baseline still executes; a skewed core executes nothing, and
+ * the readout under it is a list of correct facts about something that does not
+ * run. Silent when there is nothing to say — a `runtime: ok` line on every run
+ * is noise that trains an operator to skip the block.
+ */
+const writeRuntimeBlock = ({ report }: { report: StatusReport }): void => {
+  const out = process.stdout;
+
+  if (report.skew.state === 'stale') {
+    out.write(
+      '  runtime:  CORE VERSION SKEW — this config imports an orangerail-core older than the CLI\n' +
+        '            running it. Approvals that core creates carry no inputHash, and this CLI refuses\n' +
+        '            to execute an approval it cannot bind to its payload: staging and approving will\n' +
+        '            keep succeeding and NO GOVERNED WRITE WILL COMPLETE. Install orangerail-core at\n' +
+        "            this CLI's version and re-stage anything pending. If you did not just upgrade,\n" +
+        '            the two are resolving from different node_modules — dedupe the project install.\n',
+    );
+    return;
+  }
+
+  if (report.skew.state === 'duplicated') {
+    out.write(
+      '  runtime:  two copies of orangerail-core are loaded (one by this config, one by the CLI).\n' +
+        '            They agree on the approval contract, so writes work — until a partial upgrade\n' +
+        '            makes them disagree, at which point governed writes stop silently. Dedupe.\n',
+    );
+  }
+};
+
+/**
  * `orangerail status` — the human-readable governance readout. Answers "is this
  * actually protecting me right now?" without a live dashboard: what is gated,
  * whether that still matches the baseline, whether the audit chain verifies, and
  * what is pending.
  *
  * Exit codes: **0** when nothing on the readout is actively wrong, **1** when
- * something is — a broken audit chain, or a posture weaker than the recorded
- * baseline. An absent or unreviewed baseline is reported but is not an error:
- * `status` describes the project, `sync` is the gate that insists on one.
+ * something is — a broken audit chain, a posture weaker than the recorded
+ * baseline, or a core version skew. An absent or unreviewed baseline is
+ * reported but is not an error: `status` describes the project, `sync` is the
+ * gate that insists on one. A DUPLICATED core is likewise reported and not an
+ * error — writes complete today, and failing a health check over a latent
+ * hazard is how a health check stops being run.
  */
 export const runStatus = async ({
   config,
@@ -231,6 +309,7 @@ export const runStatus = async ({
   const out = process.stdout;
 
   out.write('orangerail status\n');
+  writeRuntimeBlock({ report });
   out.write(`  objects:  ${report.objectCount}\n`);
   out.write(`  actions:  ${report.gatedCount} approval-gated, ${report.autoCount} auto\n`);
   writeBaselineBlock({ report });
@@ -241,10 +320,10 @@ export const runStatus = async ({
   if (report.audit.ok) {
     out.write(`  audit:    chain OK — ${report.audit.count} record(s) verified\n`);
 
-    // A weakened posture is the one finding on this readout that the numbers
-    // above cannot express, so it owns the exit code the same way a broken
-    // chain does.
-    return report.governance.state === 'weakened' ? 1 : 0;
+    // A weakened posture and a stale core are the findings on this readout that
+    // the numbers above cannot express, so they own the exit code the same way
+    // a broken chain does.
+    return report.governance.state === 'weakened' || report.skew.state === 'stale' ? 1 : 0;
   }
 
   // The FAILURE goes to STDERR, not stdout: `orangerail status >/dev/null` used
