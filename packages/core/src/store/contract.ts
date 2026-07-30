@@ -67,6 +67,57 @@ export type AuditPhase =
   | 'not_implemented';
 
 /**
+ * The state of an action's target object as it stood immediately BEFORE the
+ * write (§3.11 / ONT-057). Without it an audit record for a successful update
+ * carries the input and the resulting row and nothing else, so the log can say
+ * that `stock` is now `25` and cannot say what it was — the change cannot be
+ * described and cannot be undone from the record.
+ *
+ * A discriminated union rather than a bare value, because "there was no prior
+ * row" (a create, or an id that does not exist), "the prior read failed", and
+ * "this action declares nothing readable" are three different facts and a
+ * recovery attempt has to tell them apart. Collapsing them onto a nullable
+ * field would make a failed read indistinguishable from an empty table.
+ *
+ * NOT a transactional snapshot. It is read on the same connection as the write
+ * but not inside its transaction, so a concurrent writer landing between the
+ * read and the write makes the recorded value stale. It is a witness of what
+ * orangerail saw, which is what an audit log can honestly claim, and it is the
+ * same value the `where` gate evaluated when the action declares one.
+ */
+export type AuditPrior =
+  /** The target existed and was read. `value` is the row as of just before the write. */
+  | { state: 'value'; value: unknown }
+  /** The read succeeded and there was no such object — a create, or a stale id. */
+  | { state: 'none' }
+  /**
+   * The read threw. The write still ran: a datasource hiccup on a best-effort
+   * read must never become a failure of a write a human already approved
+   * (§3.11). `error` is the full driver text and is OPERATOR-facing, exactly
+   * like {@link AuditRecord.error} — a transport answering an untrusted agent
+   * must not forward it.
+   */
+  | { state: 'unreadable'; error: string }
+  /**
+   * A prior value existed but audit redaction policy refused to persist it.
+   * Emitted when a `redactAudit` is configured and no `redactPrior` is: the
+   * project has declared its data sensitive and has said nothing about the row,
+   * and a row can carry columns the input never mentions (a `password_hash`, a
+   * `ssn`). Recording it under an input-shaped mask would make this feature a
+   * leak. The state is persisted rather than omitted so the reader learns that
+   * a value existed and policy withheld it, instead of concluding there was none.
+   */
+  | { state: 'withheld' }
+  /**
+   * Nothing was read because the action declares nothing to read: no `target`
+   * object, or a target with no `resolve` contract (`no_target`), or an input
+   * carrying no value at `targetIdFrom` (`no_id`). Recorded rather than omitted
+   * so a record written by this version always states its own coverage — an
+   * ABSENT `prior` means a pre-ONT-057 record, never "we tried and got nothing".
+   */
+  | { state: 'unavailable'; reason: 'no_target' | 'no_id' };
+
+/**
  * A hash-chained audit record. `prevHash`/`hash`/`seq` are owned and computed
  * by {@link Store.appendAudit} (§3.5 chain ownership) — callers never set them.
  */
@@ -86,6 +137,23 @@ export interface AuditRecord {
   requestedBy?: string;
   approver?: string;
   input?: unknown;
+  /**
+   * What the action's target looked like BEFORE the write (§3.11 / ONT-057).
+   *
+   * Set ONLY on `execution_started`, and deliberately not on `succeeded`. That
+   * append is the fail-closed one — a throw there aborts before `execute` runs
+   * ("no record, no start") — while the terminal append is best-effort and
+   * swallowed. Putting the recovery value on the terminal record would lose it
+   * in exactly the case where recovery matters most: the process that died
+   * between the side effect and its terminal append. The pair is joined on
+   * `approvalId ?? correlationId`, which `verifyAudit` already forces to exist.
+   *
+   * Additive + optional, following {@link AuditRecord.correlationId}: every
+   * optional field is spread only when present, so a record without it hashes
+   * exactly as before and a 0.1.0-era chain still verifies. `verifyAudit`
+   * therefore never requires it — absence is legal forever.
+   */
+  prior?: AuditPrior;
   result?: unknown;
   error?: string;
   devMode?: boolean;

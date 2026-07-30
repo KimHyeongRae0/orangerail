@@ -1,4 +1,4 @@
-import type { ApprovalRecord } from 'orangerail-core';
+import type { ApprovalRecord, AuditPrior } from 'orangerail-core';
 import { describe, expect, it } from 'vitest';
 
 import { previewInput, renderApprovalDetail, renderApprovalList, sanitize } from '../src/render';
@@ -83,6 +83,51 @@ describe('render — approval detail (§3.5)', () => {
 
     expect(out).not.toContain(csi);
     expect(out).toContain('forged');
+  });
+});
+
+describe('render — the target block on the approver screen (§3.11 / ONT-057)', () => {
+  it('shows the current row above the input, so a stock change has two sides', () => {
+    const out = renderApprovalDetail({
+      record: record({ input: { id: 'p3', stock: 25 } }),
+      prior: { state: 'value', value: { id: 'p3', stock: 0 } },
+    });
+
+    expect(out.indexOf('target (current state, read now):')).toBeLessThan(
+      out.indexOf('input (agent-supplied):'),
+    );
+    expect(out).toContain('"stock": 0');
+    expect(out).toContain('"stock": 25');
+  });
+
+  it('names each non-value state instead of printing an empty block', () => {
+    const cases: { prior: AuditPrior; expected: string }[] = [
+      { prior: { state: 'none' }, expected: 'NONE' },
+      { prior: { state: 'withheld' }, expected: 'WITHHELD' },
+      { prior: { state: 'unavailable', reason: 'no_target' }, expected: 'no target object' },
+      { prior: { state: 'unavailable', reason: 'no_id' }, expected: 'no value at the target id' },
+      { prior: { state: 'unreadable', error: 'boom' }, expected: 'COULD NOT READ' },
+    ];
+
+    for (const entry of cases) {
+      expect(renderApprovalDetail({ record: record(), prior: entry.prior })).toContain(
+        entry.expected,
+      );
+    }
+  });
+
+  it('omits the block entirely when no prior was resolved', () => {
+    expect(renderApprovalDetail({ record: record() })).not.toContain('target (current state');
+  });
+
+  it('sanitizes a datasource error before it reaches the terminal', () => {
+    const out = renderApprovalDetail({
+      record: record(),
+      prior: { state: 'unreadable', error: `${ESC}[31mrelation "users" does not exist` },
+    });
+
+    expect(out).not.toContain(ESC);
+    expect(out).toContain('relation');
   });
 });
 

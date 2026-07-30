@@ -6,7 +6,7 @@ import { readPublicDiagnostic, type PublicDiagnostic } from '../diagnostic';
 import { authorizeApprover } from '../identity/contract';
 import { evaluateWhere } from '../policy/where';
 import type { Registry } from '../registry';
-import type { ApprovalRecord, AuditInput, AuditPhase, Store } from '../store/contract';
+import type { ApprovalRecord, AuditInput, AuditPhase, AuditPrior, Store } from '../store/contract';
 import type { Identity, RuntimeAction } from '../types';
 
 /** Engine execution mode (§3.6). `dry_run` powers the sandbox preset. */
@@ -18,6 +18,30 @@ export type EngineMode = 'live' | 'dry_run';
  * called against the payload the engine actually executes.
  */
 export type RedactAudit = (args: { actionName: string; input: unknown }) => unknown;
+
+/**
+ * Audit-only masking hook for the PRIOR target row (§3.9 / ONT-057). Separate
+ * from {@link RedactAudit} on purpose, and the separation is the safety property
+ * rather than an API accident.
+ *
+ * `redactAudit` is written against an action's INPUT. A prior row is a different
+ * shape: it carries every column the object declares, including ones no input
+ * ever mentions. Handing a row to an input-shaped redactor would mask the fields
+ * it happens to know and silently publish the rest — a `password_hash` that
+ * never appears in an `updateUser` input would land in the audit log the first
+ * time this feature shipped. There is no way to ask a function whether it
+ * handles a shape it was not written for, so the opt-in is explicit: supply this
+ * and the row is masked by it; supply only `redactAudit` and the row is withheld
+ * (`{ state: 'withheld' }`) rather than guessed at.
+ *
+ * Returning `undefined` is read as "mask the whole thing" and also yields
+ * `withheld` — a `value` of `undefined` would serialize away and be
+ * indistinguishable from a row that was never read.
+ *
+ * To opt a project back into verbatim rows after configuring `redactAudit`,
+ * pass the identity: `redactPrior: ({ prior }) => prior`.
+ */
+export type RedactPrior = (args: { actionName: string; prior: unknown }) => unknown;
 
 /**
  * The detail carried by every failing outcome (§3.10).
@@ -117,8 +141,138 @@ const failureOf = ({ err }: { err: unknown }): { error: string; diagnostic?: Pub
   return { error: errorMessage({ err }), ...(diagnostic ? { diagnostic } : {}) };
 };
 
+/**
+ * How the engine reads the target of an action — the ONE read path, shared by
+ * the `where` gate and the prior-state capture (§3.11) so the two can never
+ * disagree about which row this action is about.
+ */
+export type TargetFetch =
+  | { kind: 'no_target'; reason: 'no_target' | 'no_id' }
+  | { kind: 'ok'; object: unknown }
+  | ({ kind: 'resolve_error' } & Omit<FailureDetail, 'correlationId'>);
+
+/**
+ * Read the action's target through the read contract the ontology already
+ * declares (`target.resolve.get`, keyed by `targetIdFrom`). Module-scope and
+ * exported because the CLI's approver view reads the same row the same way —
+ * two spellings of "the object this action is about" is one more than the
+ * design can afford.
+ *
+ * A missing id VALUE short-circuits instead of issuing `get(String(undefined))`.
+ * `where` is unaffected — it maps every non-`ok` fetch to a `null` object
+ * either way — and the datasource stops being asked about a row the input never
+ * named.
+ */
+export const fetchTarget = async ({
+  action,
+  input,
+}: {
+  action: RuntimeAction;
+  input: unknown;
+}): Promise<TargetFetch> => {
+  const target = action.target;
+  const field = action.targetIdFrom;
+
+  if (!target?.resolve || field === undefined) {
+    return { kind: 'no_target', reason: 'no_target' };
+  }
+
+  const id = (input as Record<string, unknown>)[field];
+  if (id === undefined || id === null) {
+    return { kind: 'no_target', reason: 'no_id' };
+  }
+
+  try {
+    const object = await target.resolve.get({ id: String(id) });
+    return { kind: 'ok', object };
+  } catch (err) {
+    return { kind: 'resolve_error', ...failureOf({ err }) };
+  }
+};
+
+/**
+ * The prior state of an action's target, derived from what the ontology already
+ * declares (§3.11 / ONT-057).
+ *
+ * The engine is generic and cannot know how to read an arbitrary action's
+ * target — but an ontology that declares `target` + `targetIdFrom` + a
+ * `resolve.get` has already said exactly that, and `where` has been calling it
+ * since §3.1. Deriving the prior value from the SAME declaration is why a
+ * generated Prisma `update` and a hand-written one both get recoverability with
+ * nothing new to remember, and why a record's `prior` describes the row the
+ * gate approved rather than some second opinion about it.
+ *
+ * `fetched` lets a caller hand in a read it already performed (the `where`
+ * gate's), so a gated action pays no extra round-trip at all.
+ */
+export const readActionPrior = async ({
+  action,
+  input,
+  fetched,
+}: {
+  action: RuntimeAction;
+  input: unknown;
+  fetched?: TargetFetch | undefined;
+}): Promise<AuditPrior> => {
+  const target = fetched ?? (await fetchTarget({ action, input }));
+
+  if (target.kind === 'no_target') {
+    return { state: 'unavailable', reason: target.reason };
+  }
+
+  // A read that threw is recorded and moved past. Failing the write here would
+  // trade a governed side effect a human already approved for a hiccup on a
+  // best-effort read — the audit log would gain nothing and the operator would
+  // lose the write (§3.11).
+  if (target.kind === 'resolve_error') {
+    return { state: 'unreadable', error: target.error };
+  }
+
+  return target.object === null || target.object === undefined
+    ? { state: 'none' }
+    : { state: 'value', value: target.object };
+};
+
+/**
+ * Apply audit redaction policy to a prior value (§3.9). Exported so the CLI's
+ * approver view masks exactly what the audit log would — one definition of the
+ * policy, or the two surfaces drift and the safer-looking one is the lie.
+ *
+ * Fail-closed by construction: a project that configured `redactAudit` and no
+ * `redactPrior` has declared its data sensitive and said nothing about rows, so
+ * the row is withheld rather than published under a mask written for a
+ * different shape. See {@link RedactPrior}.
+ */
+export const maskAuditPrior = ({
+  actionName,
+  prior,
+  redactAudit,
+  redactPrior,
+}: {
+  actionName: string;
+  prior: AuditPrior;
+  redactAudit?: RedactAudit | undefined;
+  redactPrior?: RedactPrior | undefined;
+}): AuditPrior => {
+  if (prior.state !== 'value') {
+    // `unreadable` carries driver text and is deliberately NOT masked here: it
+    // is the same operator-facing text the record's existing `error` field has
+    // always carried unredacted, so withholding this one copy would buy no
+    // confidentiality while costing the only explanation of a missing row.
+    return prior;
+  }
+
+  if (redactPrior) {
+    const masked = redactPrior({ actionName, prior: prior.value });
+
+    return masked === undefined ? { state: 'withheld' } : { state: 'value', value: masked };
+  }
+
+  return redactAudit ? { state: 'withheld' } : prior;
+};
+
 type WhereCheck =
-  | { kind: 'pass' }
+  | { kind: 'pass'; target?: TargetFetch | undefined }
   | { kind: 'fail' }
   | ({ kind: 'resolve_error' } & Omit<FailureDetail, 'correlationId'>);
 
@@ -132,11 +286,13 @@ export const createEngine = ({
   store,
   mode = 'live',
   redactAudit,
+  redactPrior,
 }: {
   registry: Registry;
   store: Store;
   mode?: EngineMode;
   redactAudit?: RedactAudit;
+  redactPrior?: RedactPrior;
 }) => {
   const mkAudit = ({
     phase,
@@ -146,6 +302,7 @@ export const createEngine = ({
     requestedBy,
     approver,
     input,
+    prior,
     result,
     error,
     devMode,
@@ -157,6 +314,7 @@ export const createEngine = ({
     requestedBy?: string | undefined;
     approver?: string | undefined;
     input?: unknown;
+    prior?: AuditPrior | undefined;
     result?: unknown;
     error?: string | undefined;
     devMode?: boolean | undefined;
@@ -166,8 +324,19 @@ export const createEngine = ({
     const auditInput =
       input !== undefined && redactAudit ? redactAudit({ actionName, input }) : input;
 
+    // Both masks live here, so §3.9 has exactly one home in the engine and a
+    // new audited field cannot be added past redaction by accident. A throwing
+    // redactor takes the same route it always has: mkAudit throws, the append
+    // that wraps it fails, and `runExecute` returns `audit_blocked` WITHOUT
+    // executing — redaction fails closed rather than open.
+    const auditPrior =
+      prior !== undefined
+        ? maskAuditPrior({ actionName, prior, redactAudit, redactPrior })
+        : undefined;
+
     // Every optional field is spread ONLY when present, so a record without a
-    // correlationId (every existing record) hashes exactly as before (§3.2).
+    // correlationId or a prior (every existing record) hashes exactly as
+    // before (§3.2 / §3.11).
     return {
       phase,
       actionName,
@@ -177,38 +346,11 @@ export const createEngine = ({
       ...(requestedBy !== undefined ? { requestedBy } : {}),
       ...(approver !== undefined ? { approver } : {}),
       ...(auditInput !== undefined ? { input: auditInput } : {}),
+      ...(auditPrior !== undefined ? { prior: auditPrior } : {}),
       ...(result !== undefined ? { result } : {}),
       ...(error !== undefined ? { error } : {}),
       ...(devMode !== undefined ? { devMode } : {}),
     };
-  };
-
-  const fetchTarget = async ({
-    action,
-    input,
-  }: {
-    action: RuntimeAction;
-    input: unknown;
-  }): Promise<
-    | { kind: 'no_target' }
-    | { kind: 'ok'; object: unknown }
-    | ({ kind: 'resolve_error' } & Omit<FailureDetail, 'correlationId'>)
-  > => {
-    const target = action.target;
-    const field = action.targetIdFrom;
-
-    if (!target?.resolve || field === undefined) {
-      return { kind: 'no_target' };
-    }
-
-    const id = (input as Record<string, unknown>)[field];
-
-    try {
-      const object = await target.resolve.get({ id: String(id) });
-      return { kind: 'ok', object };
-    } catch (err) {
-      return { kind: 'resolve_error', ...failureOf({ err }) };
-    }
   };
 
   const checkWhere = async ({
@@ -222,6 +364,9 @@ export const createEngine = ({
   }): Promise<WhereCheck> => {
     const where = action.policy?.where;
 
+    // No gate, no read. The prior-state capture then does its own fetch in
+    // `runExecute`; an un-gated action is exactly the case ONT-057 exists for,
+    // so it is also the only case that pays for the extra round-trip.
     if (!where) {
       return { kind: 'pass' };
     }
@@ -240,8 +385,11 @@ export const createEngine = ({
     // `resolve_error` as an accounted post-consume record, so the consumed
     // approval is not left an unexplained orphan.
     try {
+      // The fetch rides along on a pass so `runExecute` records the row the
+      // gate just approved, rather than re-reading and recording a possibly
+      // different one. Zero extra round-trips for a gated action (§3.11 cost).
       return evaluateWhere({ where, object, input, identity })
-        ? { kind: 'pass' }
+        ? { kind: 'pass', target: fetched }
         : { kind: 'fail' };
     } catch (err) {
       return { kind: 'resolve_error', ...failureOf({ err }) };
@@ -254,16 +402,24 @@ export const createEngine = ({
    * without executing ("no record, no start"). A post-execute append failure is
    * swallowed so the side effect is not hidden — it survives as an
    * `execution_started` with no terminal record for `verifyAudit` to flag.
+   *
+   * It is also where the prior state of the target is captured (§3.11): read
+   * BEFORE the `execution_started` append so the value is durable before the
+   * side effect can happen, and stamped on that record rather than the terminal
+   * one for the same reason.
    */
   const runExecute = async ({
     action,
     input,
     identity,
+    target,
     audit,
   }: {
     action: RuntimeAction;
     input: unknown;
     identity: Identity;
+    /** A target read the `where` gate already performed, when there was one. */
+    target?: TargetFetch | undefined;
     audit: {
       actionName: string;
       approvalId?: string | undefined;
@@ -285,8 +441,16 @@ export const createEngine = ({
     const correlationId = audit.approvalId ?? randomUUID();
     const correlated = audit.approvalId === undefined ? { ...audit, correlationId } : audit;
 
+    // One read, on the same connection the write is about to use, and never
+    // inside its transaction — `execute` is arbitrary user code and orangerail
+    // has no transaction to enlist in. Free when a `where` gate already fetched
+    // the row; skipped entirely when the action declares no readable target.
+    const prior = await readActionPrior({ action, input, fetched: target });
+
     try {
-      await store.appendAudit({ record: mkAudit({ ...correlated, phase: 'execution_started' }) });
+      await store.appendAudit({
+        record: mkAudit({ ...correlated, phase: 'execution_started', prior }),
+      });
     } catch (err) {
       // No audit record exists for this attempt (the append is what failed), so
       // the full text has no audit home — the transport's operator sink is the
@@ -422,6 +586,7 @@ export const createEngine = ({
         action,
         input: parsedInput,
         identity: caller,
+        target: where.target,
         audit: {
           actionName,
           requestedBy: caller.subject,
@@ -666,7 +831,13 @@ export const createEngine = ({
     }
 
     // Steps 6-7: execution_started (fail-closed) -> execute -> terminal record.
-    return runExecute({ action, input: freshInput, identity: executeIdentity, audit });
+    return runExecute({
+      action,
+      input: freshInput,
+      identity: executeIdentity,
+      target: where.target,
+      audit,
+    });
   };
 
   return { stage, approve, reject, execute };

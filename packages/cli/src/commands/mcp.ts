@@ -42,6 +42,7 @@ export const mcpServerArgsFrom = ({
   ...(config.resolveIdentity ? { resolveIdentity: config.resolveIdentity } : {}),
   ...(config.preset ? { preset: config.preset } : {}),
   ...(config.redactAudit ? { redactAudit: config.redactAudit } : {}),
+  ...(config.redactPrior ? { redactPrior: config.redactPrior } : {}),
   ...(config.allowDevMode ? { allowDevMode: config.allowDevMode } : {}),
   ...(config.hostApprovalPrompt ? { hostApprovalPrompt: config.hostApprovalPrompt } : {}),
 });

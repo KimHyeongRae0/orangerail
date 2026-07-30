@@ -39,6 +39,7 @@ export type {
   AuditHead,
   AuditInput,
   AuditPhase,
+  AuditPrior,
   AuditRecord,
   ConsumeApprovalResult,
   CreateApprovalInput,
@@ -46,7 +47,7 @@ export type {
   Store,
 } from './store/contract';
 
-export { createEngine } from './lifecycle/engine';
+export { createEngine, fetchTarget, maskAuditPrior, readActionPrior } from './lifecycle/engine';
 export type {
   ApproveResult,
   Engine,
@@ -54,8 +55,10 @@ export type {
   ExecuteResult,
   FailureDetail,
   RedactAudit,
+  RedactPrior,
   RejectResult,
   StageResult,
+  TargetFetch,
 } from './lifecycle/engine';
 
 export { verifyAudit } from './audit/verify';

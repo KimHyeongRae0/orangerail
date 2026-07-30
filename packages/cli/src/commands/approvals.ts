@@ -1,4 +1,11 @@
-import { createEngine, type ApproveResult, type RejectResult } from 'orangerail-core';
+import {
+  createEngine,
+  maskAuditPrior,
+  readActionPrior,
+  type ApproveResult,
+  type AuditPrior,
+  type RejectResult,
+} from 'orangerail-core';
 
 import type { OrangerailConfig } from '../config';
 import { resolveCliCaller } from '../identity';
@@ -9,7 +16,43 @@ const buildEngine = ({ config }: { config: OrangerailConfig }) =>
     registry: config.registry,
     store: config.store,
     ...(config.redactAudit ? { redactAudit: config.redactAudit } : {}),
+    ...(config.redactPrior ? { redactPrior: config.redactPrior } : {}),
   });
+
+/**
+ * The current state of a staged action's target, for the approver's screen
+ * (§3.11 / ONT-057). Read through the same `readActionPrior` the engine uses and
+ * masked by the same policy, so what an approver sees and what the audit chain
+ * records can never be two different levels of disclosure.
+ *
+ * Returns `undefined` when the action is not in the registry — the detail view
+ * then omits the block rather than asserting anything about a row it cannot
+ * locate. Every other outcome, including a read that threw, is a state of
+ * `AuditPrior` and is printed as itself.
+ */
+const currentTarget = async ({
+  config,
+  actionName,
+  input,
+}: {
+  config: OrangerailConfig;
+  actionName: string;
+  input: unknown;
+}): Promise<AuditPrior | undefined> => {
+  const action = config.registry.getAction({ name: actionName });
+  if (!action) {
+    return undefined;
+  }
+
+  const prior = await readActionPrior({ action, input });
+
+  return maskAuditPrior({
+    actionName,
+    prior,
+    ...(config.redactAudit ? { redactAudit: config.redactAudit } : {}),
+    ...(config.redactPrior ? { redactPrior: config.redactPrior } : {}),
+  });
+};
 
 /** `orangerail approvals list` — render the pending queue (§3.5). Exit 0. */
 export const approvalsList = async ({ config }: { config: OrangerailConfig }): Promise<number> => {
@@ -20,9 +63,15 @@ export const approvalsList = async ({ config }: { config: OrangerailConfig }): P
 };
 
 /**
- * `orangerail approvals show <id>` — full record with pretty-printed input. The
- * input block is length-capped by default so the decision context stays on the
- * approver's screen; `--full` prints the whole value.
+ * `orangerail approvals show <id>` — full record with pretty-printed input, and
+ * the current state of the row the write is aimed at (§3.11). The input block is
+ * length-capped by default so the decision context stays on the approver's
+ * screen; `--full` prints the whole value.
+ *
+ * The target read costs one round-trip to the datasource, on an operator-invoked
+ * command that is already reading the store. That is the cheapest place in the
+ * system to answer "what does this change?" — and answering it before the
+ * decision is worth more than answering it afterwards in the audit log.
  */
 export const approvalsShow = async ({
   config,
@@ -40,7 +89,13 @@ export const approvalsShow = async ({
     return 1;
   }
 
-  process.stdout.write(renderApprovalDetail({ record, full }));
+  const prior = await currentTarget({
+    config,
+    actionName: record.actionName,
+    input: record.input,
+  });
+
+  process.stdout.write(renderApprovalDetail({ record, full, ...(prior ? { prior } : {}) }));
 
   return 0;
 };
