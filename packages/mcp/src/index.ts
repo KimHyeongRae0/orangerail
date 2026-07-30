@@ -16,5 +16,5 @@ export { validateToolName } from './names';
 export { relationLines } from './relations';
 export { deriveFilterSchema, deriveFilterSpec, validateFilter } from './filter';
 export type { FilterField, FilterSpec } from './filter';
-export { deriveInputSchema } from './schema';
+export { deriveInputSchema, describeInputIssues } from './schema';
 export type { JsonSchema, JsonSchemaProperty } from './schema';

@@ -16,7 +16,9 @@
  *      enough that the server's build-time tool-name validation passes, and
  *      (ONT-053) each read tool describing the object it reads — the scanned
  *      columns and the ProductStatus members as the `filter` schema, the
- *      derived links as a relation sentence;
+ *      derived links as a relation sentence — and (ONT-061) each generated
+ *      `update*` action describing its own input: a type on every optional
+ *      column, optionality in `required`, and a refusal that names the field;
  *   4. generation is byte-deterministic across two fresh runs (AC-9);
  *   5. `orangerail sync` is clean right after init, reports drift (new model
  *      proposal + field drift) after the schema mutates, creates ONLY the new
@@ -537,6 +539,74 @@ assert({
 assert({
   ok: toolByName.get('AuditNote_get')?.description === 'Fetch a single AuditNote by id.',
   message: `an object with no links must keep its original description, got "${toolByName.get('AuditNote_get')?.description}"`,
+});
+
+// ONT-061: the WRITE surface has to describe itself as honestly as the read one.
+// This is the only fence that watches a GENERATED action's published contract —
+// the defect it guards (every optional field publishing `{}`, so every generated
+// `update*` was fully type-erased) survived every unit test in the repo, because
+// every one of them builds its zod in-process instead of reading it back off the
+// wire.
+const updateProduct = toolByName.get('updateProduct')?.inputSchema ?? {};
+
+assert({
+  ok:
+    JSON.stringify(updateProduct.properties?.price) === JSON.stringify({ type: 'number' }) &&
+    JSON.stringify(updateProduct.properties?.title) === JSON.stringify({ type: 'string' }),
+  message: `updateProduct must publish a type for its OPTIONAL columns, got ${JSON.stringify(updateProduct.properties)}`,
+});
+assert({
+  ok: JSON.stringify(updateProduct.required) === JSON.stringify(['id']),
+  message: `optionality belongs in "required", not in an emptied property — got required=${JSON.stringify(updateProduct.required)}`,
+});
+assert({
+  ok:
+    JSON.stringify(updateProduct.properties?.status?.enum) ===
+    JSON.stringify(['DRAFT', 'ACTIVE', 'ARCHIVED']),
+  message: `updateProduct must publish the ProductStatus members, got ${JSON.stringify(updateProduct.properties?.status)}`,
+});
+// OPEN, unlike the filter object, and deliberately: a zod object is non-strict,
+// so an undeclared key is accepted and stripped. `false` would advertise a
+// refusal this surface does not perform.
+assert({
+  ok: updateProduct.additionalProperties === true,
+  message: 'an action input must stay open — no checker here refuses an undeclared key',
+});
+
+// The refusal has to be actionable. Blind, it cost 4 of 12 items in an
+// unattended-queue run: the agent guessed a string for an untyped column and
+// nothing in the loop could tell it otherwise.
+const wrongType = await session.request({
+  method: 'tools/call',
+  params: { name: 'updateProduct', arguments: { id: 'p1', price: 'free' } },
+});
+assert({
+  ok: wrongType.structuredContent?.status === 'invalid_input',
+  message: `a wrong-typed optional must be refused, got ${JSON.stringify(wrongType.structuredContent)}`,
+});
+assert({
+  ok: (wrongType.structuredContent?.issues ?? []).includes('"price" expects number'),
+  message: `the refusal must name the field and the type it wanted, got ${JSON.stringify(wrongType.structuredContent)}`,
+});
+assert({
+  ok: (wrongType.content ?? []).some((part) =>
+    (part.text ?? '').includes('"price" expects number'),
+  ),
+  message:
+    'the issues must reach the TEXT content — a tool with no outputSchema is read from there',
+});
+
+// ...and the type the schema advertises gets past the parser, so the contract is
+// true in both directions. Same shape of proof as the filter above: this fixture
+// has no database, so anything past the parse fails downstream, and the STATUS is
+// what distinguishes the gate from everything behind it.
+const rightType = await session.request({
+  method: 'tools/call',
+  params: { name: 'updateProduct', arguments: { id: 'p1', price: 9.5 } },
+});
+assert({
+  ok: rightType.structuredContent?.status !== 'invalid_input',
+  message: `a value the schema advertises must not be refused by the parser, got ${JSON.stringify(rightType.structuredContent)}`,
 });
 
 // the server booted at all => build-time tool-name validation passed => the

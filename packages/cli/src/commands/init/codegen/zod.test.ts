@@ -202,7 +202,7 @@ describe('the array/object change does not reach the differ or the MCP schema (O
     expect(fieldNode({ field }).safeParse(['a']).success).toBe(true);
   });
 
-  it('gives the MCP advisory schema an honest gap instead of a false `type: string`', () => {
+  it('gives the MCP schema the container it really is, never a false `type: string`', () => {
     const action = scanOpenApiJson({ source: ARRAY_SPEC }).actions[0] as IrAction;
     const entries = action.input
       .map((field) => `${JSON.stringify(field.name)}: ${actionFieldExpr({ field })}`)
@@ -211,12 +211,15 @@ describe('the array/object change does not reach the differ or the MCP schema (O
 
     const derived = deriveInputSchema({ schema });
 
-    // Before the fix these were `{ type: 'string' }` — the advisory schema
-    // repeated the emitter's lie. `deriveInputSchema` leaves a non-primitive
-    // unconstrained by design, so the array and the object now say nothing
-    // rather than something false, and the primitive sibling is unchanged.
-    expect(derived.properties['arr']).toEqual({});
-    expect(derived.properties['obj']).toEqual({});
+    // Before ONT-042 these were `{ type: 'string' }` — the published schema
+    // repeated the emitter's lie. The claim being defended is "never something
+    // false", and ONT-061 narrows the gap without weakening it: an array is
+    // published as an array and an object as an object, which is exactly true,
+    // while the inner shape stays unstated. Saying NOTHING was the safe answer
+    // only while nothing better was available — an agent handed `{}` for a
+    // `tags` field guesses a string, which is the whole ONT-061 defect.
+    expect(derived.properties['arr']).toEqual({ type: 'array' });
+    expect(derived.properties['obj']).toEqual({ type: 'object' });
     expect(derived.properties['plain']).toEqual({ type: 'string' });
     expect(derived.type).toBe('object');
   });

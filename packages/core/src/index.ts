@@ -82,6 +82,7 @@ export {
   enumValues,
   getShape,
   inputShape,
+  isNullableField,
   isOptionalField,
   shapeKeys,
   typeNameOf,

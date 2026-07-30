@@ -169,15 +169,18 @@ export const canonicalJson = ({ value }: { value: unknown }): string =>
   JSON.stringify(sortValue({ value }));
 
 /**
- * Whether a field-level zod node is optional from the caller's perspective —
- * `true` iff the node accepts `undefined`, probed via the public
- * `safeParse(undefined).success` (stable across zod v3 and v4, no `_def`
- * spelunking). A `.default()` field reports optional on purpose: the caller may
- * omit it (§3.8). Non-zod nodes are treated as required; an async refinement
- * makes `safeParse` throw synchronously, which is likewise treated as required
- * (fail-closed — a `?` marker is only ever added when provably optional).
+ * Whether a field-level zod node accepts one specific probe value, asked
+ * through the PUBLIC `safeParse` rather than through `_def` (stable across zod
+ * v3 and v4, and it answers for a wrapper chain of any depth without knowing
+ * how the chain is spelled).
+ *
+ * Fails closed in every ambiguous case: a non-zod node, a node without
+ * `safeParse`, and an async refinement (whose `safeParse` throws synchronously)
+ * all report "does not accept". Every caller uses the answer to WIDEN what it
+ * publishes about a field, so a false negative costs a marker while a false
+ * positive would advertise a value the parser rejects.
  */
-export const isOptionalField = ({ node }: { node: unknown }): boolean => {
+const admits = ({ node, value }: { node: unknown; value: unknown }): boolean => {
   if (typeof node !== 'object' || node === null) {
     return false;
   }
@@ -188,8 +191,29 @@ export const isOptionalField = ({ node }: { node: unknown }): boolean => {
   }
 
   try {
-    return candidate.safeParse(undefined).success === true;
+    return candidate.safeParse(value).success === true;
   } catch {
     return false;
   }
 };
+
+/**
+ * Whether a field-level zod node is optional from the caller's perspective —
+ * `true` iff the node accepts `undefined`. A `.default()` field reports optional
+ * on purpose: the caller may omit it (§3.8).
+ */
+export const isOptionalField = ({ node }: { node: unknown }): boolean =>
+  admits({ node, value: undefined });
+
+/**
+ * Whether a field-level zod node accepts `null` — a DIFFERENT question from
+ * {@link isOptionalField}, and kept separate because a published JSON Schema
+ * states the two facts in different places: optionality by omission from
+ * `required`, nullability by a `"null"` member in `type`.
+ *
+ * Collapsing them is how a schema ends up claiming a field admits `null` when
+ * the parser will reject it, or erasing the type of a field that is merely
+ * optional (ONT-061).
+ */
+export const isNullableField = ({ node }: { node: unknown }): boolean =>
+  admits({ node, value: null });
