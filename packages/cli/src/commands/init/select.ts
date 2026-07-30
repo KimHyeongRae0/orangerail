@@ -3,8 +3,9 @@ import { SCANNERS } from './scan';
 import type { ResolvedInit } from './wizard';
 
 /**
- * The `--sources` / `--models` selection layer (ONT-041). Two jobs, both about
- * `init` never claiming success over a project that cannot load:
+ * The `--sources` / `--models` / `--exclude` selection layer (ONT-041, ONT-059).
+ * Two jobs, both about `init` never claiming success over a project that cannot
+ * load:
  *
  * - `assertSelection` refuses a value that selects nothing, BEFORE a byte is
  *   written, naming the valid set — the behavior `--preset` already models. A
@@ -15,6 +16,12 @@ import type { ResolvedInit } from './wizard';
  *   model, so keeping it after its object was filtered out emitted an import of
  *   a file that is never written — `--models` on any schema with 2+ models
  *   produced a project that dies at load with `Cannot find module`.
+ *
+ * `--exclude` is the deny-list's front door and validates identically, because
+ * the two flags fail in the same way: a typo in either silently changes which
+ * tables an agent can reach. The difference is downstream — `--models` narrows
+ * this run, while an `--exclude` name is also written into
+ * `orangerail.governance.json` as a refusal that later scans honour (ONT-059).
  */
 
 /** The scanner names `--sources` accepts, in registration order. */
@@ -47,14 +54,42 @@ export const assertSelection = ({
   }
 
   const scanned = source.objects.map((object) => object.name);
+  const known = scanned.length === 0 ? '(this repo has no scanned models)' : scanned.join(', ');
   const unknownModels = (options.models ?? []).filter((name) => !scanned.includes(name));
 
   if (unknownModels.length > 0) {
-    const known = scanned.length === 0 ? '(this repo has no scanned models)' : scanned.join(', ');
-
     throw new Error(
       `unknown model ${quoteAll({ values: unknownModels })} — expected one of ${known}`,
     );
+  }
+
+  const excluded = options.exclude ?? [];
+  const unknownExcluded = excluded.filter((name) => !scanned.includes(name));
+
+  // A typo'd `--exclude` is worse than a typo'd `--models`, because the refusal
+  // it writes outlives this run: `orangerail sync` would keep reporting the table
+  // the operator believed they had refused, while the deny-list quietly carried a
+  // name that matches nothing.
+  if (unknownExcluded.length > 0) {
+    throw new Error(
+      `unknown model ${quoteAll({ values: unknownExcluded })} in --exclude — expected one of ${known}`,
+    );
+  }
+
+  const contradictory = (options.models ?? []).filter((name) => excluded.includes(name));
+
+  // Neither precedence rule is honest here: whichever flag won, half of what the
+  // operator typed would be discarded without a word, and the half discarded
+  // decides whether a table is on the agent's surface.
+  if (contradictory.length > 0) {
+    throw new Error(
+      `${quoteAll({ values: contradictory })} appears in both --models and --exclude — ` +
+        'keep it or refuse it, not both',
+    );
+  }
+
+  if (excluded.length > 0 && scanned.every((name) => excluded.includes(name))) {
+    throw new Error('--exclude names every scanned model — there would be nothing left to govern');
   }
 };
 
@@ -64,8 +99,14 @@ export const assertSelection = ({
  * carries its own `source`, so `--sources=prisma` keeps the Prisma CRUD actions
  * it also produced instead of silently dropping them). `models` keeps only the
  * named objects, the relations between them, and the actions that target them.
- * Absent filters keep everything (the flag-driven default), and the whole
- * function is a no-op on an unfiltered scan.
+ * `exclude` then drops the named objects from whatever survived. Absent filters
+ * keep everything (the flag-driven default), and the whole function is a no-op on
+ * an unfiltered scan.
+ *
+ * The two model filters compose in that order rather than one overriding the
+ * other, and `assertSelection` has already refused a name given to both — so
+ * `--models` answers "which of these do I want" and `--exclude` answers "which of
+ * these have I refused", and no name has to mean both at once.
  */
 export const applyFilters = ({
   source,
@@ -79,12 +120,15 @@ export const applyFilters = ({
     sources === undefined || sources.includes(name);
 
   const models = options.models;
+  const excluded = options.exclude ?? [];
 
-  const objects = !keepsSource({ name: 'prisma' })
+  const kept = !keepsSource({ name: 'prisma' })
     ? []
     : models === undefined
       ? source.objects
       : source.objects.filter((o) => models.includes(o.name));
+
+  const objects = kept.filter((o) => !excluded.includes(o.name));
 
   const objectNames = new Set(objects.map((o) => o.name));
 
@@ -111,4 +155,38 @@ export const applyFilters = ({
     warnings: source.warnings,
     infos: source.infos,
   };
+};
+
+/**
+ * Scanned models this run neither generated nor recorded as refused (ONT-059).
+ *
+ * `--models a,b` is a statement about what the operator wants, not about the
+ * models they left out: nobody enumerated those and said no to them. Recording
+ * the complement as a deny-list would make the tool assert a decision that was
+ * never made — the same laundering `recordedBy: 'init'` exists to prevent — so
+ * `init` names them instead and hands back the command that would record them,
+ * with the names in it.
+ *
+ * Only an allow-list produces leftovers. Without `--models` every scanned model
+ * was either generated or explicitly refused, so there is nothing to report.
+ */
+export const unaccountedModels = ({
+  source,
+  options,
+}: {
+  /** The scan BEFORE filtering — the full set the operator narrowed against. */
+  source: ScannedSource;
+  options: ResolvedInit;
+}): string[] => {
+  const models = options.models;
+
+  if (models === undefined) {
+    return [];
+  }
+
+  const excluded = options.exclude ?? [];
+
+  return source.objects
+    .map((object) => object.name)
+    .filter((name) => !models.includes(name) && !excluded.includes(name));
 };

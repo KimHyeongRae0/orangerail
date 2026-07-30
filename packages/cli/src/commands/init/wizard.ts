@@ -24,6 +24,8 @@ export interface InitFlags {
   gate?: string | undefined;
   sources?: string[] | undefined;
   models?: string[] | undefined;
+  /** `--exclude` — models considered and refused, recorded in the baseline (ONT-059). */
+  exclude?: string[] | undefined;
   docs?: boolean | undefined;
   studio?: boolean | undefined;
   open: boolean;
@@ -38,6 +40,7 @@ export interface ResolvedInit {
   gate: GatePolicy;
   sources?: string[] | undefined;
   models?: string[] | undefined;
+  exclude?: string[] | undefined;
   docs: boolean;
   studio: boolean;
   open: boolean;
@@ -53,7 +56,7 @@ const REFUSAL = [
   '',
   '  orangerail init --yes \\',
   '    --preset=approval-for-writes --gate=delete \\',
-  '    [--sources=prisma,openapi] [--models=Foo,Bar] \\',
+  '    [--sources=prisma,openapi] [--models=Foo,Bar] [--exclude=Secret] \\',
   '    [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]',
   '',
   'The wizard only prompts on an interactive terminal.',
@@ -114,6 +117,7 @@ const fromFlags = ({ flags }: { flags: InitFlags }): ResolvedInit => ({
   gate: resolveGate({ value: flags.gate }),
   ...(flags.sources === undefined ? {} : { sources: flags.sources }),
   ...(flags.models === undefined ? {} : { models: flags.models }),
+  ...(flags.exclude === undefined ? {} : { exclude: flags.exclude }),
   docs: flags.docs ?? true,
   studio: flags.studio ?? true,
   open: flags.open,
@@ -211,6 +215,12 @@ export const runWizard = async ({
       studio = flags.studio;
     }
 
+    // `--exclude` gets no prompt of its own, and that is deliberate (ONT-059).
+    // A second free-text model question directly under "Import which models?"
+    // would be answered reflexively, and a refusal typed as a reflex is exactly
+    // the rubber stamp the deny-list exists to avoid. The interactive path
+    // narrows with the question above; `init` then names what that left
+    // unaccounted for and hands back the one command that records it.
     return {
       ok: true,
       options: {
@@ -218,6 +228,7 @@ export const runWizard = async ({
         gate,
         ...(sources === undefined ? {} : { sources }),
         ...(models === undefined ? {} : { models }),
+        ...(flags.exclude === undefined ? {} : { exclude: flags.exclude }),
         docs,
         studio,
         open: studio && flags.open,

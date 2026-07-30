@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   actionPostures,
   diffGovernance,
+  exposedExclusionDetail,
   GOVERNANCE_FILE,
   isUnreviewed,
   parseBaseline,
@@ -240,6 +241,7 @@ describe('the recorded baseline file', () => {
     const recorded = serializeBaseline({
       postures: actionPostures({ registry: registryWith({}) }),
       recordedBy: 'sync',
+      excluded: [],
     });
 
     expect(recorded.endsWith('\n')).toBe(true);
@@ -247,13 +249,14 @@ describe('the recorded baseline file', () => {
       serializeBaseline({
         postures: parseBaseline({ source: recorded }).actions,
         recordedBy: 'sync',
+        excluded: [],
       }),
     ).toBe(recorded);
   });
 
   it('sorts rows and roles on read so an unchanged posture never reads as a change', () => {
     const parsed = parseBaseline({
-      source: serializeBaseline({ postures, recordedBy: 'sync' }),
+      source: serializeBaseline({ postures, recordedBy: 'sync', excluded: [] }),
     }).actions;
 
     expect(parsed.map((row) => row.name)).toEqual(['a', 'b']);
@@ -281,15 +284,23 @@ describe('the recorded baseline file', () => {
    * against writing it at `init` at all, and this field is the answer to it.
    */
   it('records the provenance and reads it back', () => {
-    const byInit = parseBaseline({ source: serializeBaseline({ postures, recordedBy: 'init' }) });
-    const bySync = parseBaseline({ source: serializeBaseline({ postures, recordedBy: 'sync' }) });
+    const byInit = parseBaseline({
+      source: serializeBaseline({ postures, recordedBy: 'init', excluded: [] }),
+    });
+    const bySync = parseBaseline({
+      source: serializeBaseline({ postures, recordedBy: 'sync', excluded: [] }),
+    });
 
     expect(byInit.recordedBy).toBe('init');
     expect(bySync.recordedBy).toBe('sync');
     // The note is what someone who opens the file reads, so it must say which
     // of the two this is, not a single sentence that covers both.
-    expect(serializeBaseline({ postures, recordedBy: 'init' })).toContain('before anyone reviewed');
-    expect(serializeBaseline({ postures, recordedBy: 'sync' })).toContain('a human reviewed');
+    expect(serializeBaseline({ postures, recordedBy: 'init', excluded: [] })).toContain(
+      'before anyone reviewed',
+    );
+    expect(serializeBaseline({ postures, recordedBy: 'sync', excluded: [] })).toContain(
+      'a human reviewed',
+    );
   });
 
   it('reads a pre-ONT-050 baseline (no `recordedBy`) as reviewed — only sync could have written it', () => {
@@ -317,8 +328,21 @@ describe('reviewGovernance — the one verdict sync, status and mcp share', () =
     rmSync(root, { recursive: true, force: true });
   });
 
-  const record = ({ registry, recordedBy }: { registry: Registry; recordedBy: 'init' | 'sync' }) =>
-    writeBaseline({ projectRoot: root, postures: actionPostures({ registry }), recordedBy });
+  const record = ({
+    registry,
+    recordedBy,
+    excluded = [],
+  }: {
+    registry: Registry;
+    recordedBy: 'init' | 'sync';
+    excluded?: string[];
+  }) =>
+    writeBaseline({
+      projectRoot: root,
+      postures: actionPostures({ registry }),
+      recordedBy,
+      excluded,
+    });
 
   it('reports `unrecorded` when there are actions and no file, and `no-actions` when there is nothing to vouch for', () => {
     expect(reviewGovernance({ projectRoot: root, registry: registryWith({}) }).state).toBe(
@@ -330,7 +354,7 @@ describe('reviewGovernance — the one verdict sync, status and mcp share', () =
   });
 
   it('reports `verified` and carries the provenance through', () => {
-    record({ registry: registryWith({ approval: 'required' }), recordedBy: 'init' });
+    record({ registry: registryWith({ approval: 'required' }), recordedBy: 'init', excluded: [] });
 
     const review = reviewGovernance({
       projectRoot: root,
@@ -343,13 +367,13 @@ describe('reviewGovernance — the one verdict sync, status and mcp share', () =
   });
 
   it('names exactly the weakened actions, and a strengthened one never lands in that set', () => {
-    record({ registry: registryWith({ approval: 'required' }), recordedBy: 'sync' });
+    record({ registry: registryWith({ approval: 'required' }), recordedBy: 'sync', excluded: [] });
 
     const weakened = reviewGovernance({ projectRoot: root, registry: registryWith({}) });
     expect(weakened.state).toBe('weakened');
     expect(weakened.weakenedActions).toEqual(['deleteCustomer']);
 
-    record({ registry: registryWith({}), recordedBy: 'sync' });
+    record({ registry: registryWith({}), recordedBy: 'sync', excluded: [] });
 
     const strengthened = reviewGovernance({
       projectRoot: root,
@@ -425,5 +449,100 @@ describe('withholdActions — the server refuses the weakened action, not the on
     expect(typeof served.listLinks).toBe('function');
     expect(served.listLinks().map((link) => link.name)).toEqual(['Customer_orders']);
     expect(served.getObject({ name: 'Order' })?.name).toBe('Order');
+  });
+});
+
+/**
+ * The deny-list (ONT-059). It lives in the same file as the postures because
+ * both are clauses of one committed intention about the agent's surface — and
+ * because two files could disagree about it.
+ */
+describe('the recorded deny-list', () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'orangerail-excl-'));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('round-trips sorted and de-duplicated, and explains itself in the note', () => {
+    const recorded = serializeBaseline({
+      postures: [],
+      recordedBy: 'init',
+      excluded: ['payment', 'api_credential', 'payment'],
+    });
+
+    expect(parseBaseline({ source: recorded }).excluded).toEqual(['api_credential', 'payment']);
+    // Someone who opens the file has to learn the one property that decides
+    // whether they can trust it: it is a list of names, not a snapshot.
+    expect(recorded).toContain('list of NAMES, not a snapshot');
+    expect(serializeBaseline({ postures: [], recordedBy: 'init', excluded: [] })).not.toContain(
+      'list of NAMES',
+    );
+  });
+
+  it('reads a pre-ONT-059 baseline as an empty deny-list, with no version bump', () => {
+    const legacy = JSON.stringify({ version: 1, recordedBy: 'sync', actions: [] });
+
+    expect(parseBaseline({ source: legacy }).excluded).toEqual([]);
+  });
+
+  it('throws on a malformed deny-list rather than reading it as "nothing was refused"', () => {
+    expect(() =>
+      parseBaseline({ source: '{"version":1,"excluded":"payment","actions":[]}' }),
+    ).toThrow(/`excluded`/);
+    expect(() => parseBaseline({ source: '{"version":1,"excluded":[7],"actions":[]}' })).toThrow(
+      /`excluded`/,
+    );
+  });
+
+  it('carries the deny-list onto the review and names an exclusion the registry exposes', () => {
+    const registry = registryWith({ approval: 'required' });
+
+    writeBaseline({
+      projectRoot: root,
+      postures: actionPostures({ registry }),
+      recordedBy: 'sync',
+      excluded: ['Customer', 'Payment'],
+    });
+
+    const review = reviewGovernance({ projectRoot: root, registry });
+
+    expect(review.excluded).toEqual(['Customer', 'Payment']);
+    // `Customer` is a live registry object, so the file and the ontology
+    // contradict each other; `Payment` is refused and absent, as recorded.
+    expect(review.exposedExclusions).toEqual(['Customer']);
+    // The contradiction is its own field, not a state, because the posture can
+    // be weakened at the same time and one state cannot say both.
+    expect(review.state).toBe('verified');
+    expect(exposedExclusionDetail({ name: 'Customer' })).toContain(GOVERNANCE_FILE);
+  });
+
+  it('reports no exposure when nothing refused is in the registry', () => {
+    const registry = registryWith({ approval: 'required' });
+
+    writeBaseline({
+      projectRoot: root,
+      postures: actionPostures({ registry }),
+      recordedBy: 'sync',
+      excluded: ['Payment'],
+    });
+
+    expect(reviewGovernance({ projectRoot: root, registry }).exposedExclusions).toEqual([]);
+  });
+
+  it('reports an empty deny-list when there is no baseline and when one cannot be read', () => {
+    const registry = registryWith({ approval: 'required' });
+
+    expect(reviewGovernance({ projectRoot: root, registry }).excluded).toEqual([]);
+
+    writeFileSync(join(root, GOVERNANCE_FILE), '{ not json', 'utf8');
+
+    const unreadable = reviewGovernance({ projectRoot: root, registry });
+    expect(unreadable.state).toBe('unreadable');
+    expect(unreadable.excluded).toEqual([]);
   });
 });

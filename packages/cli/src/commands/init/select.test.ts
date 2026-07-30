@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildFileSet } from './codegen';
 import type { IrAction, IrObject, ScannedSource } from './ir';
 import { emptySource } from './ir';
-import { applyFilters, assertSelection, SOURCE_NAMES } from './select';
+import { applyFilters, assertSelection, SOURCE_NAMES, unaccountedModels } from './select';
 import type { ResolvedInit } from './wizard';
 
 const objectNamed = ({ name }: { name: string }): IrObject => ({
@@ -44,14 +44,17 @@ const twoModels = (): ScannedSource => ({
 const optionsOf = ({
   sources,
   models,
+  exclude,
 }: {
   sources?: string[];
   models?: string[];
+  exclude?: string[];
 }): ResolvedInit => ({
   preset: 'approval-for-writes',
   gate: 'all',
   ...(sources === undefined ? {} : { sources }),
   ...(models === undefined ? {} : { models }),
+  ...(exclude === undefined ? {} : { exclude }),
   docs: false,
   studio: false,
   open: false,
@@ -167,5 +170,96 @@ describe('assertSelection — garbage fails loudly like --preset does (ONT-041 d
       assertSelection({ source, options: optionsOf({ sources: SOURCE_NAMES, models: ['A'] }) }),
     ).not.toThrow();
     expect(() => assertSelection({ source, options: optionsOf({}) })).not.toThrow();
+  });
+});
+
+/**
+ * `--exclude` (ONT-059). The tests below are about the two things that separate
+ * a recorded refusal from a filter: it has to be TRUE when it is written (so an
+ * unknown or self-contradicting name is refused before a byte is written), and
+ * it must never be inferred from an allow-list.
+ */
+describe('--exclude — the deny-list front door (ONT-059)', () => {
+  it('refuses an unknown name, naming it and the scanned set, before anything is written', () => {
+    expect(() =>
+      assertSelection({ source: twoModels(), options: optionsOf({ exclude: ['Typo'] }) }),
+    ).toThrow(/unknown model "Typo" in --exclude — expected one of A, B/);
+  });
+
+  it('refuses a name given to both --models and --exclude instead of picking a winner', () => {
+    expect(() =>
+      assertSelection({
+        source: twoModels(),
+        options: optionsOf({ models: ['A'], exclude: ['A'] }),
+      }),
+    ).toThrow(/"A" appears in both --models and --exclude/);
+  });
+
+  it('refuses an --exclude that would leave nothing to govern', () => {
+    expect(() =>
+      assertSelection({ source: twoModels(), options: optionsOf({ exclude: ['A', 'B'] }) }),
+    ).toThrow(/names every scanned model/);
+  });
+
+  it('accepts a valid refusal and drops the model, its relations and its actions', () => {
+    const options = optionsOf({ exclude: ['B'] });
+
+    assertSelection({ source: twoModels(), options });
+
+    const filtered = applyFilters({ source: twoModels(), options });
+
+    expect(filtered.objects.map((object) => object.name)).toEqual(['A']);
+    expect(filtered.actions.map((action) => action.name)).toEqual([
+      'createA',
+      'updateA',
+      'deleteA',
+      'placeOrder',
+    ]);
+  });
+
+  it('composes with --models rather than overriding it', () => {
+    const source: ScannedSource = {
+      ...emptySource(),
+      objects: [objectNamed({ name: 'A' }), objectNamed({ name: 'B' }), objectNamed({ name: 'C' })],
+      actions: [...crudFor({ name: 'A' }), ...crudFor({ name: 'B' }), ...crudFor({ name: 'C' })],
+    };
+    const options = optionsOf({ models: ['A', 'B'], exclude: ['C'] });
+
+    assertSelection({ source, options });
+
+    expect(applyFilters({ source, options }).objects.map((object) => object.name)).toEqual([
+      'A',
+      'B',
+    ]);
+  });
+});
+
+/**
+ * The complement of an allow-list is NOT a refusal. `init` names what it left
+ * behind and hands back the command that would record it; it never records it
+ * itself, because nobody enumerated those models and said no to them.
+ */
+describe('unaccountedModels — what --models left behind (ONT-059)', () => {
+  it('names the scanned models an allow-list neither kept nor refused', () => {
+    const source: ScannedSource = {
+      ...emptySource(),
+      objects: [objectNamed({ name: 'A' }), objectNamed({ name: 'B' }), objectNamed({ name: 'C' })],
+      actions: [],
+    };
+
+    expect(unaccountedModels({ source, options: optionsOf({ models: ['A'] }) })).toEqual([
+      'B',
+      'C',
+    ]);
+    expect(
+      unaccountedModels({ source, options: optionsOf({ models: ['A'], exclude: ['B'] }) }),
+    ).toEqual(['C']);
+  });
+
+  it('reports nothing without an allow-list — every model was generated or refused', () => {
+    const source = twoModels();
+
+    expect(unaccountedModels({ source, options: optionsOf({}) })).toEqual([]);
+    expect(unaccountedModels({ source, options: optionsOf({ exclude: ['B'] }) })).toEqual([]);
   });
 });

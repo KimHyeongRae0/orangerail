@@ -282,6 +282,7 @@ describe('mcp — a posture the baseline contradicts is not served (ONT-050)', (
       projectRoot: root,
       postures: actionPostures({ registry: config.registry }),
       recordedBy: 'sync',
+      excluded: [],
     });
 
     const ungated = project({ gateDelete: false });
@@ -342,6 +343,7 @@ describe('mcp — a posture the baseline contradicts is not served (ONT-050)', (
       projectRoot: root,
       postures: actionPostures({ registry: config.registry }),
       recordedBy: 'sync',
+      excluded: [],
     });
 
     const staged = await createEngine({ registry: config.registry, store: config.store }).stage({
@@ -377,6 +379,7 @@ describe('mcp — a posture the baseline contradicts is not served (ONT-050)', (
       projectRoot: root,
       postures: actionPostures({ registry: config.registry }),
       recordedBy: 'sync',
+      excluded: [],
     });
 
     const { served, line } = await serve({ config, root });

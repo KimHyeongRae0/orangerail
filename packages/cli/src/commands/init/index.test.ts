@@ -295,3 +295,83 @@ describe('runInit refusal exit codes (ONT-049)', () => {
     );
   });
 });
+
+/**
+ * ONT-059 — `--exclude` is the deny-list's front door, and the complement of
+ * `--models` is never treated as one.
+ */
+describe('orangerail init — refused models (ONT-059)', () => {
+  const TWO_MODELS = `${SCHEMA}
+model Secret {
+  id    Int    @id @default(autoincrement())
+  value String
+}
+`;
+
+  const makeTwoModelRepo = (): string => {
+    const dir = makeRepo({ prefix: 'ont-059-init-' });
+
+    writeFileSync(join(dir, 'prisma', 'schema.prisma'), TWO_MODELS, 'utf8');
+
+    return dir;
+  };
+
+  it('generates nothing for a refused model and records the refusal in the baseline', async () => {
+    const cwd = makeTwoModelRepo();
+
+    const { code, stdout } = await runCaptured({ cwd, flags: { exclude: ['Secret'] } });
+
+    expect(code).toBe(0);
+    expect(existsSync(join(cwd, 'ontology', 'Secret.mjs'))).toBe(false);
+    expect(existsSync(join(cwd, 'ontology', 'Article.mjs'))).toBe(true);
+
+    const baseline = parseBaseline({
+      source: readFileSync(join(cwd, 'orangerail.governance.json'), 'utf8'),
+    });
+    expect(baseline.excluded).toEqual(['Secret']);
+    expect(baseline.actions.some((row) => row.name.includes('Secret'))).toBe(false);
+
+    // The refusal is stated where the generation is, not left to be found in a
+    // JSON file later.
+    expect(stdout).toContain('refused 1 model(s) — Secret');
+  });
+
+  it('refuses an unknown --exclude name before writing a byte', async () => {
+    const cwd = makeTwoModelRepo();
+
+    await expect(runCaptured({ cwd, flags: { exclude: ['Scret'] } })).rejects.toThrow(
+      /unknown model "Scret" in --exclude/,
+    );
+    expect(existsSync(join(cwd, 'orangerail.config.mjs'))).toBe(false);
+    expect(existsSync(join(cwd, 'ontology'))).toBe(false);
+  });
+
+  it('names what --models left unaccounted for, and records none of it', async () => {
+    const cwd = makeTwoModelRepo();
+
+    const { code, stdout } = await runCaptured({ cwd, flags: { models: ['Article'] } });
+
+    expect(code).toBe(0);
+    expect(stdout).toContain('1 scanned model(s) were neither generated nor refused: Secret');
+    expect(stdout).toContain('orangerail sync --exclude Secret');
+
+    // Narrowing is not refusing. Recording the complement would make the tool
+    // assert a decision nobody made.
+    const baseline = parseBaseline({
+      source: readFileSync(join(cwd, 'orangerail.governance.json'), 'utf8'),
+    });
+    expect(baseline.excluded).toEqual([]);
+  });
+
+  it('says nothing about leftovers when every scanned model was kept or refused', async () => {
+    const cwd = makeTwoModelRepo();
+
+    const { stdout } = await runCaptured({
+      cwd,
+      flags: { models: ['Article'], exclude: ['Secret'] },
+    });
+
+    expect(stdout).not.toContain('neither generated nor refused');
+    expect(stdout).toContain('refused 1 model(s) — Secret');
+  });
+});

@@ -3,8 +3,10 @@ import { dirname, join } from 'node:path';
 
 import { loadConfig, resolveConfigPath } from '../../config';
 import {
+  exposedExclusionDetail,
   GOVERNANCE_FILE,
   isUnreviewed,
+  normalizeExclusions,
   reviewGovernance,
   writeBaseline,
   type GovernanceReview,
@@ -49,6 +51,22 @@ import { diffSync, type SyncDiff } from './diff';
  * hand-owned `ontology/*.mjs` used to pass as "in sync" — the one edit that
  * disarms the product went unreported. `--accept-governance` re-records the
  * baseline as the human acknowledgement of a deliberate change.
+ *
+ * ## Refused models (ONT-059)
+ *
+ * A model the operator left out of the ontology on purpose used to be
+ * rediscovered as a proposal on every run, so a narrowed project — the posture
+ * this product recommends — could never reach exit 0, and the only remedy the
+ * report named was `--accept-new`, which would have generated the very table
+ * that was kept away from the agent. A check that can never pass is a check
+ * nobody reads, and this one is what makes the ONT-056 un-gated default
+ * defensible.
+ *
+ * So a refusal is now recorded, in the baseline, and honoured here: an excluded
+ * model is reported as `info:` instead of proposed, its actions are not
+ * proposed, and `--accept-new` will not create it. `--exclude` is the door that
+ * records one, and it takes names — nothing is ever suggested, because a name is
+ * syntactic and the danger it stands for is not.
  */
 
 const ONTOLOGY_DIR = 'ontology';
@@ -118,6 +136,105 @@ interface ScanReport {
   fieldDrift: number;
 }
 
+/**
+ * The scan-vs-registry diff with every refused model taken out of it (ONT-059).
+ *
+ * The suppression is by MODEL NAME, so it reaches a proposed object and the
+ * Prisma actions that target it — the three `create/update/delete` rows are the
+ * bulk of the noise, and leaving them behind would mean a project could still
+ * never go green. An OpenAPI action carries no model, so no name can suppress
+ * one; the deny-list is a statement about tables, and pretending otherwise would
+ * silence something it was never shown.
+ */
+interface ExclusionSplit {
+  /** The diff the report and `--accept-new` see. */
+  visible: SyncDiff;
+  /** Suppressed proposed model names, sorted. */
+  models: string[];
+  /** Suppressed action count per model name. */
+  actionsByModel: Map<string, number>;
+}
+
+const splitExclusions = ({
+  diff,
+  excluded,
+}: {
+  diff: SyncDiff;
+  excluded: ReadonlySet<string>;
+}): ExclusionSplit => {
+  const actionsByModel = new Map<string, number>();
+
+  for (const action of diff.newActions) {
+    const model = action.prisma?.model;
+
+    if (model !== undefined && excluded.has(model)) {
+      actionsByModel.set(model, (actionsByModel.get(model) ?? 0) + 1);
+    }
+  }
+
+  const models = diff.newObjects
+    .map((object) => object.name)
+    .filter((name) => excluded.has(name))
+    .sort();
+
+  return {
+    visible: {
+      ...diff,
+      newObjects: diff.newObjects.filter((object) => !excluded.has(object.name)),
+      newActions: diff.newActions.filter(
+        (action) => action.prisma === undefined || !excluded.has(action.prisma.model),
+      ),
+    },
+    models,
+    actionsByModel,
+  };
+};
+
+/**
+ * Report what the deny-list absorbed, and what it has stopped matching.
+ *
+ * An honoured exclusion prints — silently swallowing a proposal is how a
+ * deny-list turns into the "silence everything" rule it must not be. A STALE
+ * one prints for a sharper reason: it matches nothing today, so it is doing no
+ * work, and the day a new table is created under that name it will silence it.
+ * That is the single way a name-based list can go quiet on something real, and
+ * pruning it is a one-line diff in a committed file.
+ */
+const printExclusions = ({
+  split,
+  excluded,
+  scannedNames,
+  registryNames,
+}: {
+  split: ExclusionSplit;
+  excluded: string[];
+  scannedNames: ReadonlySet<string>;
+  registryNames: ReadonlySet<string>;
+}): void => {
+  const out = process.stdout;
+
+  for (const name of split.models) {
+    const actions = split.actionsByModel.get(name) ?? 0;
+
+    out.write(
+      `info: ${name} is excluded, as recorded in ${GOVERNANCE_FILE}` +
+        (actions === 0 ? '' : ` (${actions} action(s) not proposed)`) +
+        '\n',
+    );
+  }
+
+  for (const name of excluded) {
+    if (scannedNames.has(name) || registryNames.has(name)) {
+      continue;
+    }
+
+    out.write(
+      `info: recorded exclusion "${name}" matches nothing in your sources — prune it from ` +
+        `${GOVERNANCE_FILE}, otherwise a future model of that name is silenced too\n`,
+    );
+  }
+};
+
 /** Print the human-readable drift report; returns what it found. */
 const printReport = ({ diff }: { diff: SyncDiff }): ScanReport => {
   for (const object of diff.newObjects) {
@@ -128,6 +245,18 @@ const printReport = ({ diff }: { diff: SyncDiff }): ScanReport => {
 
   for (const action of diff.newActions) {
     process.stdout.write(`proposal: new action ${action.name} (${actionOrigin({ action })})\n`);
+  }
+
+  // The second door, stated once under the proposals rather than on every line.
+  // `--accept-new` was the only remedy this report named, and on a project that
+  // narrowed its surface on purpose it is the wrong one — it generates the table
+  // that was deliberately kept away from the agent. The models are listed above;
+  // which of them are refused is not a question this tool can answer.
+  if (diff.newObjects.length > 0) {
+    process.stdout.write(
+      `          Refusing one instead? \`orangerail sync --exclude <name>[,<name>]\` records that in ${GOVERNANCE_FILE},\n` +
+        '          and later runs stay quiet about it. Name each model yourself — nothing is pre-selected.\n',
+    );
   }
 
   for (const fieldDrift of diff.fieldDrifts) {
@@ -164,6 +293,14 @@ const printGovernance = ({
   recording: boolean;
 }): number => {
   const out = process.stdout;
+
+  // Loud and exit-worthy in every run, including a recording one: `--exclude`
+  // and `--accept-governance` both re-record, and neither is an instruction to
+  // start serving a table the file says was refused. The contradiction survives
+  // until the ontology or the list changes.
+  for (const name of review.exposedExclusions) {
+    out.write(`excluded: ${exposedExclusionDetail({ name })}\n`);
+  }
 
   for (const change of review.changes) {
     out.write(
@@ -288,6 +425,14 @@ export interface SyncFindings {
   unregistered: number;
   /** A weakened posture, or a project with actions and no baseline at all. */
   governance: number;
+  /**
+   * Models the baseline records as refused that the ontology exposes anyway. It
+   * gets its own counter rather than folding into `governance`, because no flag
+   * on this command resolves it — re-recording the posture does not stop a table
+   * from being reachable, and a counter that `--accept-governance` could zero
+   * would say otherwise.
+   */
+  exposedExclusions: number;
 }
 
 /**
@@ -298,17 +443,78 @@ export const isDrift = ({ findings }: { findings: SyncFindings }): boolean =>
   findings.proposals > 0 ||
   findings.fieldDrift > 0 ||
   findings.unregistered > 0 ||
-  findings.governance > 0;
+  findings.governance > 0 ||
+  findings.exposedExclusions > 0;
+
+/**
+ * Refuse an `--exclude` value the run cannot honestly record, before a line of
+ * report is printed. Returns the message, or `null` when the names are usable.
+ *
+ * All three refusals are about the same thing: a recorded refusal outlives the
+ * run that wrote it, so it must be true when it is written. A typo would sit in
+ * a committed file matching nothing while the operator believed a table was
+ * refused; a name the ontology already serves would manufacture the very
+ * contradiction the check reports; and with no baseline at all there is no
+ * honest `recordedBy` to stamp — `init` did not write the file and nobody
+ * reviewed the postures in it.
+ */
+const refuseExclusions = ({
+  names,
+  scannedNames,
+  registryNames,
+  review,
+  acceptGovernance,
+}: {
+  names: string[];
+  scannedNames: ReadonlySet<string>;
+  registryNames: ReadonlySet<string>;
+  review: GovernanceReview;
+  acceptGovernance: boolean;
+}): string | null => {
+  const unknown = names.filter((name) => !scannedNames.has(name) && !registryNames.has(name));
+
+  if (unknown.length > 0) {
+    const known = [...scannedNames].sort();
+
+    return (
+      `--exclude names ${unknown.map((name) => `"${name}"`).join(', ')}, which your sources do not have — ` +
+      (known.length === 0 ? 'this repo scanned no models.' : `expected one of ${known.join(', ')}.`)
+    );
+  }
+
+  const exposed = names.filter((name) => registryNames.has(name));
+
+  if (exposed.length > 0) {
+    return (
+      `--exclude names ${exposed.map((name) => `"${name}"`).join(', ')}, which your ontology already exposes. ` +
+      'Delete the ontology file(s) and the actions targeting them first, then record the refusal — ' +
+      'otherwise the file would say refused while the agent could still reach it.'
+    );
+  }
+
+  if (review.state === 'unrecorded' && !acceptGovernance) {
+    return (
+      `there is no ${GOVERNANCE_FILE} to record the exclusion in, and writing one here would have to ` +
+      'claim who vouched for the action postures inside it. Run ' +
+      `\`orangerail sync --exclude ${names.join(',')} --accept-governance\` to record both at once.`
+    );
+  }
+
+  return null;
+};
 
 /** Run `orangerail sync`. */
 export const runSync = async ({
   acceptGovernance,
   acceptNew,
+  exclude,
   configPath,
   cwd,
 }: {
   acceptGovernance: boolean;
   acceptNew: boolean;
+  /** `--exclude` — model names to record as refused (ONT-059). */
+  exclude?: string[] | undefined;
   configPath?: string | undefined;
   cwd: string;
 }): Promise<number> => {
@@ -326,15 +532,6 @@ export const runSync = async ({
   }
 
   const scanned = scanRepo({ cwd });
-  const diff = diffSync({ scanned, registry });
-
-  const report = printReport({ diff });
-
-  const unregistered = reportUnregistered({ cwd });
-  for (const warning of unregistered) {
-    process.stdout.write(`${warning}\n`);
-  }
-
   const review = reviewGovernance({ projectRoot, registry });
 
   if (review.state === 'unreadable') {
@@ -345,18 +542,65 @@ export const runSync = async ({
     return 2;
   }
 
+  const scannedNames = new Set(scanned.objects.map((object) => object.name));
+  const registryNames = new Set(registry.listObjects().map((object) => object.name));
+
+  // The refusal is checked before anything is printed, so a rejected `--exclude`
+  // never leaves a half-run behind: no report, no file, and an exit code that
+  // cannot be mistaken for "drift found".
+  if (exclude !== undefined) {
+    const refusal = refuseExclusions({
+      names: exclude,
+      scannedNames,
+      registryNames,
+      review,
+      acceptGovernance,
+    });
+
+    if (refusal !== null) {
+      process.stderr.write(`orangerail sync: ${refusal}\n`);
+      return 2;
+    }
+  }
+
+  // What this run honours: the recorded list plus whatever `--exclude` adds. The
+  // new names take effect in the same run that records them, so the report the
+  // operator reads is the one the next run will print.
+  const excluded = normalizeExclusions({ names: [...review.excluded, ...(exclude ?? [])] });
+  const excludedSet = new Set(excluded);
+
+  const diff = diffSync({ scanned, registry });
+  const split = splitExclusions({ diff, excluded: excludedSet });
+
+  const report = printReport({ diff: split.visible });
+
+  printExclusions({ split, excluded, scannedNames, registryNames });
+
+  const unregistered = reportUnregistered({ cwd });
+  for (const warning of unregistered) {
+    process.stdout.write(`${warning}\n`);
+  }
+
   const findings: SyncFindings = {
     proposals: report.proposals,
     fieldDrift: report.fieldDrift,
     unregistered: unregistered.length,
     governance: printGovernance({ review, recording: acceptGovernance }),
+    exposedExclusions: review.exposedExclusions.length,
   };
 
   // Re-recording is the human acknowledgement: whatever the posture is right
   // now becomes the reviewed baseline, so it can no longer be drift.
-  if (acceptGovernance) {
+  //
+  // `--exclude` writes through the same call but says nothing about the
+  // postures, so it carries `recordedBy` across untouched: recording a refusal
+  // must never turn an init-generated posture nobody has read into a reviewed
+  // one.
+  if (acceptGovernance || exclude !== undefined) {
+    const recordedBy = acceptGovernance ? 'sync' : (review.recordedBy ?? 'sync');
+
     try {
-      writeBaseline({ projectRoot, postures: review.postures, recordedBy: 'sync' });
+      writeBaseline({ projectRoot, postures: review.postures, recordedBy, excluded });
     } catch (err) {
       process.stderr.write(
         `orangerail sync: could not write ${GOVERNANCE_FILE}: ${err instanceof Error ? err.message : String(err)}\n`,
@@ -364,9 +608,17 @@ export const runSync = async ({
       return 2;
     }
 
-    process.stdout.write(
-      `sync: recorded the governance posture of ${review.postures.length} action(s) in ${GOVERNANCE_FILE} — commit it.\n`,
-    );
+    if (acceptGovernance) {
+      process.stdout.write(
+        `sync: recorded the governance posture of ${review.postures.length} action(s) in ${GOVERNANCE_FILE} — commit it.\n`,
+      );
+    }
+
+    if (exclude !== undefined) {
+      process.stdout.write(
+        `sync: recorded ${exclude.length} refused model(s) in ${GOVERNANCE_FILE} — ${excluded.join(', ')} — commit it.\n`,
+      );
+    }
   }
 
   if (acceptNew) {
@@ -379,9 +631,12 @@ export const runSync = async ({
       cwd,
       provider: scanned.datasource?.provider,
       urlEnv: scanned.datasource?.urlEnv,
+      // Asked of the VISIBLE diff: a refused model is never written, so its
+      // Prisma call sites do not exist and must not decide whether the run is
+      // refused over the repo's Prisma major.
       hasPrismaCallSites:
-        diff.newObjects.some((object) => object.idField !== undefined) ||
-        diff.newActions.some((action) => action.source === 'prisma'),
+        split.visible.newObjects.some((object) => object.idField !== undefined) ||
+        split.visible.newActions.some((action) => action.source === 'prisma'),
       docPath: EXISTING_DB_DOC,
       command: 'orangerail sync --accept-new',
     });
@@ -392,8 +647,13 @@ export const runSync = async ({
       return 1;
     }
 
+    // The VISIBLE diff again, and this is the whole point of ONT-059: the
+    // remedy the report used to name would have written `ontology/<refused>.mjs`
+    // and put the table an operator deliberately kept away from the agent back
+    // on its surface. A refused model is not a proposal, so there is nothing
+    // here to accept.
     const { created, skipped } = acceptNewFiles({
-      diff,
+      diff: split.visible,
       cwd,
       construction: prisma.construction,
     });

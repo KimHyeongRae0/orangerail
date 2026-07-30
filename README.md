@@ -377,6 +377,33 @@ From then on:
   the posture is weaker than it, because `18 approval-gated, 1 auto` is a true sentence
   about an ontology somebody just un-gated.
 
+### A table you refuse stays refused
+
+Narrowing the surface is the point of the tool, so `orangerail init --models customer,order`
+leaves your `payment` and `api_credential` tables out of the ontology entirely. Until this
+was recorded, that decision existed only in the shell history that made it: every later
+`orangerail sync` rediscovered those tables, proposed them and their actions, and exited 1 —
+so the recommended posture was the one configuration whose drift check could never pass. The
+only remedy it named was `--accept-new`, the one that would generate them.
+
+`orangerail init --exclude api_credential,payment` (or `orangerail sync --exclude …` on a
+project that already exists) writes those names into `orangerail.governance.json` as
+**considered and refused**. `sync` then reports them as `info:` instead of proposing them,
+`--accept-new` will not create them, and the run can be green.
+
+It is a list of names, not a snapshot. A table that appears *after* the refusal was recorded
+is not on the list and is still reported loudly — and a recorded name that stops matching
+anything is reported as prunable, so it cannot quietly silence a future table that reuses it.
+The complement of `--models` is deliberately not recorded: "I want these four" is not "I
+considered the other three and refuse them", so `init` names what it left unaccounted for and
+hands you the command that records it, with the names in it.
+
+**orangerail will never guess which tables those are.** It does not scan your schema for
+`secret`, `password` or `credential` and pre-select the matches. A name is syntactic and the
+danger it stands for is not — the table that puts a customer's card number in a support
+transcript is called `payment` — and a tool that pre-checks the boxes is a tool whose list
+you stop reading. You name each one.
+
 Three things to expect, all deliberate:
 
 - **A project with at least one action and no baseline at all exits 1** from `sync` until
@@ -502,6 +529,8 @@ it cannot rot into something that never compiled.
   there is nothing to act on, **1** for any unresolved drift — a proposal, a changed
   field, an ontology file the loader never imports, a weakened posture — and **2** when
   it could not answer at all (the config would not load, the baseline could not be read).
+  A model recorded as refused (`--exclude`, on `init` or here) is reported as excluded
+  rather than proposed, and is never created by `--accept-new`.
 - `orangerail mcp` — typed MCP server over your declared objects and actions. Each read
   tool names its object's links and publishes a closed `filter` over that object's own
   fields, which the server enforces before the value reaches a resolver — the tools are
