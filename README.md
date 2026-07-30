@@ -226,10 +226,13 @@ for Prisma 6 and Prisma 7, is in
 $ npx orangerail init --yes --preset approval-for-writes --no-studio
   ✓  scanned your sources — 2 object(s), 6 action(s)
   ✓  generated a governed MCP server under ontology/
-  ✓  6 write action(s) gated behind human approval
+  ✓  --gate delete: 2 of 6 write action(s) gated behind human approval — the other 4 run when the agent calls them
   ⚠  no governance baseline recorded — the generated config did not load
 
   These files are yours — re-scans never modify them; `orangerail sync` reports drift.
+
+  Change what is gated by editing `policy` in ontology/<action>.mjs, or re-run init
+  with `--gate all` (gate every write) or `--gate none` (gate nothing).
   orangerail.governance.json is what makes a later "someone deleted an approval gate" visible.
   Recording it needs the config to load, so run `orangerail sync --accept-governance`
   once the step below is done, and commit the file.
@@ -238,6 +241,16 @@ Next step: install the runtime deps so the generated code can load:
   npm install orangerail-core zod
 Then run `orangerail studio` or `orangerail mcp`.
 ```
+
+`--gate delete` is the default, and it is the line worth pausing on. Gating *every* write
+is the safer-sounding default and it is what orangerail shipped first — but a surface where
+nothing completes without a human is a surface nobody leaves on. So init gates the op whose
+name most reliably predicts a row is gone, and leaves the rest running. That is a starting
+point, not a safety verdict: `create` can be the most consequential write a schema has, and
+an **un-gated `update` is not recoverable from the audit chain** — the record holds the input
+and the resulting row, not the prior one. Pass `--gate all` to gate every write, `--gate none`
+to gate nothing, or edit `policy` per file afterwards. Whichever you pick, the closing line
+says which one ran and how many actions it left executable.
 
 That warning is the first run's shape, not a failure: `orangerail-core` is not installed
 yet, so the config init just wrote cannot be imported, and the governance baseline is read
@@ -259,7 +272,7 @@ whether the audit chain still verifies.
 $ npx orangerail status
 orangerail status
   objects:  2
-  actions:  6 approval-gated, 0 auto
+  actions:  2 approval-gated, 4 auto
   baseline: NONE — orangerail.governance.json does not exist, so nothing on disk says which of the
             gates above were ever intended. Run `orangerail sync --accept-governance`.
   preset:   approval-for-writes
@@ -268,9 +281,13 @@ orangerail status
   audit:    chain OK — 0 record(s) verified
 ```
 
-`6 approval-gated, 0 auto` is a true sentence about an ontology someone has just un-gated,
-too. The `baseline:` line is the only one that can tell the difference, which is why it
-sits directly under the counts and why it is loud while it is missing.
+`2 approval-gated, 4 auto` is what `--gate delete` generated here — and it is also a true
+sentence about an ontology someone has since un-gated down to the same shape. The counts
+alone cannot tell those apart. The `baseline:` line is the only one that can, which is why
+it sits directly under the counts and why it is loud while it is missing. Note what the
+baseline does **not** do: it compares against the starting point, so an action generated
+un-gated is recorded un-gated and never trips the weakening check. It catches a later
+edit, not a permissive `--gate`.
 
 **4. Point your agent host at it.** Drop this in your project root as `.mcp.json`. The
 lifecycle, the `claude mcp add` one-liner and the `--config` argument for hosts that start
@@ -310,7 +327,7 @@ dff95d9d-8237-407a-b80b-c47252d56a1f  "deleteCustomer"  by "local-dev" [dev]  5s
 $ npx orangerail status
 orangerail status
   objects:  2
-  actions:  6 approval-gated, 0 auto
+  actions:  2 approval-gated, 4 auto
   baseline: NONE — orangerail.governance.json does not exist, so nothing on disk says which of the
             gates above were ever intended. Run `orangerail sync --accept-governance`.
   preset:   approval-for-writes
@@ -680,8 +697,12 @@ orangerail blocks those, stages them, or records them; they simply never happen 
 the audit chain is concerned.
 
 So the guarantee is a conditional one, and it is worth stating exactly: **when orangerail's
-tools are the agent's only route to your domain, every write is staged, approved and
-audited.** Closing off the other routes is your job, not the rail's.
+tools are the agent's only route to your domain, every write runs under the policy that write
+declares, and every write lands on the audit chain — a gated one only after a human approved
+it.** Note what that does and does not promise. It is not "every write is staged": since
+`--gate delete` became the default, an un-gated `create` or `update` executes on the agent's
+word, and it does so *by your configuration*, which the rail honors. What survives
+unconditionally is the audit record. Closing off the other routes is your job, not the rail's.
 
 This is not a theoretical caveat. In a validation run against live PostgreSQL, with
 orangerail installed and every write action gated, a second Postgres MCP server was added on

@@ -87,7 +87,7 @@ npx prisma generate
 $ npx orangerail init --yes --preset approval-for-writes --no-studio
   ✓  scanned your sources — 2 object(s), 6 action(s)
   ✓  generated a governed MCP server under ontology/
-  ✓  6 write action(s) gated behind human approval
+  ✓  --gate delete: 2 of 6 write action(s) gated behind human approval — the other 4 run when the agent calls them
 ```
 
 Go on to [After init](#after-init).
@@ -209,7 +209,7 @@ $ npx prisma generate
 $ npx orangerail init --yes --preset approval-for-writes --no-studio
   ✓  scanned your sources — 2 object(s), 6 action(s)
   ✓  generated a governed MCP server under ontology/
-  ✓  6 write action(s) gated behind human approval
+  ✓  --gate delete: 2 of 6 write action(s) gated behind human approval — the other 4 run when the agent calls them
 ```
 
 The generated files now build the client through the adapter:

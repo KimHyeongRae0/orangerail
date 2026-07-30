@@ -23,7 +23,13 @@ describe('runWizard flag parity (AC-3)', () => {
 
     expect(result).toEqual({
       ok: true,
-      options: { preset: 'approval-for-writes', docs: true, studio: true, open: false },
+      options: {
+        preset: 'approval-for-writes',
+        gate: 'delete',
+        docs: true,
+        studio: true,
+        open: false,
+      },
     });
   });
 
@@ -48,6 +54,7 @@ describe('runWizard flag parity (AC-3)', () => {
     if (result.ok) {
       expect(result.options).toEqual({
         preset: 'sandbox',
+        gate: 'delete',
         sources: ['prisma'],
         models: ['Product'],
         docs: false,
@@ -64,6 +71,33 @@ describe('runWizard flag parity (AC-3)', () => {
     await expect(
       runWizard({ flags: baseFlags({ yes: true, preset: 'nope' }), stdin, stdout, isTTY: false }),
     ).rejects.toThrow(/unknown preset/);
+  });
+
+  it('rejects an unknown gate (ONT-056)', async () => {
+    const { stdin, stdout } = streams();
+
+    await expect(
+      runWizard({
+        flags: baseFlags({ yes: true, preset: 'approval-for-writes', gate: 'most' }),
+        stdin,
+        stdout,
+        isTTY: false,
+      }),
+    ).rejects.toThrow(/unknown gate/);
+  });
+
+  it('threads each --gate value through unchanged (ONT-056)', async () => {
+    for (const gate of ['all', 'delete', 'none'] as const) {
+      const { stdin, stdout } = streams();
+      const result = await runWizard({
+        flags: baseFlags({ yes: true, preset: 'approval-for-writes', gate }),
+        stdin,
+        stdout,
+        isTTY: false,
+      });
+
+      expect(result.ok && result.options.gate).toBe(gate);
+    }
   });
 });
 
@@ -84,7 +118,13 @@ describe('runWizard skips questions already answered by a flag (D8)', () => {
   // Every flag supplied EXCEPT the one under test, so at most one prompt is ever
   // read (keeps readline/promises + PassThrough deterministic, no PTY).
   const allButStudio = (): InitFlags =>
-    baseFlags({ preset: 'approval-for-writes', sources: [], models: [], docs: true });
+    baseFlags({
+      preset: 'approval-for-writes',
+      gate: 'delete',
+      sources: [],
+      models: [],
+      docs: true,
+    });
 
   const allFlags = (): InitFlags => ({ ...allButStudio(), studio: true });
 
@@ -123,6 +163,44 @@ describe('runWizard skips questions already answered by a flag (D8)', () => {
 
     expect(prompts()).not.toMatch(/preset/i);
     expect(result.ok && result.options.preset).toBe('readonly');
+  });
+
+  it('does not emit the gate question when --gate was provided (ONT-056)', async () => {
+    const { stdin, stdout, prompts } = capture();
+    const result = await runWizard({
+      flags: { ...allFlags(), gate: 'none' },
+      stdin,
+      stdout,
+      isTTY: true,
+    });
+
+    expect(prompts()).not.toMatch(/gate/i);
+    expect(result.ok && result.options.gate).toBe('none');
+  });
+
+  it('does emit the gate question when its flag was NOT provided (ONT-056)', async () => {
+    const { stdin, stdout, prompts } = capture();
+    // Every other question is answered by a flag, so this is the only read.
+    // `gate: undefined` rather than a key omitted by destructuring: it is the
+    // value the wizard actually branches on, and it survives the object spread
+    // above it whichever order the keys land in.
+    const withoutGate = { ...allFlags(), gate: undefined };
+    stdin.write('none\n');
+
+    const result = await runWizard({ flags: withoutGate, stdin, stdout, isTTY: true });
+
+    expect(prompts()).toMatch(/gate/i);
+    expect(result.ok && result.options.gate).toBe('none');
+  });
+
+  it('takes the default gate when the question is answered with a bare newline (ONT-056)', async () => {
+    const { stdin, stdout } = capture();
+    const withoutGate = { ...allFlags(), gate: undefined };
+    stdin.write('\n');
+
+    const result = await runWizard({ flags: withoutGate, stdin, stdout, isTTY: true });
+
+    expect(result.ok && result.options.gate).toBe('delete');
   });
 
   it('does emit the studio question when its flag was NOT provided', async () => {

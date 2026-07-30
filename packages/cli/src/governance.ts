@@ -53,28 +53,61 @@ const BASELINE_VERSION = 1;
  * records the posture `orangerail init` generated, untouched, before anyone
  * reviewed anything — a provenance claim, not a review claim.
  *
- * Recording at `init` is safe to assert because every generated action carries
- * `policy: { approval: 'required' }`: the recorded starting point is the
- * strongest posture the tool can produce, so it can never launder a weak posture
- * as approved — it can only make a later weakening detectable. Keeping the two
- * apart is what stops the file claiming a review that never happened, which is
- * the reason ONT-043 declined to write it at all.
+ * Since ONT-056 an init-recorded baseline is NOT necessarily all-gated: the
+ * default `--gate delete` writes `"approval": null` for every create and update.
+ * The distinction is what keeps that honest. `init` never asserts a review, and
+ * every readout repeats that it is unreviewed, so the file cannot launder a weak
+ * posture as approved; what it does buy is that a later weakening is detectable
+ * from the first minute. Keeping the two apart is what stops the file claiming a
+ * review that never happened, which is the reason ONT-043 declined to write it
+ * at all.
+ *
+ * The limit is worth stating where the file is written: the comparison is against
+ * the recorded starting point, so an action that was generated un-gated is
+ * recorded un-gated and never trips the weakening check. `orangerail status`
+ * prints `N approval-gated, M auto` because that is the readout which does not
+ * depend on the baseline being strict.
  */
 export type RecordedBy = 'init' | 'sync';
 
-/** The note written into the baseline so someone who finds the file knows what it is. */
-const BASELINE_NOTES: Record<RecordedBy, string> = {
-  sync:
-    'Governance baseline recorded by `orangerail sync --accept-governance`: a human reviewed ' +
-    'this posture. `orangerail sync` reports and fails when the posture of an action weakens ' +
-    'against these rows, and `orangerail mcp` refuses to serve an action that weakened. Commit ' +
-    'this file; re-record it after an intentional policy change.',
-  init:
-    'Governance baseline recorded by `orangerail init`: this is the posture init GENERATED, ' +
-    'before anyone reviewed it — it is a starting point, not an approval. Read it, then run ' +
+const SYNC_NOTE =
+  'Governance baseline recorded by `orangerail sync --accept-governance`: a human reviewed ' +
+  'this posture. `orangerail sync` reports and fails when the posture of an action weakens ' +
+  'against these rows, and `orangerail mcp` refuses to serve an action that weakened. Commit ' +
+  'this file; re-record it after an intentional policy change.';
+
+/**
+ * The note written into the baseline so someone who finds the file knows what it
+ * is.
+ *
+ * The `init` note counts its own rows (ONT-056). `orangerail init` no longer
+ * gates everything it generates, so "the posture init generated" is not enough
+ * on its own for a reviewer to know whether the `null`s below were generated or
+ * introduced later. The count is derived from the rows in the same file rather
+ * than echoed from the `--gate` value, so it describes what is actually written
+ * here and cannot drift from it.
+ */
+const baselineNote = ({
+  recordedBy,
+  postures,
+}: {
+  recordedBy: RecordedBy;
+  postures: ActionPosture[];
+}): string => {
+  if (recordedBy === 'sync') {
+    return SYNC_NOTE;
+  }
+
+  const gated = postures.filter((posture) => posture.approval === 'required').length;
+
+  return (
+    'Governance baseline recorded by `orangerail init`: this is the posture init GENERATED ' +
+    `(${gated} of ${postures.length} action(s) approval-gated), before anyone reviewed it — it ` +
+    'is a starting point, not an approval. Read it, then run ' +
     '`orangerail sync --accept-governance` to vouch for it. `orangerail sync` reports and fails ' +
     'when the posture of an action weakens against these rows, and `orangerail mcp` refuses to ' +
-    'serve an action that weakened. Commit this file.',
+    'serve an action that weakened. Commit this file.'
+  );
 };
 
 /**
@@ -165,7 +198,7 @@ export const serializeBaseline = ({
     {
       version: BASELINE_VERSION,
       recordedBy,
-      note: BASELINE_NOTES[recordedBy],
+      note: baselineNote({ recordedBy, postures }),
       actions: postures,
     },
     null,

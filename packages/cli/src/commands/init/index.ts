@@ -7,7 +7,7 @@ import { actionPostures, GOVERNANCE_FILE, writeBaseline } from '../../governance
 import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
 import { runInitFromArtifacts } from './artifacts';
-import { buildFileSet, EXISTING_DB_DOC, resolvePrismaConstruction } from './codegen';
+import { buildFileSet, EXISTING_DB_DOC, isActionGated, resolvePrismaConstruction } from './codegen';
 import {
   clobberRefusal,
   degradeNotice,
@@ -47,11 +47,21 @@ const loadGeneratedConfig = async ({ cwd }: { cwd: string }): Promise<Orangerail
  * it is a starting point rather than an approval, and every `sync` and `status`
  * repeats that until someone runs `--accept-governance`.
  *
- * What is left is a claim init can honestly make: every action it generated
- * carries `policy: { approval: 'required' }`, so this row set is the strongest
- * posture the tool can produce. Recording it cannot launder a weak posture as
- * approved; it can only make a later weakening detectable — which without this
- * file it simply was not, in exactly the state every new project starts in.
+ * What is left is a claim init can honestly make: these rows ARE what init just
+ * generated. Since ONT-056 that is no longer the same as "everything is gated" —
+ * under the default `--gate delete` the file records `"approval": null` on every
+ * create and update — so the row set is a description, not a recommendation.
+ * Recording it still cannot launder a weak posture as approved, because nothing
+ * about the file claims approval: `recordedBy` says `init`, the note says it is a
+ * starting point, and `sync`/`status`/`mcp` all keep saying "nobody has reviewed
+ * this" until someone runs `--accept-governance`. What it buys is that a LATER
+ * weakening is detectable from minute one, which without this file it was not.
+ *
+ * The cost of the ONT-056 default is worth naming here rather than in a report:
+ * an action that was born un-gated is recorded un-gated, so it never trips the
+ * weakening check. The check compares against the recorded starting point; it
+ * does not audit that starting point. `orangerail status` prints
+ * `N approval-gated, M auto` for exactly that reason.
  *
  * A failure to write is reported and swallowed: the ontology is already on disk
  * and usable, and taking a successful `init` down to a non-zero exit over the
@@ -202,7 +212,12 @@ export const runInit = async ({
     return 1;
   }
 
-  const files = buildFileSet({ source, preset: options.preset, construction: prisma.construction });
+  const files = buildFileSet({
+    source,
+    preset: options.preset,
+    gate: options.gate,
+    construction: prisma.construction,
+  });
 
   // Nothing is written until every generated path is known to be free. Without
   // a config, a populated `ontology/` is the only trace of a previous init —
@@ -223,6 +238,15 @@ export const runInit = async ({
   const objectCount = source.objects.length;
   const actionCount = source.actions.length;
 
+  // Counted through the SAME predicate the emitter branched on, so the number in
+  // the summary and the `policy` lines on disk cannot disagree (ONT-056). Before
+  // this it printed `actionCount` and called it the gated count, which was only
+  // ever true because init gated everything.
+  const gatedCount = source.actions.filter((action) =>
+    isActionGated({ action, gate: options.gate }),
+  ).length;
+  const ungatedCount = actionCount - gatedCount;
+
   // Load the generated config here rather than after the summary: the
   // governance baseline is read off the LIVE REGISTRY (never off the generated
   // text), and the summary has to be able to say whether it was recorded. A
@@ -235,14 +259,29 @@ export const runInit = async ({
   // A three-beat confirmation of what init just did — scanned, generated, and
   // (per the chosen preset) how writes are governed. The gate line states the
   // preset's real behavior rather than a blanket claim: `approval-for-writes`
-  // stages every write for a human, `sandbox` dry-runs them, `readonly` exposes
-  // no write tools at all.
+  // runs actions as declared, `sandbox` dry-runs them, `readonly` exposes no
+  // write tools at all.
+  //
+  // Under `approval-for-writes` it also has to say WHICH writes are gated and
+  // which are not, and name the `--gate` value that decided it (ONT-056). A run
+  // that leaves four of six actions executable on the agent's word must not
+  // close with a line the reader can mistake for "all of them are gated".
   const gateLine =
     options.preset === 'readonly'
       ? 'read-only — no write tools exposed'
       : options.preset === 'sandbox'
         ? `${actionCount} write action(s) — sandbox (dry-run, nothing executes)`
-        : `${actionCount} write action(s) gated behind human approval`;
+        : `--gate ${options.gate}: ${gatedCount} of ${actionCount} write action(s) gated behind human approval` +
+          (ungatedCount === 0 ? '' : ` — the other ${ungatedCount} run when the agent calls them`);
+
+  // Where to go to change it, in both directions: the files, or another init.
+  // Only under `approval-for-writes`, because it is the only preset under which
+  // the per-action gate is what decides whether a call executes.
+  const gateGuidance =
+    options.preset === 'approval-for-writes'
+      ? '\n  Change what is gated by editing `policy` in ontology/<action>.mjs, or re-run init\n' +
+        '  with `--gate all` (gate every write) or `--gate none` (gate nothing).\n'
+      : '';
 
   // The governance beat, in whichever of its two forms is true. When the config
   // loaded, the posture is on disk and what is left is a review. When it did not
@@ -275,6 +314,7 @@ export const runInit = async ({
       `  ✓  ${gateLine}\n` +
       governanceBeat.tick +
       '\n  These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n' +
+      gateGuidance +
       governanceBeat.body,
   );
 

@@ -380,7 +380,15 @@ if (!consumerInstall.ok) {
   // orangerail-core import from HERE (not a walk-up into the monorepo).
   prepareRunDir({ dir: PROJECT_DIR, fixture: FIXTURE });
 
-  const init = run({ command: bin, args: ['init', '--no-studio', '--yes'], cwd: PROJECT_DIR });
+  // `--gate all` explicitly (ONT-056): this phase proves the INSTALLED tarballs
+  // can run the whole staged write loop, and it drives that loop through
+  // `createNote`, which the shipped default (`--gate delete`) leaves un-gated.
+  // The default's own end-to-end proof is ONT-056's scenario.
+  const init = run({
+    command: bin,
+    args: ['init', '--no-studio', '--yes', '--gate', 'all'],
+    cwd: PROJECT_DIR,
+  });
   assert({
     ok: init.status === 0,
     message: `installed \`orangerail init\` must exit 0 on the Prisma fixture, got ${init.status}:\n${init.stdout}\n${init.stderr}`,

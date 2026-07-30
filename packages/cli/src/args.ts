@@ -14,6 +14,8 @@ export interface ParsedArgs {
   open: boolean;
   yes: boolean;
   preset?: string;
+  /** `--gate` — which generated actions carry an approval gate (`init`, ONT-056). */
+  gate?: string;
   sources?: string[];
   models?: string[];
   docs?: boolean;
@@ -46,6 +48,7 @@ const VALUE_FLAGS = new Set([
   '--out',
   '--port',
   '--preset',
+  '--gate',
   '--sources',
   '--models',
   '--from-jira',
@@ -128,6 +131,7 @@ export const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
   let open = true;
   let yes = false;
   let preset: string | undefined;
+  let gate: string | undefined;
   let sources: string[] | undefined;
   let models: string[] | undefined;
   let docs: boolean | undefined;
@@ -176,6 +180,8 @@ export const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
         port = parsePort({ value });
       } else if (flag === '--preset') {
         preset = value;
+      } else if (flag === '--gate') {
+        gate = value;
       } else if (flag === '--sources') {
         sources = splitCsv({ value });
       } else if (flag === '--models') {
@@ -239,6 +245,7 @@ export const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
     ...(outPath === undefined ? {} : { outPath }),
     ...(port === undefined ? {} : { port }),
     ...(preset === undefined ? {} : { preset }),
+    ...(gate === undefined ? {} : { gate }),
     ...(sources === undefined ? {} : { sources }),
     ...(models === undefined ? {} : { models }),
     ...(docs === undefined ? {} : { docs }),

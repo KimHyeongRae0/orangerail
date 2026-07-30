@@ -3,6 +3,8 @@ import type { Readable, Writable } from 'node:stream';
 
 import type { McpPreset } from 'orangerail-mcp';
 
+import { DEFAULT_GATE, GATE_POLICIES, type GatePolicy } from './codegen';
+
 /**
  * The hand-rolled survey wizard (plan D8). Zero dependencies: prompts run on
  * `node:readline/promises`. Every question has a non-interactive flag
@@ -19,6 +21,7 @@ const VALID_PRESETS: McpPreset[] = ['readonly', 'approval-for-writes', 'sandbox'
 export interface InitFlags {
   yes: boolean;
   preset?: string | undefined;
+  gate?: string | undefined;
   sources?: string[] | undefined;
   models?: string[] | undefined;
   docs?: boolean | undefined;
@@ -32,6 +35,7 @@ export interface InitFlags {
 /** The fully-resolved survey answers codegen + completion flow consume. */
 export interface ResolvedInit {
   preset: McpPreset;
+  gate: GatePolicy;
   sources?: string[] | undefined;
   models?: string[] | undefined;
   docs: boolean;
@@ -48,7 +52,7 @@ const REFUSAL = [
   'Re-run with explicit flags, for example:',
   '',
   '  orangerail init --yes \\',
-  '    --preset=approval-for-writes \\',
+  '    --preset=approval-for-writes --gate=delete \\',
   '    [--sources=prisma,openapi] [--models=Foo,Bar] \\',
   '    [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]',
   '',
@@ -71,6 +75,29 @@ const resolvePreset = ({ value }: { value: string | undefined }): McpPreset => {
   return value as McpPreset;
 };
 
+/**
+ * Resolve `--gate` from a flag; throws a clear error on an unknown value, the
+ * same contract `--preset` has (ONT-056).
+ *
+ * The two flags sit at different layers and both are needed. `--preset` decides
+ * what the SERVER does with the ontology at runtime — `readonly` exposes no
+ * action tools, `sandbox` dry-runs them, `approval-for-writes` runs them "as
+ * declared". `--gate` decides what "as declared" MEANS, by choosing which
+ * generated files carry `policy: { approval: 'required' }`. Under `readonly`
+ * the gate changes nothing an agent can reach, because no action tool is served.
+ */
+const resolveGate = ({ value }: { value: string | undefined }): GatePolicy => {
+  if (value === undefined) {
+    return DEFAULT_GATE;
+  }
+
+  if (!(GATE_POLICIES as string[]).includes(value)) {
+    throw new Error(`unknown gate "${value}" — expected one of ${GATE_POLICIES.join(', ')}`);
+  }
+
+  return value as GatePolicy;
+};
+
 const affirmative = ({ answer, fallback }: { answer: string; fallback: boolean }): boolean => {
   const trimmed = answer.trim().toLowerCase();
 
@@ -84,6 +111,7 @@ const affirmative = ({ answer, fallback }: { answer: string; fallback: boolean }
 /** Build the flag-only (non-interactive) resolution. */
 const fromFlags = ({ flags }: { flags: InitFlags }): ResolvedInit => ({
   preset: resolvePreset({ value: flags.preset }),
+  gate: resolveGate({ value: flags.gate }),
   ...(flags.sources === undefined ? {} : { sources: flags.sources }),
   ...(flags.models === undefined ? {} : { models: flags.models }),
   docs: flags.docs ?? true,
@@ -157,6 +185,16 @@ export const runWizard = async ({
       preset = resolvePreset({ value: flags.preset });
     }
 
+    let gate: GatePolicy;
+    if (flags.gate === undefined) {
+      const answer = await rl.question(
+        `Gate which writes behind human approval? (${GATE_POLICIES.join('/')}) [${DEFAULT_GATE}] `,
+      );
+      gate = resolveGate({ value: answer.trim() === '' ? undefined : answer.trim() });
+    } else {
+      gate = resolveGate({ value: flags.gate });
+    }
+
     let docs: boolean;
     if (flags.docs === undefined) {
       const answer = await rl.question('Generate AGENTS.md? [Y/n] ');
@@ -177,6 +215,7 @@ export const runWizard = async ({
       ok: true,
       options: {
         preset,
+        gate,
         ...(sources === undefined ? {} : { sources }),
         ...(models === undefined ? {} : { models }),
         docs,
