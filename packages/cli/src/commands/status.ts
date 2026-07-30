@@ -10,6 +10,12 @@ import {
   type GovernanceReview,
 } from '../governance';
 import {
+  hostSurveyBlock,
+  hostSurveyClause,
+  surveyHostConfigs,
+  type HostSurveyReview,
+} from '../host-mcp';
+import {
   formatServerLiveness,
   heartbeatDirForStore,
   readServerLiveness,
@@ -74,6 +80,18 @@ export interface StatusReport {
    * through the middle of it, and nothing else on the readout can say so.
    */
   skew: CoreSkewReview;
+  /**
+   * What else the agent has mounted next to this project (ONT-060).
+   *
+   * It sits on this report for the same reason the skew verdict does: it
+   * qualifies every other field. The counts, the baseline and the chain all
+   * describe the surface orangerail declares, and the claim a reader takes from
+   * them is that this IS the agent's surface. While another server is mounted
+   * beside us that claim is false, and nothing else on this report can say so —
+   * a call to a foreign tool is not a weakened posture, not a chain failure and
+   * not a pending approval, it is an event this project never sees at all.
+   */
+  hosts: HostSurveyReview;
 }
 
 /** Gather the current governance posture from the config's registry and store. */
@@ -110,11 +128,16 @@ export const computeStatus = async ({
   const audit = await verifyAudit({ store: config.store });
   const pending = await config.store.listPending();
 
+  // Anchored on the project root rather than the cwd, exactly as the governance
+  // baseline is: `--config /elsewhere/orangerail.config.mjs` must survey the
+  // project being described, not the directory the command was typed in.
+  const root = projectRoot ?? process.cwd();
+
   const server = readServerLiveness({ dir: heartbeatDirForStore({ store: config.store }) });
   const governance =
     reviewed ??
     reviewGovernance({
-      projectRoot: projectRoot ?? process.cwd(),
+      projectRoot: root,
       registry: config.registry,
     });
 
@@ -130,6 +153,7 @@ export const computeStatus = async ({
     governance,
     withheld: governance.weakenedActions,
     skew: skewed ?? reviewCoreSkew({ config }),
+    hosts: surveyHostConfigs({ projectRoot: root }),
   };
 };
 
@@ -206,7 +230,7 @@ export const formatStatusLine = ({ report }: { report: StatusReport }): string =
     // The governance clause rides along even here: a broken chain and a weakened
     // posture are different failures, and swallowing one because the other is
     // louder is how a readout ends up telling half the truth.
-    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'${governanceClause({ report })}${exclusionClause({ report })}${skewClause({ report })}`;
+    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'${governanceClause({ report })}${exclusionClause({ report })}${skewClause({ report })}${hostSurveyClause({ review: report.hosts })}`;
   }
 
   const gate = report.readOnly
@@ -214,7 +238,7 @@ export const formatStatusLine = ({ report }: { report: StatusReport }): string =
     : `${report.gatedCount} action(s) approval-gated`;
   const pending = report.pendingCount > 0 ? ` · ${report.pendingCount} pending approval(s)` : '';
 
-  return `orangerail mcp: serving · governance active · ${gate}${governanceClause({ report })}${exclusionClause({ report })} · audit chain OK (${report.audit.count} record(s))${pending}${skewClause({ report })}`;
+  return `orangerail mcp: serving · governance active · ${gate}${governanceClause({ report })}${exclusionClause({ report })} · audit chain OK (${report.audit.count} record(s))${pending}${skewClause({ report })}${hostSurveyClause({ review: report.hosts })}`;
 };
 
 /**
@@ -345,6 +369,16 @@ const writeRuntimeBlock = ({ report }: { report: StatusReport }): void => {
  * gate that insists on one. A DUPLICATED core is likewise reported and not an
  * error — writes complete today, and failing a health check over a latent
  * hazard is how a health check stops being run.
+ *
+ * An ungoverned MCP server mounted alongside (ONT-060) is reported loudly and is
+ * likewise **not** an error. The other two exit-1 findings are defects IN this
+ * project that orangerail can name and the operator must fix; a foreign server
+ * is a deliberate, often legitimate configuration choice — mounting a Slack
+ * server next to orangerail is ordinary — and it is one this command may not
+ * even fully see, since it reads project scope only. Failing a health check on a
+ * normal setup is the same mistake as banner-on-every-start, and the loudness
+ * belongs in the wording instead. The narrow claim being made is only "these
+ * tools are outside this project's governance", never "unsafe".
  */
 export const runStatus = async ({
   config,
@@ -365,6 +399,13 @@ export const runStatus = async ({
   out.write(`  preset:   ${report.preset}${report.readOnly ? ' (writes not exposed)' : ''}\n`);
   out.write(`  pending:  ${report.pendingCount} approval(s) awaiting a decision\n`);
   out.write(`  server:   ${formatServerLiveness({ server: report.server })}\n`);
+
+  // Below the project's own lines and above the audit verdict, because it is the
+  // one block describing something OUTSIDE this project: it qualifies everything
+  // above it rather than being another of its properties. Always printed — "we
+  // found no host config" is a limit on this readout, not an all-clear (see
+  // `hostSurveyBlock`).
+  out.write(hostSurveyBlock({ review: report.hosts }));
 
   if (report.audit.ok) {
     out.write(`  audit:    chain OK — ${report.audit.count} record(s) verified\n`);

@@ -111,6 +111,24 @@ const base: StatusReport = {
   },
   withheld: [],
   skew: { state: 'aligned' },
+  hosts: { state: 'unmounted', sources: [], governed: [], foreign: [], unreadable: [] },
+};
+
+/** A project root whose `.mcp.json` also declares a server this project does not govern. */
+const sharedRoot = (): string => {
+  const dir = emptyRoot();
+
+  writeFileSync(
+    join(dir, '.mcp.json'),
+    JSON.stringify({
+      mcpServers: {
+        postgres: { command: 'postgres-mcp', args: ['postgresql://someone:hunter2@localhost/db'] },
+        orangerail: { command: 'npx', args: ['orangerail', 'mcp'] },
+      },
+    }),
+  );
+
+  return dir;
 };
 
 describe('computeStatus — governance posture from registry + store', () => {
@@ -303,6 +321,54 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
 
     expect(line).toContain('AUDIT CHAIN FAILED');
     expect(line).toContain('GOVERNANCE DRIFT');
+  });
+});
+
+describe('an ungoverned MCP server mounted alongside (ONT-060)', () => {
+  it('is surveyed from the project root, not the cwd', async () => {
+    const report = await computeStatus({ config: buildConfig(), projectRoot: sharedRoot() });
+
+    expect(report.hosts.state).toBe('shared');
+    expect(report.hosts.foreign).toEqual([{ name: 'postgres', source: '.mcp.json' }]);
+  });
+
+  it('is named on the readout and does NOT change the exit code (AC-1, D4)', async () => {
+    const streams = captureStreams();
+    let code: number;
+
+    try {
+      code = await runStatus({ config: buildConfig(), projectRoot: sharedRoot() });
+    } finally {
+      streams.restore();
+    }
+
+    // Loud in the wording, silent in the exit code: this is a legitimate
+    // configuration choice orangerail cannot fix, and a health check that fails
+    // on a normal setup is one nobody runs.
+    expect(code).toBe(0);
+    expect(streams.out()).toContain('UNGOVERNED TOOLS ALONGSIDE');
+    expect(streams.out()).toContain('postgres (.mcp.json)');
+    expect(streams.out()).not.toContain('hunter2');
+  });
+
+  it('says it cannot tell when no host config is present, rather than nothing (AC-3)', async () => {
+    const streams = captureStreams();
+
+    try {
+      await runStatus({ config: buildConfig(), projectRoot: emptyRoot() });
+    } finally {
+      streams.restore();
+    }
+
+    expect(streams.out()).toContain('no MCP client config next to this project');
+    expect(streams.out()).toContain('cannot tell what');
+  });
+
+  it('rides the MCP startup line as a clause (AC-11)', async () => {
+    const report = await computeStatus({ config: buildConfig(), projectRoot: sharedRoot() });
+
+    expect(formatStatusLine({ report })).toContain('1 ungoverned MCP server(s) alongside');
+    expect(formatStatusLine({ report: base })).not.toContain('ungoverned');
   });
 });
 

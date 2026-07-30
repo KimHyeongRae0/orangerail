@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { DEFAULT_CONFIG_NAMES, type OrangerailConfig } from '../../config';
 import { actionPostures, GOVERNANCE_FILE, writeBaseline } from '../../governance';
+import { hostSurveyInitBeat, surveyHostConfigs } from '../../host-mcp';
 import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
 import { runInitFromArtifacts } from './artifacts';
@@ -322,15 +323,26 @@ export const runInit = async ({
       ? ''
       : `  ✓  refused ${excluded.length} model(s) — ${excluded.join(', ')} — recorded in ${GOVERNANCE_FILE}\n`;
 
+  // The surface this run just narrowed is not necessarily the whole surface
+  // (ONT-060). This is the exact moment the operator believes otherwise — they
+  // asked for four models and were handed four models — so if the project's own
+  // host config already declares a server orangerail does not govern, the
+  // closing summary is where that has to be said, not a later `status` nobody
+  // ran. Silent when nothing foreign is declared, which is the common case here:
+  // a project generated seconds ago usually has no host config at all.
+  const hostBeat = hostSurveyInitBeat({ review: surveyHostConfigs({ projectRoot: cwd }) });
+
   process.stdout.write(
     `  ✓  scanned your sources — ${objectCount} object(s), ${actionCount} action(s)\n` +
       '  ✓  generated a governed MCP server under ontology/\n' +
       `  ✓  ${gateLine}\n` +
       excludedBeat +
       governanceBeat.tick +
+      hostBeat.tick +
       '\n  These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n' +
       gateGuidance +
-      governanceBeat.body,
+      governanceBeat.body +
+      hostBeat.body,
   );
 
   // Models the allow-list left behind without refusing them. `sync` will report
