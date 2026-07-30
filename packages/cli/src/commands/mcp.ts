@@ -1,6 +1,7 @@
 import { createMcpServer, type CreateMcpServerArgs } from 'orangerail-mcp';
 
 import type { OrangerailConfig } from '../config';
+import { coreSkewNotice, reviewCoreSkew } from '../core-skew';
 import {
   GOVERNANCE_FILE,
   isUnreviewed,
@@ -131,6 +132,11 @@ export const runMcp = async ({
   const root = projectRoot ?? process.cwd();
   const review = reviewGovernance({ projectRoot: root, registry: config.registry });
 
+  // Reviewed against the DECLARED registry, before `withholdActions` can wrap
+  // it: the wrapper is this CLI's own object and would report alignment no
+  // matter which core built the thing it wraps.
+  const skew = reviewCoreSkew({ config });
+
   // The registry the server actually serves. Identical to the declared one
   // unless something weakened, in which case exactly those actions are gone.
   const served =
@@ -147,6 +153,7 @@ export const runMcp = async ({
     config: { ...config, registry: served },
     projectRoot: root,
     governance: review,
+    skew,
   });
 
   // Build and CONNECT the server before anything claims it is up. Both steps can
@@ -184,5 +191,10 @@ export const runMcp = async ({
     process.once('SIGTERM', () => shutdown({ signal: 'SIGTERM' }));
   }
 
-  process.stderr.write(`${governanceNotice({ review })}${formatStatusLine({ report })}\n`);
+  // Skew first. A governance verdict describes gates that are wired correctly
+  // and will still never complete a write, so reading it before the skew notice
+  // sends an operator to fix a baseline that was never the problem.
+  process.stderr.write(
+    `${coreSkewNotice({ review: skew })}${governanceNotice({ review })}${formatStatusLine({ report })}\n`,
+  );
 };

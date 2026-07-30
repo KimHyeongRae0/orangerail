@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import { buildActionDefinition, type DefineActionInput } from './define/action';
 import { buildLinkDefinition, type DefineLinkInput } from './define/link';
 import { buildObjectDefinition, type DefineObjectInput } from './define/object';
+import { markCoreInstance } from './instance';
 import type { LinkDefinition, ObjectDefinition, Policy, RuntimeAction } from './types';
 
 /**
@@ -82,17 +83,24 @@ export const createRegistry = () => {
     links.length = 0;
   };
 
-  return {
-    defineObject,
-    defineLink,
-    defineAction,
-    getObject,
-    getAction,
-    listObjects,
-    listActions,
-    listLinks,
-    reset,
-  };
+  // Stamp the registry with THIS core's instance token (ONT-058). The registry
+  // is the carrier the skew check keys on because it is the only unambiguous
+  // one: a `Registry` can come from nowhere but `createRegistry`, whereas a
+  // `Store` is a documented extension point, so an unmarked store is honestly
+  // ambiguous between "old core" and "a conforming adapter someone wrote".
+  return markCoreInstance({
+    value: {
+      defineObject,
+      defineLink,
+      defineAction,
+      getObject,
+      getAction,
+      listObjects,
+      listActions,
+      listLinks,
+      reset,
+    },
+  });
 };
 
 /** The registry type — a resettable declaration container. */

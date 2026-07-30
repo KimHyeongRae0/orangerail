@@ -332,6 +332,39 @@ type FailureMapper = (args: {
   diagnostic?: PublicDiagnostic;
 }) => ToolResult;
 
+/** The `invalidated` reasons core can report (§3.4). */
+type InvalidatedReason = Extract<ExecuteResult, { status: 'invalidated' }>['reason'];
+
+/**
+ * What an agent is told about an `invalidated` outcome (ONT-058).
+ *
+ * `Invalidated (<reason>).` was the whole message, and for `stale_approval` it
+ * left the agent holding a word that reads like an accusation and no next move
+ * — which is how one agent concluded, and reported, that orangerail could not
+ * complete a governed write at all. The reason token itself is already part of
+ * the agent-facing vocabulary (`signature`, `schema`, `input` all ship in
+ * `extra.reason`), so a fourth member discloses nothing new; the sentence is
+ * the fix.
+ *
+ * What the sentence deliberately does NOT say: that two copies of
+ * `orangerail-core` are loaded, or which versions they are. That is the
+ * operator's install topology, the agent cannot act on it, and it is not this
+ * transport's to hand to an untrusted caller — the CLI says it, to the person
+ * who can fix it. The agent gets the one fact it can act on (this approval is
+ * spent; re-stage) and a pointer at the surface that holds the rest.
+ *
+ * And NOT a {@link PublicDiagnostic}. That set is closed on purpose and every
+ * member exists because a DATASOURCE failure would otherwise be redacted down
+ * to nothing — the code is the only channel left. `invalidated` carries no
+ * redacted text and never has: its reason survives the boundary intact, so
+ * routing the same fact through the diagnostic enum would widen the closed set
+ * to buy a second name for something already said.
+ */
+const invalidatedMessage = ({ reason }: { reason: InvalidatedReason }): string =>
+  reason === 'stale_approval'
+    ? 'Invalidated (stale_approval): this approval was recorded by an older orangerail-core than the one running, so the payload cannot be verified against it. Nothing executed and the approval is spent — stage the action again. If a fresh staging invalidates the same way, stop retrying and have the operator run `orangerail status`.'
+    : `Invalidated (${reason}).`;
+
 const mapStage = ({
   result,
   failure,
@@ -376,7 +409,7 @@ const mapStage = ({
     case 'invalidated':
       return err({
         status: 'invalidated',
-        message: `Invalidated (${result.reason}).`,
+        message: invalidatedMessage({ reason: result.reason }),
         extra: { reason: result.reason },
       });
     case 'audit_blocked':
@@ -418,7 +451,7 @@ const mapExecute = ({
     case 'invalidated':
       return err({
         status: 'invalidated',
-        message: `Invalidated (${result.reason}).`,
+        message: invalidatedMessage({ reason: result.reason }),
         extra: { reason: result.reason },
       });
     case 'condition_changed':

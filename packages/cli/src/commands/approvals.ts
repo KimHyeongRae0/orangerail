@@ -45,6 +45,30 @@ export const approvalsShow = async ({
   return 0;
 };
 
+/**
+ * What `approve` adds when the record it just approved carries no `inputHash`
+ * (ONT-058).
+ *
+ * `approve ok (approved)` is true — the CAS really did resolve — and it is the
+ * line that made this bug expensive. An operator (and an agent reading the same
+ * output) took it as "the write is now cleared to run", and the very next step
+ * consumed the approval and performed nothing. The decision surface is the last
+ * place this is still cheap to say, so it says it here, to STDERR, next to the
+ * success it qualifies rather than instead of it.
+ */
+const staleApprovalWarning = ({ result }: { result: ApproveResult }): void => {
+  if (result.status !== 'approved' || result.record.inputHash !== undefined) {
+    return;
+  }
+
+  process.stderr.write(
+    'WARNING: this approval carries no inputHash, so nothing can bind its payload to it and\n' +
+      'execution will refuse it as `invalidated (stale_approval)` — the approval is spent and NO\n' +
+      'WRITE HAPPENS. It was created by an orangerail-core older than the one you are running.\n' +
+      'Run `orangerail status` for the diagnosis, align the versions, then stage the action again.\n',
+  );
+};
+
 const reportDecision = ({
   result,
   verb,
@@ -80,7 +104,13 @@ export const approvalsApprove = async ({
   const approver = await resolveCliCaller({ resolveIdentity: config.resolveIdentity });
   const result = await buildEngine({ config }).approve({ approvalId: id, approver });
 
-  return reportDecision({ result, verb: 'approve' });
+  const code = reportDecision({ result, verb: 'approve' });
+  staleApprovalWarning({ result });
+
+  // Still exit 0. The approval genuinely resolved, and a non-zero exit here
+  // would break every script that approves in a loop over a condition the
+  // script cannot fix — the warning is the signal, the exit code is not.
+  return code;
 };
 
 /** `orangerail approvals reject <id>` — resolve via the store CAS (AC-3). */
