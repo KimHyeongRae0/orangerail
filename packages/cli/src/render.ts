@@ -1,4 +1,4 @@
-import type { ApprovalRecord } from 'orangerail-core';
+import type { ApprovalRecord, AuditPrior } from 'orangerail-core';
 
 /**
  * Approval-deception defense (§3.5): staged input and requestedBy are
@@ -165,7 +165,16 @@ const MAX_DETAIL_INPUT_CHARS = 2000;
  * command that prints all of it. The notice also says the block is no longer
  * valid JSON, so a truncated value can never be mistaken for the whole one.
  */
-const capDetailInput = ({ pretty, id }: { pretty: string; id: string }): string => {
+const capDetailInput = ({
+  pretty,
+  id,
+  label = 'input',
+}: {
+  pretty: string;
+  id: string;
+  /** What the block holds, so the notice names the right thing (input / target row). */
+  label?: string;
+}): string => {
   const lines = pretty.split('\n');
 
   if (lines.length <= MAX_DETAIL_INPUT_LINES && pretty.length <= MAX_DETAIL_INPUT_CHARS) {
@@ -178,9 +187,84 @@ const capDetailInput = ({ pretty, id }: { pretty: string; id: string }): string 
   return [
     shown,
     `  … TRUNCATED — showing ${shown.length} of ${pretty.length} character(s), ${shown.split('\n').length} of ${lines.length} line(s).`,
-    '    This block is cut mid-value and is NOT the whole input. Print it in full with:',
+    `    This block is cut mid-value and is NOT the whole ${label}. Print it in full with:`,
     `      orangerail approvals show ${id} --full`,
   ].join('\n');
+};
+
+/** Pretty-print a value the way the input block does: sanitized and capped. */
+const prettyBlock = ({
+  value,
+  id,
+  full,
+  label = 'input',
+}: {
+  value: unknown;
+  id: string;
+  full: boolean;
+  label?: string;
+}): string => {
+  const pretty = escapeInvisible({
+    value: JSON.stringify(value, null, 2).replace(CONTROL_CHARS_KEEP_NEWLINE, ''),
+  });
+
+  return full ? pretty : capDetailInput({ pretty, id, label });
+};
+
+/**
+ * The `target` block of `approvals show` — what the row this write is aimed at
+ * looks like RIGHT NOW (§3.11 / ONT-057).
+ *
+ * The reason it is here: an approver reading `{"id":"p3","stock":25}` is being
+ * asked to authorize a change and shown only one side of it. `stock: 25` is a
+ * correction or a catastrophe depending on whether the row currently says `0`
+ * or `24`, and until now the decision surface had no opinion about that.
+ *
+ * The heading says "read now" because that is the honest claim and the
+ * distinction matters: this is a live read at display time, NOT the `prior`
+ * recorded on the audit chain, which is read at execution time and is the value
+ * a recovery works from. Between this screen and the approval the row can move.
+ * It is masked by the same `maskAuditPrior` policy the chain uses, so the safer
+ * surface is never the one that leaks.
+ */
+const priorLines = ({
+  prior,
+  id,
+  full,
+}: {
+  prior: AuditPrior;
+  id: string;
+  full: boolean;
+}): string[] => {
+  switch (prior.state) {
+    case 'value':
+      return [
+        'target (current state, read now):',
+        prettyBlock({ value: prior.value, id, full, label: 'target row' }),
+      ];
+    case 'none':
+      return ['target (current state, read now):', '  NONE — no such object right now.'];
+    case 'unreadable':
+      return [
+        'target (current state, read now):',
+        `  COULD NOT READ — ${sanitize({ value: prior.error })}`,
+      ];
+    case 'withheld':
+      return [
+        'target (current state, read now):',
+        '  WITHHELD — audit redaction is configured and no redactPrior handles this row.',
+      ];
+    case 'unavailable':
+      return prior.reason === 'no_id'
+        ? [
+            'target (current state, read now):',
+            '  UNAVAILABLE — the staged input carries no value at the target id field.',
+          ]
+        : [
+            'target (current state, read now):',
+            '  UNAVAILABLE — this action declares no target object with a read contract.',
+          ];
+  }
 };
 
 /**
@@ -209,20 +293,18 @@ const unverifiableLine = ({ record }: { record: ApprovalRecord }): string[] =>
 /**
  * Render one approval's full detail with pretty-printed, sanitized input.
  * `full` lifts the length cap for an operator who has decided they want the
- * whole value.
+ * whole value. `prior` is optional: a caller that could not (or chose not to)
+ * read the target omits the block entirely rather than printing a guess.
  */
 export const renderApprovalDetail = ({
   record,
   full = false,
+  prior,
 }: {
   record: ApprovalRecord;
   full?: boolean;
+  prior?: AuditPrior | undefined;
 }): string => {
-  const pretty = escapeInvisible({
-    value: JSON.stringify(record.input, null, 2).replace(CONTROL_CHARS_KEEP_NEWLINE, ''),
-  });
-  const prettyInput = full ? pretty : capDetailInput({ pretty, id: record.id });
-
   return [
     `id:           ${record.id}`,
     `action:       ${sanitize({ value: record.actionName })}`,
@@ -230,9 +312,14 @@ export const renderApprovalDetail = ({
     `requestedBy:  ${sanitize({ value: record.requestedBy })}${record.devMode ? ' [dev]' : ''}`,
     `roles:        ${JSON.stringify(record.requestedByRoles)}`,
     `createdAt:    ${record.createdAt}`,
+    // Order matters. `unverifiableLine` (ONT-058) says this approval cannot
+    // execute at all; the target block (ONT-057) describes what it would change.
+    // A reader who is about to be told the decision is moot should be told that
+    // before being handed a row to reason about.
     ...unverifiableLine({ record }),
+    ...(prior === undefined ? [] : priorLines({ prior, id: record.id, full })),
     `input (agent-supplied):`,
-    prettyInput,
+    prettyBlock({ value: record.input, id: record.id, full }),
     '',
   ].join('\n');
 };

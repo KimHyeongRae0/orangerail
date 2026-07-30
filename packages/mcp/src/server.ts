@@ -17,6 +17,7 @@ import {
   type ObjectDefinition,
   type PublicDiagnostic,
   type RedactAudit,
+  type RedactPrior,
   type Registry,
   type ResolveIdentity,
   type ResolveListResult,
@@ -110,6 +111,13 @@ export interface CreateMcpServerArgs {
   resolveIdentity?: ResolveIdentity;
   preset?: McpPreset;
   redactAudit?: RedactAudit;
+  /**
+   * Mask the PRIOR target row an audit record now carries (§3.11). Distinct
+   * from `redactAudit`, which is written against an action's input and would
+   * silently under-mask a row — supplying `redactAudit` alone withholds the row
+   * instead of guessing. See `RedactPrior` in `orangerail-core`.
+   */
+  redactPrior?: RedactPrior;
   /** Where the FULL failure text goes (§3.10). Defaults to STDERR. */
   reportFailure?: ReportFailure;
   /**
@@ -508,6 +516,7 @@ export const createMcpServer = ({
   resolveIdentity,
   preset = 'approval-for-writes',
   redactAudit,
+  redactPrior,
   reportFailure = defaultReportFailure,
   allowDevMode = false,
   hostApprovalPrompt = 'off',
@@ -517,6 +526,7 @@ export const createMcpServer = ({
     store,
     mode: preset === 'sandbox' ? 'dry_run' : 'live',
     ...(redactAudit ? { redactAudit } : {}),
+    ...(redactPrior ? { redactPrior } : {}),
   });
 
   const idConfig = {

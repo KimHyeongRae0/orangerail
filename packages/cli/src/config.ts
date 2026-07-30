@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { RedactAudit, Registry, ResolveIdentity, Store } from 'orangerail-core';
+import type { RedactAudit, RedactPrior, Registry, ResolveIdentity, Store } from 'orangerail-core';
 import type { HostApprovalPrompt, McpPreset } from 'orangerail-mcp';
 
 /**
@@ -15,6 +15,14 @@ export interface OrangerailConfig {
   resolveIdentity?: ResolveIdentity;
   preset?: McpPreset;
   redactAudit?: RedactAudit;
+  /**
+   * Mask the PRIOR target row on audit records and in the approver's view
+   * (§3.11). A separate hook from `redactAudit` because a row is not an input:
+   * it carries columns no input mentions, so an input-shaped mask would publish
+   * them. Configure `redactAudit` without this and the row is withheld rather
+   * than half-masked.
+   */
+  redactPrior?: RedactPrior;
   /**
    * Opt in to dev mode on the MCP server when there is no `resolveIdentity`
    * adapter (§3.3 / AC-4). The server defaults to a secure `false`; a local

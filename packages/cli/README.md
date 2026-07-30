@@ -181,7 +181,8 @@ Deliberate behaviors worth knowing:
 ## Configuration
 
 Every command loads an ontology config — a default export
-`{ registry, store, resolveIdentity?, preset?, redactAudit?, allowDevMode? }` —
+`{ registry, store, resolveIdentity?, preset?, redactAudit?, redactPrior?,
+allowDevMode? }` —
 from `orangerail.config.mjs` (or `.js`, `.ts`, `.mts`, or `--config <path>`) via
 plain dynamic `import()`. TypeScript configs work through your own TS-capable
 runtime (`tsx`, or `node --experimental-strip-types`); orangerail does not
@@ -231,9 +232,16 @@ a last resort, `rm -r <store-dir>/lock` while no orangerail process runs.
 ## Storage warning
 
 Approvals and audit records store action inputs — and audit records also
-results and error messages — in plaintext by default. Supply `redactAudit` in
-the config to mask audit records (approval records persist verbatim by design);
-do not put secrets in action inputs.
+results, error messages, and the target's **prior state** — in plaintext by
+default. Supply `redactAudit` in the config to mask audit-record inputs
+(approval records persist verbatim by design), and `redactPrior` to mask prior
+rows. They are separate hooks because a row carries columns no input mentions,
+so an input-shaped mask would publish them: configure `redactAudit` alone and
+prior rows are withheld instead. Do not put secrets in action inputs.
+
+`orangerail approvals show <id>` prints the target's current state above the
+staged input, so an approver sees both sides of the change. It is a live read at
+display time, masked by the same policy the audit chain applies.
 
 ## Upgrading from 0.1.0
 

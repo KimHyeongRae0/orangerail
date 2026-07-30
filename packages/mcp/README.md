@@ -187,6 +187,9 @@ The FULL text goes to the operator instead:
   plaintext by default (see `orangerail-core`). Supply `redactAudit` to mask
   audit records; do not put secrets in action inputs. The audit log is an
   operator artifact — it holds the unredacted failure text on purpose.
+  An `execution_started` record also carries the target's **prior state**; mask
+  it with `redactPrior`, which is a separate hook because a row is not an input
+  (a `redactAudit` alone withholds the row rather than half-masking it).
 - **Config is code**: loading an ontology config is arbitrary code execution
   (same trust level as an npm script); v0 is stdio only, no network exposure.
 - **The audit log is an audit trail behind a human checkpoint, not a

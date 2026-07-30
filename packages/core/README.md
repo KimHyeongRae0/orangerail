@@ -32,6 +32,46 @@ const engine = createEngine({
 });
 ```
 
+## Prior state on the audit record
+
+An `execution_started` record carries `prior` — the action's target as it stood
+immediately before the write. Without it an audit record for a successful update
+says what the row is now and cannot say what it was, so the change can be
+neither described nor undone from the log.
+
+It costs nothing to declare: the engine reads it through the `target` +
+`targetIdFrom` + `resolve.get` the ontology already declares, which is the same
+read the `where` gate performs. A gated action pays **no extra round-trip** (the
+gate's read is reused); an un-gated one with a readable target pays exactly one.
+
+`prior` is a discriminated union, because a recovery attempt has to tell these
+apart: `{ state: 'value', value }`, `{ state: 'none' }` (the read succeeded and
+there was no such row), `{ state: 'unreadable', error }` (the read threw — the
+write still ran), `{ state: 'withheld' }` (redaction policy, below), and
+`{ state: 'unavailable', reason }` (the action declares nothing readable). It is
+absent entirely on records written before this feature existed, and `verifyAudit`
+never requires it.
+
+It is a witness, **not a transactional snapshot**: it is read on the same
+connection as the write but outside its transaction, so a concurrent writer
+between the two makes it stale.
+
+**Redaction is a separate hook on purpose.** A prior row carries every column the
+object declares, including ones no input ever mentions, so handing it to a
+`redactAudit` written against an action's input would mask what that function
+happens to know and publish the rest. Supply `redactPrior` to mask rows; supply
+`redactAudit` alone and rows are recorded as `{ state: 'withheld' }` rather than
+guessed at.
+
+```ts
+const engine = createEngine({
+  registry,
+  store,
+  redactAudit: ({ input }) => maskSecrets(input),
+  redactPrior: ({ prior }) => ({ ...prior, password_hash: '***' }),
+});
+```
+
 ## Engine modes and stubs
 
 - `createEngine({ mode: 'dry_run' })` — the sandbox path: after auth, input,

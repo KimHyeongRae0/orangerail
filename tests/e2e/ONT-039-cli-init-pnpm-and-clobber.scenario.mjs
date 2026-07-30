@@ -164,28 +164,59 @@ console.log('[phase 2] the shipped tarball under a real `pnpm add` + pnpm bin sh
   const packDir = join(WORK, 'tarball');
   mkdirSync(packDir, { recursive: true });
 
-  const packed = run({
-    command: 'pnpm',
-    args: ['pack', '--pack-destination', packDir],
-    cwd: join(ROOT, 'packages', 'cli'),
-  });
+  // Pack the CLI **and every workspace package it depends on**, then pin those
+  // names with `pnpm.overrides`.
+  //
+  // Without the pin, `pnpm add <cli.tgz>` resolves `orangerail-core` and friends
+  // from the REGISTRY at whatever was last published, so this phase quietly ran
+  // a freshly built CLI against a stale core. Any unreleased cross-package
+  // change then failed here with an ESM link error that says nothing about
+  // NODE_PATH — which is the only thing this phase exists to test. The five
+  // packages are versioned and released together (CHANGELOG), so testing the
+  // shipped tarball against its sibling tarballs is also the honest simulation
+  // of what a user installs.
+  const workspacePackages = ['core', 'mcp', 'docs-gen', 'studio'];
+  const packOne = ({ dir }) =>
+    run({ command: 'pnpm', args: ['pack', '--pack-destination', packDir], cwd: dir });
 
-  if (packed.status !== 0) {
+  const packed = packOne({ dir: join(ROOT, 'packages', 'cli') });
+  const siblings = workspacePackages.map((name) => ({
+    name,
+    result: packOne({ dir: join(ROOT, 'packages', name) }),
+  }));
+  const failedSibling = siblings.find((entry) => entry.result.status !== 0);
+
+  if (packed.status !== 0 || failedSibling !== undefined) {
     console.warn(
       '  ⚠️  SKIPPED (DEV-01): `pnpm pack` failed — phase 1 already covers the mechanism',
     );
-    console.warn(`     ${packed.stderr.trim()}`);
+    console.warn(`     ${(failedSibling?.result ?? packed).stderr.trim()}`);
   } else {
     const tarballs = readdirSync(packDir).filter((f) => f.endsWith('.tgz'));
+    const cliTarball = tarballs.find((f) => /^orangerail-\d/.test(f));
     assert({
-      ok: tarballs.length === 1,
-      message: `expected one tarball, got: ${tarballs.join(', ')}`,
+      ok: cliTarball !== undefined && tarballs.length === workspacePackages.length + 1,
+      message: `expected one tarball per workspace package, got: ${tarballs.join(', ')}`,
     });
 
     const project = prepareProject({ name: 'pnpm' });
+    const manifestPath = join(project, 'package.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const overrides = {};
+    for (const tarball of tarballs) {
+      if (tarball === cliTarball) {
+        continue;
+      }
+
+      // `orangerail-core-0.1.0.tgz` -> `orangerail-core`
+      overrides[tarball.replace(/-\d[^-]*\.tgz$/, '')] = `file:${join(packDir, tarball)}`;
+    }
+    manifest.pnpm = { ...(manifest.pnpm ?? {}), overrides };
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
     const added = run({
       command: 'pnpm',
-      args: ['add', join(packDir, tarballs[0])],
+      args: ['add', join(packDir, cliTarball)],
       cwd: project,
     });
 
