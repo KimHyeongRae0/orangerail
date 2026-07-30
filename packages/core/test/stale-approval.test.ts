@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { inspectCoreInstance, markCoreInstance } from '../src/instance';
+import { markCoreInstance } from '../src/instance';
 import { createEngine } from '../src/lifecycle/engine';
 import { createRegistry } from '../src/registry';
 import { createMemoryStore } from '../src/store/memory';
@@ -158,27 +158,35 @@ describe('ONT-058 — an unverifiable approval is not a tampered one', () => {
 });
 
 describe('ONT-058 — the core instance marker', () => {
-  it('recognizes a registry this copy of core built', () => {
-    expect(inspectCoreInstance({ value: createRegistry() })).toBe('same');
+  // Read exactly as a consumer must: a bare `Symbol.for` off the object, with
+  // no import from this package. That is the contract — the reader is always in
+  // the other package, holding an object built by a core that may export
+  // nothing — so the test reaches for it the same way.
+  const tokenOf = ({ value }: { value: object }): unknown =>
+    (value as Record<symbol, unknown>)[Symbol.for('orangerail.coreInstance')];
+
+  it('stamps every registry this copy of core builds with one shared token', () => {
+    const first = tokenOf({ value: createRegistry() });
+
+    expect(first).toBeDefined();
+    expect(tokenOf({ value: createRegistry() })).toBe(first);
   });
 
-  it('reports an object built by another copy as `other`, never as ours', () => {
-    // What a second module instance's `markCoreInstance` produces: the same
-    // Symbol.for key (it is the cross-realm registry, so both copies agree on
-    // it) holding a token that is not this module's.
+  it('gives a second copy of core a token that cannot equal this one', () => {
+    // What another module instance produces: the same Symbol.for key (the
+    // cross-realm registry, so both copies agree on it) holding its own token.
     const foreign = { defineAction: () => undefined };
     Object.defineProperty(foreign, Symbol.for('orangerail.coreInstance'), {
       value: Object.freeze({ package: 'orangerail-core' }),
       enumerable: false,
     });
 
-    expect(inspectCoreInstance({ value: foreign })).toBe('other');
+    expect(tokenOf({ value: foreign })).toBeDefined();
+    expect(tokenOf({ value: foreign })).not.toBe(tokenOf({ value: createRegistry() }));
   });
 
-  it('reports a 0.1.0-era object as `unmarked` — the state that breaks writes', () => {
-    expect(inspectCoreInstance({ value: { defineAction: () => undefined } })).toBe('unmarked');
-    expect(inspectCoreInstance({ value: null })).toBe('unmarked');
-    expect(inspectCoreInstance({ value: 'registry' })).toBe('unmarked');
+  it('leaves a 0.1.0-era object unmarked — the state that breaks writes', () => {
+    expect(tokenOf({ value: { defineAction: () => undefined } })).toBeUndefined();
   });
 
   it('keeps the mark off spreads and JSON, so a wrapper cannot inherit the claim', () => {
@@ -187,7 +195,7 @@ describe('ONT-058 — the core instance marker', () => {
     // touched it.
     const marked = markCoreInstance({ value: { a: 1 } });
 
-    expect(inspectCoreInstance({ value: { ...marked } })).toBe('unmarked');
+    expect(tokenOf({ value: { ...marked } })).toBeUndefined();
     expect(JSON.stringify(marked)).toBe('{"a":1}');
   });
 });

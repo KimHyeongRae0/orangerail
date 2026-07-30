@@ -1,4 +1,4 @@
-import { inspectCoreInstance } from 'orangerail-core';
+import { createRegistry } from 'orangerail-core';
 
 import type { OrangerailConfig } from './config';
 
@@ -31,15 +31,47 @@ export type CoreSkewState =
    */
   | 'duplicated'
   /**
-   * The config's core does not identify itself: it predates this marker
-   * (`0.1.0` and older). Approvals it creates carry no `inputHash` and this
-   * CLI's engine refuses every one of them.
+   * The config's core does not identify itself while this CLI's does: it
+   * predates the marker (`0.1.0` and older). Approvals it creates carry no
+   * `inputHash` and this CLI's engine refuses every one of them.
    */
-  | 'stale';
+  | 'stale'
+  /**
+   * This CLI's OWN core predates the marker, so there is no token to compare
+   * against and no question this check can answer. Reported as nothing at all —
+   * see {@link reviewCoreSkew}.
+   */
+  | 'unverifiable';
 
 export interface CoreSkewReview {
   state: CoreSkewState;
 }
+
+/**
+ * Where a core stamps its instance token.
+ *
+ * Written as a `Symbol.for` LITERAL and deliberately NOT imported from
+ * `orangerail-core`, which exports the identical key. This module's whole job
+ * is to inspect a core that may be older than this CLI, and a static named
+ * import is a LINK-time dependency on that core's exports. The first version of
+ * this file imported an `inspectCoreInstance` helper, and against the exact
+ * configuration the check exists to diagnose — the shipped CLI installed beside
+ * `orangerail-core@0.1.0` — Node failed the module with `does not provide an
+ * export named 'inspectCoreInstance'` and took the whole CLI down before any
+ * command ran, with a `SyntaxError` naming none of the real cause.
+ *
+ * `Symbol.for` is the cross-realm registry, so both copies agree on this key
+ * while neither has to export anything to the other. `createRegistry` above is
+ * imported normally because it is `0.1.0` public API — the generated config
+ * calls it by name — so no core this CLI can meet lacks it.
+ */
+const CORE_INSTANCE_KEY = Symbol.for('orangerail.coreInstance');
+
+/** The instance token stamped on a value, or `undefined` if it carries none. */
+const tokenOf = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'object' && value !== null
+    ? (value as Record<symbol, unknown>)[CORE_INSTANCE_KEY]
+    : undefined;
 
 /**
  * Review the config's core against this one.
@@ -64,15 +96,32 @@ export interface CoreSkewReview {
  * unmarked store would be honestly ambiguous between "an old core" and "a
  * custom adapter working exactly as designed", and a check that shouts at the
  * second is a check operators learn to ignore.
+ *
+ * BOTH tokens are obtained the same way — read off a registry, through a global
+ * symbol — so this CLI never holds its own core's private token and never asks
+ * either core for a helper. An old core on either side yields a verdict rather
+ * than an error, which is the property the first version of this file lacked.
  */
 export const reviewCoreSkew = ({ config }: { config: OrangerailConfig }): CoreSkewReview => {
-  const verdict = inspectCoreInstance({ value: config.registry });
+  const ours = tokenOf({ value: createRegistry() });
+  const theirs = tokenOf({ value: config.registry });
 
-  if (verdict === 'same') {
-    return { state: 'aligned' };
+  // Our own core predates the marker, so there is no token to compare against.
+  // Silent, and that is not a shrug: a core old enough to carry no marker is
+  // also old enough to carry no `inputHash` enforcement — both land in the same
+  // unreleased cycle — so this CLI's engine executes whatever it is handed and
+  // the failure this check exists for cannot occur. "Cannot tell" is exactly
+  // true here, and saying it loudly on every run of an older orangerail would
+  // be noise about a hazard that is not present.
+  if (ours === undefined) {
+    return { state: 'unverifiable' };
   }
 
-  return { state: verdict === 'other' ? 'duplicated' : 'stale' };
+  if (theirs === undefined) {
+    return { state: 'stale' };
+  }
+
+  return { state: theirs === ours ? 'aligned' : 'duplicated' };
 };
 
 /**
@@ -84,6 +133,16 @@ export const reviewCoreSkew = ({ config }: { config: OrangerailConfig }): CoreSk
  * because none of them can complete a write. It names the cause and the fix,
  * and it names the case where the cause is NOT an upgrade, because an operator
  * who never upgraded anything and is told "you upgraded" stops reading.
+ *
+ * Only `stale` gets the block. `duplicated` earns a clause on the status line
+ * and a paragraph on the `orangerail status` readout, and nothing on server
+ * start — evidence, not taste: `ONT-019-npm-publish-readiness` installs the five
+ * packed tarballs into a clean project, which lays `orangerail-core` down twice,
+ * and that healthy install printed four lines of warning on every start while
+ * its governed loop completed underneath them. A banner that fires on a working
+ * install is how an operator learns to skip the banner — the same argument that
+ * keeps this check off the store. The finding stays reachable where somebody is
+ * actually asking whether the project is healthy.
  */
 export const coreSkewNotice = ({ review }: { review: CoreSkewReview }): string => {
   if (review.state === 'stale') {
@@ -96,15 +155,6 @@ export const coreSkewNotice = ({ review }: { review: CoreSkewReview }): string =
       'orangerail mcp: pending approval — approvals created by the old core cannot be recovered.\n' +
       'orangerail mcp: If you did NOT just upgrade, the two are resolving from different node_modules; run\n' +
       'orangerail mcp: `npm ls orangerail-core` (or `pnpm why orangerail-core`) from the project and dedupe.\n'
-    );
-  }
-
-  if (review.state === 'duplicated') {
-    return (
-      'orangerail mcp: TWO COPIES of orangerail-core are loaded — your config imports one, this CLI runs another.\n' +
-      'orangerail mcp: They agree on the approval contract, so writes work right now. They are one partial upgrade\n' +
-      'orangerail mcp: away from not agreeing, at which point every governed write stops silently. Dedupe with\n' +
-      'orangerail mcp: `npm ls orangerail-core` (or `pnpm why orangerail-core`) from the project.\n'
     );
   }
 

@@ -70,8 +70,7 @@ export { evaluateWhere, isSerializableWhere } from './policy/where';
 export { markPublicDiagnostic, PUBLIC_DIAGNOSTIC_KEY, readPublicDiagnostic } from './diagnostic';
 export type { PublicDiagnostic, PublicDiagnosticCode } from './diagnostic';
 
-export { CORE_INSTANCE_KEY, inspectCoreInstance, markCoreInstance } from './instance';
-export type { CoreInstanceVerdict } from './instance';
+export { CORE_INSTANCE_KEY, markCoreInstance } from './instance';
 
 export { computeSignatureHash } from './signature';
 export {

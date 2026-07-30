@@ -168,6 +168,10 @@ const skewClause = ({ report }: { report: StatusReport }): string => {
       return ' · CORE VERSION SKEW — no governed write can complete (see above)';
     case 'duplicated':
       return ' · two copies of orangerail-core loaded';
+    // `unverifiable` is this CLI's own core being older than the marker. There
+    // is no finding to report, only an absent capability, and a line about a
+    // check that did not run is not a confidence signal.
+    case 'unverifiable':
     case 'aligned':
       return '';
   }

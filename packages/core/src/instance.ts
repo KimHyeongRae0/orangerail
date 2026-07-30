@@ -14,9 +14,9 @@
  * `ApprovalRecord.inputHash`; the current core refuses to execute an approval
  * that carries none (§3.4 / ONT-040, and correctly — an unbindable payload must
  * not run). Compose them and staging succeeds, `approvals approve` answers
- * `approve ok (approved)`, and execution consumes the approval and does nothing.
- * Every governed write in the project is dead, and every surface reports a
- * policy decision.
+ * `approve ok (approved)`, and execution consumes the approval and performs no
+ * write. Every governed write in the project is dead, and every surface reports
+ * a policy decision.
  *
  * ## Why identity and not a version string
  *
@@ -38,14 +38,34 @@
  * are two tokens and compare unequal; one instance compares equal to itself.
  * There is nothing to keep in sync, and the answer cannot go stale.
  *
- * The key is `Symbol.for` (the cross-realm registry) rather than a module-local
- * symbol, for the same reason `diagnostic.ts` uses one: a module-local symbol
- * from copy A is not the symbol copy B looks up, so the check would read
- * `unmarked` for every duplicate and could never tell a duplicate from an
- * ancient core — the exact distinction it exists to draw.
+ * ## Why the key is `Symbol.for`, and why this module exports no reader
+ *
+ * The reader is always in the OTHER package: the CLI, holding a registry some
+ * stranger's core built. `Symbol.for` is the cross-realm registry, so two
+ * copies agree on the property key without either importing anything from the
+ * other — which is the whole point, because the copy under suspicion is by
+ * definition the one that may export nothing.
+ *
+ * That is also why there is no `inspectCoreInstance` here. There was one, and
+ * it shipped in exactly one commit before CI caught what it costs: a reader
+ * living here has to be imported to be used, and a static
+ * `import { inspectCoreInstance } from 'orangerail-core'` is precisely what an
+ * old core cannot satisfy. ESM fails the module at LINK time, so the CLI died
+ * with a `SyntaxError` naming none of the real cause — against the exact
+ * configuration the check was built to diagnose. A check that diagnoses an old
+ * core must never require a new one. Reading the mark is a two-line lookup on a
+ * global symbol; it belongs at the reader, and it lives in the CLI's
+ * `core-skew.ts`.
  */
 
-/** The property key each copy of this package stamps its own token under. */
+/**
+ * The property key each copy of this package stamps its own token under.
+ *
+ * Exported to DOCUMENT the contract, not as the way to reach it. A consumer
+ * that may be holding an older core's object must write the `Symbol.for`
+ * literal instead of importing this, or it reintroduces the link-time
+ * dependency the design exists to avoid.
+ */
 export const CORE_INSTANCE_KEY = Symbol.for('orangerail.coreInstance');
 
 /**
@@ -70,37 +90,4 @@ export const markCoreInstance = <T extends object>({ value }: { value: T }): T =
   });
 
   return value;
-};
-
-/**
- * The verdict for one object.
- *
- * - `same` — made by this copy. Nothing to report.
- * - `other` — made by ANOTHER copy of a core new enough to mark itself. The two
- *   agree on the approval contract today; they are a duplicate install and one
- *   partial upgrade from the failure above.
- * - `unmarked` — made by a core that predates this marker (`0.1.0` and older),
- *   or not made by `orangerail-core` at all. This is the state that breaks
- *   governed writes, and it is a definite answer: nothing about a current core
- *   can produce it.
- */
-export type CoreInstanceVerdict = 'same' | 'other' | 'unmarked';
-
-/**
- * Read the verdict off a value. Nothing about the mark is trusted beyond its
- * identity — a forged property holding anything other than THIS token reads as
- * `other`, which is the conservative answer.
- */
-export const inspectCoreInstance = ({ value }: { value: unknown }): CoreInstanceVerdict => {
-  if (typeof value !== 'object' || value === null) {
-    return 'unmarked';
-  }
-
-  const token: unknown = (value as Record<symbol, unknown>)[CORE_INSTANCE_KEY];
-
-  if (token === undefined) {
-    return 'unmarked';
-  }
-
-  return token === INSTANCE_TOKEN ? 'same' : 'other';
 };

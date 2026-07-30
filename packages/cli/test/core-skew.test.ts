@@ -1,5 +1,4 @@
 import {
-  CORE_INSTANCE_KEY,
   createMemoryStore,
   createRegistry,
   type ApprovalRecord,
@@ -13,6 +12,14 @@ import { computeStatus, formatStatusLine, runStatus } from '../src/commands/stat
 import type { OrangerailConfig } from '../src/config';
 import { coreSkewNotice, reviewCoreSkew } from '../src/core-skew';
 import { renderApprovalDetail, renderApprovalList } from '../src/render';
+
+/**
+ * The mark's key, written as a literal for the same reason `core-skew.ts`
+ * writes it as one: the reader must never take a link-time dependency on the
+ * core it is inspecting. `core-skew-resolution.test.ts` is what proves that
+ * property across a real module boundary; these tests exercise the verdicts.
+ */
+const CORE_INSTANCE_KEY = Symbol.for('orangerail.coreInstance');
 
 /**
  * A registry as a SECOND copy of `orangerail-core` would hand it over: the same
@@ -95,13 +102,30 @@ describe('core skew — the seam between the config core and the CLI core (ONT-0
     }
   });
 
-  it('reports two marked copies as duplicated — a warning, not a breakage', () => {
+  it('never claims alignment it cannot prove — both tokens come from a registry', () => {
+    // The CLI reads ITS OWN token the same way it reads the config's: off a
+    // registry, through the global symbol. It never holds core's private token,
+    // which is what lets an old core on EITHER side yield a verdict instead of
+    // a link error. The `unverifiable` branch (this CLI's own core being the
+    // old one) cannot be built in-process — it is covered for real in
+    // `core-skew-resolution.test.ts`.
+    const aligned = reviewCoreSkew({ config: configWith({ registry: createRegistry() }) });
+    const stale = reviewCoreSkew({ config: configWith({ registry: legacyRegistry() }) });
+
+    expect(aligned.state).toBe('aligned');
+    expect(stale.state).toBe('stale');
+  });
+
+  it('reports two marked copies as duplicated, and keeps them off server start', () => {
+    // A latent hazard, not a breakage: both copies stamp the same hash, so
+    // writes complete. It rides the status line and the `status` readout and
+    // does NOT get a startup banner — a clean install of the packed tarballs
+    // lays orangerail-core down twice, and warning about that on every start is
+    // how a warning stops being read.
     const review = reviewCoreSkew({ config: configWith({ registry: foreignRegistry() }) });
-    const notice = coreSkewNotice({ review });
 
     expect(review).toEqual({ state: 'duplicated' });
-    expect(notice).toContain('TWO COPIES');
-    expect(notice).toContain('writes work right now');
+    expect(coreSkewNotice({ review })).toBe('');
   });
 
   it('carries the skew onto the status readout and the startup line', async () => {

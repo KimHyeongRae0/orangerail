@@ -321,14 +321,24 @@ both logs consistently and pass verification. See
   governance warnings — naming the consequence (no governed write will complete),
   the fix (align the versions, then re-stage anything pending), and what it means
   if you did not just upgrade. `orangerail status` exits 1 on a skew. Two copies
-  of the SAME version are reported as a duplicate install and are not an error;
-  they agree today and are one partial upgrade from not agreeing.
+  of the SAME version are reported on the `status` readout as a duplicate
+  install, and are not an error and not a startup banner: they agree today, and
+  they are one partial upgrade from not agreeing.
 
   The check is keyed on module-instance identity — a `Symbol.for` token
   `createRegistry` stamps — and not on a version string. The version string was
   never trustworthy here (`orangerail-core` exports `version = '0.0.0'` while its
   `package.json` says `0.1.0`), the copy whose version matters most predates any
   field a check could read, and equal versions do not imply one instance anyway.
+
+  The CLI reads that token through a bare `Symbol.for` lookup and imports no
+  helper to do it. That is load-bearing rather than stylistic: a static
+  `import { … } from 'orangerail-core'` is a link-time dependency, so the first
+  cut of this check made the CLI fail to start at all next to an
+  `orangerail-core@0.1.0` — a `SyntaxError` about a missing export, against the
+  exact install it was written to explain. A check that diagnoses an old core
+  must not require a new one, and if this CLI's own core turns out to be the old
+  one it now reports that it cannot tell, rather than dying.
 
   The approval surfaces carry it too. `approvals show` prints a `binding: NONE`
   block above the payload for a record that cannot execute, `approvals list`
