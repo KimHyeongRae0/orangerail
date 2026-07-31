@@ -1,6 +1,6 @@
 {
   "name": "orangerail-studio",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "orangerail studio: a local, read-only web app that renders the declared ontology as an interactive domain map (React Flow + ELK). Ships a prebuilt static app plus a node-consumable snapshot entry the CLI serves.",
   "keywords": [

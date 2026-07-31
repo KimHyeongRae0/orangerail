@@ -1,0 +1,185 @@
+name: Release
+
+# Publishes all five packages to npm using npm's Trusted Publishing (OIDC).
+#
+# There is deliberately NO npm token anywhere in this workflow, and none in the
+# repository secrets. `0.1.0` was published from a laptop with a granular access
+# token that had "Bypass 2FA" set; that token was exposed and has been revoked,
+# and npm is retiring bypass-2FA tokens for direct publishing in January 2027.
+# OIDC is now the only supported path, and it is the better one: the identity
+# that publishes is this workflow in this repository, verified by npm, and it
+# cannot be copied out of a terminal.
+#
+# BEFORE THE FIRST RUN, the npm account owner must configure a trusted publisher
+# for EACH of the five packages at npmjs.com/package/<name> -> Settings ->
+# Trusted Publisher, pointing at:
+#   owner/repository: KimHyeongRae0/orangerail
+#   workflow file:    release.yml
+# A package with no trusted publisher configured fails with a 404 or 403 at the
+# publish step. That is the expected failure and it is not retryable from here.
+
+on:
+  # The real publish is tied to an annotated tag, so a released artifact always
+  # corresponds to an exact commit that CI has already seen. Bump the five
+  # package versions, merge that, then tag the merge commit.
+  push:
+    tags: ['v*']
+
+  # Rehearsal. Defaults to a dry run so an accidental click cannot publish;
+  # setting `dry_run` to false is the deliberate act.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Pack and validate without publishing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  # The whole point: lets the runner mint the OIDC token npm exchanges for
+  # publish rights. Without it every publish fails with an auth error, and no
+  # token in the environment can substitute for it.
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # The npm that ships with Node 22 predates OIDC publishing. Trusted
+      # Publishing needs npm >= 11.5.1, so upgrade before anything reads it.
+      - name: Upgrade npm to a version that can publish over OIDC
+        run: |
+          npm install --global npm@latest
+          npm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Publishing an unverified build is the one mistake this workflow cannot
+      # undo — npm does not allow re-publishing a version. Run the same gates
+      # `main` runs. `build` also runs scripts/check-published-artifact.mjs,
+      # which is what asserts the dist has no bare Node builtin imports and that
+      # every package declares engines.node.
+      - name: Run the gate harness
+        run: ./scripts/verify.sh
+
+      - name: Build every package
+        run: pnpm run build
+
+      # All five versions move together (CHANGELOG.md says so, and the CLI
+      # depends on the other four at an exact version). A mismatch means a
+      # half-finished bump, and finding that out after two packages are already
+      # on the registry is not recoverable.
+      - name: Check the five versions agree, and match the tag
+        run: |
+          set -euo pipefail
+
+          expected=""
+          for pkg in core docs-gen mcp studio cli; do
+            version="$(node -p "require('./packages/${pkg}/package.json').version")"
+            name="$(node -p "require('./packages/${pkg}/package.json').name")"
+            echo "  ${name} ${version}"
+
+            if [ -z "${expected}" ]; then
+              expected="${version}"
+            elif [ "${version}" != "${expected}" ]; then
+              echo "::error::version mismatch: ${name} is ${version}, expected ${expected}"
+              exit 1
+            fi
+          done
+
+          echo "all five packages are at ${expected}"
+
+          # On a tag push the tag is the declaration of intent; the manifests
+          # must agree with it or the tag points at the wrong tree.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+
+            if [ "${tag_version}" != "${expected}" ]; then
+              echo "::error::tag ${GITHUB_REF_NAME} does not match package version ${expected}"
+              exit 1
+            fi
+
+            echo "tag ${GITHUB_REF_NAME} matches"
+          fi
+
+          echo "VERSION=${expected}" >> "${GITHUB_ENV}"
+
+      # `pnpm pack`, not `npm pack`: the CLI depends on the other four as
+      # `workspace:*`, and only pnpm rewrites that to a real version in the
+      # packed manifest (verified: orangerail-mcp packs with
+      # `"orangerail-core": "0.1.0"`). npm would publish the literal
+      # `workspace:*` and every install would fail.
+      #
+      # The publish itself is `npm`, because pnpm 9 — pinned by this repo's
+      # packageManager field — cannot do OIDC. Splitting the two lets each tool
+      # do the part it is actually good at, with no pnpm upgrade in the critical
+      # path of a release.
+      - name: Pack all five packages
+        run: |
+          set -euo pipefail
+          mkdir -p dist-tarballs
+
+          for pkg in core docs-gen mcp studio cli; do
+            (cd "packages/${pkg}" && pnpm pack --pack-destination "${GITHUB_WORKSPACE}/dist-tarballs")
+          done
+
+          ls -la dist-tarballs
+
+      # Order matters: a dependency must exist on the registry before a package
+      # that names it, or an install racing the release resolves nothing. This
+      # is the same topological order scripts/release-dry-run.sh documents —
+      # core -> docs-gen -> mcp -> studio -> cli — kept identical on purpose so
+      # the runbook and the automation cannot drift into two different answers.
+      #
+      # That script remains the local pre-flight and is still worth running, but
+      # note its `pnpm -r publish --dry-run` step reports "There are no new
+      # packages that should be published" whenever the current version is
+      # already on the registry, and still exits 0. It is a real check only
+      # AFTER the version bump.
+      - name: Publish to npm over OIDC
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          flags="--access public"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "DRY RUN — nothing will be published"
+            flags="${flags} --dry-run"
+          fi
+
+          # Provenance is generated automatically when publishing over trusted
+          # publishing, so --provenance is deliberately not passed here.
+          # `--access public` is likewise redundant (the packages are unscoped
+          # and each manifest sets publishConfig.access) and is passed only so
+          # the intent is legible at the call site.
+          for name in orangerail-core orangerail-docs-gen orangerail-mcp orangerail-studio orangerail; do
+            tarball="dist-tarballs/${name}-${VERSION}.tgz"
+            echo "==> ${name}@${VERSION}"
+            npm publish "${tarball}" ${flags}
+          done
+
+      - name: Summary
+        run: |
+          {
+            echo "### Release ${VERSION}"
+            echo
+            echo "| Package | Version |"
+            echo "| --- | --- |"
+            for name in orangerail orangerail-core orangerail-mcp orangerail-docs-gen orangerail-studio; do
+              echo "| \`${name}\` | ${VERSION} |"
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"

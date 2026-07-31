@@ -8,9 +8,9 @@ This is a v0 project: the API is the design target and it will move before 1.0.
 Anything that changes what an existing project does on upgrade is called out
 under **Upgrading** rather than buried in a list.
 
-## Unreleased
+## 0.1.1 — 2026-08-01
 
-The first release after `0.1.0`. Everything below is merged on `main`.
+The first release after `0.1.0`.
 
 ### Upgrading from 0.1.0
 

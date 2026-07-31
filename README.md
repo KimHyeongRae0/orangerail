@@ -258,8 +258,9 @@ separate time, which is the part that makes leaving possible.
 
 ## Quickstart
 
-Every output below is verbatim from one run against the published `0.1.0` packages, in a
-scratch project holding nothing but a two-model Prisma schema (`Customer`, `Order`).
+Every output below is verbatim from one run of the `0.1.1` packages, installed from the packed
+tarballs of this release, in a scratch project holding nothing but a two-model Prisma schema
+(`Customer`, `Order`) and Prisma 6.
 
 **Requirements: Node 20 or newer** for the `orangerail` CLI and `orangerail-mcp` (Node 18 for
 `orangerail-core`, `orangerail-docs-gen` and `orangerail-studio` on their own).
@@ -354,14 +355,18 @@ orangerail status
   preset:   approval-for-writes
   pending:  1 approval(s) awaiting a decision
   server:   not detected — no orangerail mcp is running against this store
+  hosts:    no MCP client config next to this project, so orangerail cannot tell what
+            else your agent has mounted.
+            Project scope only (.mcp.json, .cursor/mcp.json, .vscode/mcp.json); user- and
+            machine-scope MCP config is not read.
   audit:    chain OK — 1 record(s) verified
 
 $ npx orangerail approvals list
-dff95d9d-8237-407a-b80b-c47252d56a1f  "deleteCustomer"  by "local-dev" [dev]  5s ago  input={"id":2}
+a5d65f2b-88b4-4a86-8bc5-da90ab636f0b  "deleteCustomer"  by "local-dev" [dev]  8s ago  input={"id":2}
 
 1 pending approval(s).
 
-$ npx orangerail approvals approve dff95d9d-8237-407a-b80b-c47252d56a1f
+$ npx orangerail approvals approve a5d65f2b-88b4-4a86-8bc5-da90ab636f0b
 approve ok (approved)
 ```
 
@@ -529,19 +534,19 @@ left un-gated — off by default, and with real caveats:
 
 ## Status
 
-**Pre-release, and installable.** v0 is on npm at `0.1.0` — `orangerail` (the CLI) plus
+**Pre-release, and installable.** v0 is on npm at `0.1.1` — `orangerail` (the CLI) plus
 `orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio`. `npx
 orangerail init` runs against your own project today, with no checkout of this repo. The API
 will move before 1.0.
 
-**One thing to know before you install `0.1.0`.** It is the release whose read `filter` was
-published to the agent but never checked, so a `<Object>_list` call could read an object type
-the server never exposed — the mechanism is in
-[the limits doc](./docs/limits.md#typed-is-not-enforced--where-the-check-actually-lives). The
-fix is merged on `main` and **not yet released**, so today the choice is `0.1.0` with that hole
-in it or a build from this checkout. If you run `0.1.0` anyway, assume any object reachable by a
-relation from an exposed one is readable, whether or not it is in `ontology/`. Everything else
-that changed since `0.1.0` is in the [CHANGELOG](./CHANGELOG.md).
+**Upgrade from `0.1.0` if you are on it.** That release published a read `filter` to the agent
+and never checked it, so a `<Object>_list` call could read an object type the server never
+exposed — the mechanism is in
+[the limits doc](./docs/limits.md#typed-is-not-enforced--where-the-check-actually-lives), and the
+fix is in `0.1.1`. It is enforced in `orangerail-mcp`, so upgrading the package applies it with
+no re-run of `init`. `0.1.1` also narrows what `filter` accepts and changes what a pending
+approval does across the upgrade — both are written up under **Upgrading from 0.1.0** in the
+[CHANGELOG](./CHANGELOG.md), which is worth reading before you bump.
 
 ## Docs
 

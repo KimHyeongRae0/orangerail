@@ -9,7 +9,7 @@
 #   Phase 1 (AC-1/2/3, THE RED SOURCE): for each of the five packages (core,
 #     docs-gen, mcp, studio, cli) `pnpm pack` into a scratch dir, read the
 #     tarball's embedded package.json and assert the publish shape — version
-#     0.1.0, publishConfig.access "public", license "MIT", no `private`, no
+#     (read from `orangerail-core`), publishConfig.access "public", license "MIT", no `private`, no
 #     `workspace:` spec in any runtime dependency, `dist` (studio: dist/app +
 #     dist/node) and LICENSE present in the tarball, and studio's runtime deps
 #     free of react/react-dom/@xyflow/react/elkjs. On the current tree these FAIL
@@ -29,8 +29,7 @@
 #     degrade guidance).
 #
 # RED (pre-implementation): Phase 1's first tarball-manifest assertion fails
-# because the packed core tarball's version is "0.0.0" (not the required
-# "0.1.0"); the run aborts there and Phases 2/3 are never reached. That FAIL is
+# because the packed core tarball's version is "0.0.0" (not the version `orangerail-core` declares); the run aborts there and Phases 2/3 are never reached. That FAIL is
 # attributable to the absent publish-readiness feature, not a harness error.
 # `verify.sh` still PASSes because the tree compiles and all suites pass.
 
