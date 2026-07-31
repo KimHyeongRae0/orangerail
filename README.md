@@ -112,6 +112,23 @@ directory the process starts in**:
 The model was reasonable both times. It followed the rules where it found them, and did the job
 where there were none. The policy simply did not come along.
 
+**That is not a contrived setup, it is a scope mismatch.** A tool grant and a rules file are
+declared in different places and reach different distances. An MCP server registered at user
+scope — `~/.claude.json`, Claude Desktop's config — is mounted in *every* directory you work in,
+for as long as it is there. A `CLAUDE.md` governs the directory it sits in. Nothing keeps the two
+in step, and nothing reports when they drift apart. On the machine this was written on, one
+user-scope server is mounted across 15 recorded projects; 10 `CLAUDE.md` files exist across
+those projects and **none of them mentions it**, and there is no user-scope rules file at all.
+That is one developer's laptop rather than a survey, and a single analytics server is a mild
+example — but it is the shape, and the shape does not improve when the server is your database
+and the directories belong to a team.
+
+The everyday versions: a second service's repo that talks to the same database, a scheduled run
+whose working directory is not the repo root, a fresh clone where the rules file was never
+committed (one of the six checked on that machine is untracked), a container that mounts `src/`
+but not the root, or an agent invoked from `~`. None of them requires anyone to do anything
+wrong.
+
 The same thing happens when the policy is edited rather than left behind. Remove the deletion
 prohibition from `CLAUDE.md` and **nothing anywhere reports it** — there is no scanner, no exit
 code, no recorded baseline to compare against, and the next run's report looks exactly as
