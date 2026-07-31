@@ -6,6 +6,7 @@ import {
   canonicalJson,
   enumValues,
   inputShape,
+  isNullableField,
   isOptionalField,
   shapeKeys,
   typeNameOf,
@@ -144,5 +145,37 @@ describe('isOptionalField', () => {
       },
     };
     expect(isOptionalField({ node: throwing })).toBe(false);
+  });
+});
+
+describe('isNullableField', () => {
+  it('reports a `.nullable()` field as nullable', () => {
+    expect(isNullableField({ node: z.string().nullable() })).toBe(true);
+  });
+
+  it('reports an `.optional()` field as NOT nullable — the two are different facts', () => {
+    expect(isNullableField({ node: z.string().optional() })).toBe(false);
+    expect(isOptionalField({ node: z.string().optional() })).toBe(true);
+  });
+
+  it('reports a `.nullish()` field as both', () => {
+    expect(isNullableField({ node: z.string().nullish() })).toBe(true);
+    expect(isOptionalField({ node: z.string().nullish() })).toBe(true);
+  });
+
+  it('reports a bare field as neither', () => {
+    expect(isNullableField({ node: z.string() })).toBe(false);
+  });
+
+  it('fails closed on a non-zod node and on one whose safeParse throws', () => {
+    const throwing = {
+      safeParse: () => {
+        throw new Error('async refinement cannot run synchronously');
+      },
+    };
+
+    expect(isNullableField({ node: {} })).toBe(false);
+    expect(isNullableField({ node: null })).toBe(false);
+    expect(isNullableField({ node: throwing })).toBe(false);
   });
 });

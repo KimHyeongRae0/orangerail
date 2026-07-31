@@ -30,7 +30,7 @@ import { deriveFilterSchema, deriveFilterSpec, validateFilter, type FilterSpec }
 import { validateToolName } from './names';
 import { redactFailure, type FailureChannel, type FailureStatus } from './redact';
 import { relationLines } from './relations';
-import { deriveInputSchema, type JsonSchema } from './schema';
+import { deriveInputSchema, describeInputIssues, type JsonSchema } from './schema';
 
 /** Runtime preset controlling which tools are exposed and the engine mode (§3.6). */
 export type McpPreset = 'readonly' | 'sandbox' | 'approval-for-writes';
@@ -402,12 +402,23 @@ const mapStage = ({
       return err({ status: 'denied', message: 'Staging denied: anonymous caller (deny-first).' });
     case 'not_found':
       return err({ status: 'not_found', message: 'Action not found.' });
-    case 'invalid_input':
+    // The refusal names the field and what it wanted, in the TEXT content —
+    // `structuredContent` carried the raw zod issues all along, and the agent in
+    // the ONT-061 evidence never saw them, because a tool with no `outputSchema`
+    // is rendered from `content` by every client we have observed. A one-sentence
+    // "it was wrong" against a type-erased schema is an unsolvable puzzle.
+    case 'invalid_input': {
+      const issues = describeInputIssues({ issues: result.issues });
+
       return err({
         status: 'invalid_input',
-        message: 'Input failed schema validation.',
-        extra: { issues: result.issues },
+        message:
+          issues.length === 0
+            ? 'Input failed schema validation.'
+            : `Input rejected: ${issues.join('; ')}.`,
+        extra: { issues },
       });
+    }
     case 'rejected_where':
       return err({ status: 'rejected_where', message: 'Precondition (where) not satisfied.' });
     case 'resolve_error':

@@ -54,6 +54,14 @@ whose fields are all undescribable, now publishes an empty closed filter and
 refuses every filter sent to it. If you have a resolver with its own filter
 language, declare those fields in the object's zod schema.
 
+**An action tool that rejects your input now answers in the same shape.** An
+`invalid_input` result from an ACTION tool used to put zod's raw issue objects in
+`structuredContent.issues`; it now carries `string[]`, identical to what the
+`filter` rejection above returns, and the same sentences are repeated in the
+result's text content where an agent will actually read them. If you parsed
+`issues[].path` off an action rejection, read the strings instead. What the
+server accepts did not change — only what it says about it. See Fixed.
+
 **An approval that was still `pending` when you upgrade must be re-staged.**
 `createApproval` now stamps an `inputHash` over the approved payload, and
 `execute` recomputes it before running anything. A record written by `0.1.0`
@@ -441,6 +449,62 @@ both logs consistently and pass verification. See
   file set and only skip the docs/studio handoff.
 
 ### Fixed
+
+- **Every generated `update*` action published a tool schema with no types on it,
+  and refused wrong input without saying what was wrong.** The two halves
+  compound, and together they are the most expensive defect found in this
+  release. An optional field published `{}` — no type at all — because the
+  schema builder read the shape through `inputShape`, whose type name for
+  `z.number().int().optional()` is `optional`, not `number`. A generated
+  `update*` has exactly one required field (`id`) and every column optional, so
+  in practice the entire generated write surface advertised itself as untyped:
+
+  ```jsonc
+  // before
+  "updateProduct": {"id":{"type":"string"},"price":{},"status":{},"title":{}}
+  // after
+  "updateProduct": {"id":{"type":"string"},"price":{"type":"number"},
+                    "status":{"type":"string","enum":["DRAFT","ACTIVE","ARCHIVED"]},
+                    "title":{"type":"string"}}, "required":["id"]
+  ```
+
+  The generated zod was always correct, and the engine always parsed against it
+  — so the server accepted `{"id":"p1","stock":30}` the whole time. Only the
+  published contract was wrong, and the rejection that followed a wrong guess
+  was the single sentence `Input failed schema validation.`, with no field name
+  and no expected type. Measured against a real agent working an unattended
+  queue: told `stock` was untyped it guessed a string, and escalated through six
+  variations — `"30"`, `"38"`, `"\"30\""`, then every field at once, then `id`
+  alone — never once sending a number, because nothing in the loop could tell it
+  to. It gave up and reported a confident, wrong diagnosis. 4 of 12 ordinary
+  items failed for this reason alone, on `update`, which is the write the
+  `--gate` default above argues is the most-called on most schemas.
+
+  A published property now states the type it always had, its optionality by
+  absence from `required` (where JSON Schema puts it, rather than by emptying
+  the property), `["<type>","null"]` where the zod is nullable, and the enum
+  members where it is an enum. `.optional()` and `.nullable()` are probed
+  separately, so they can no longer erase each other. A field that genuinely
+  cannot be described — a `z.unknown()` Json column — still publishes `{}`; that
+  is now the exception rather than the rule.
+
+  Rejections name what they refused: `Input rejected: "price" expects number;
+  "status" expects one of DRAFT, ACTIVE, ARCHIVED.` in the tool result's TEXT
+  content, and the same list as `issues` in `structuredContent` — the shape the
+  read `filter` surface has returned since the closed-filter change above. As
+  there, the message names fields and expected shapes and never the value the
+  caller sent: zod's own message text is not forwarded, because in zod 3 it
+  spells the received value out and neither an agent's context nor an operator's
+  log is a place to echo an input that may itself be a probe.
+
+  `additionalProperties` stays `true` on action inputs, deliberately and now on
+  the record. The `filter` object is closed because there is a checker behind it
+  that refuses an undeclared key; an action input has no such checker and a zod
+  object is non-strict by default, so an undeclared key is accepted and stripped.
+  Publishing `false` would advertise a refusal that never happens.
+
+  Fixed in `orangerail-mcp`, so **no `orangerail init` re-run is needed** —
+  upgrade the package and every existing project's tools re-describe themselves.
 
 - **An approval orangerail could not verify was reported as one somebody had
   tampered with — and the version skew that produces it was invisible.** A
