@@ -22,15 +22,20 @@ const USAGE = `orangerail — governed ontology runtime CLI
 
 Usage:
   orangerail init [--yes] [--preset <p>] [--gate all|delete|none]
-                [--sources <csv>] [--models <csv>]
+                [--sources <csv>] [--models <csv>] [--exclude <csv>]
                 [--docs|--no-docs] [--studio|--no-studio] [--no-open] [--port <n>]
                                                  scan a repo and assemble the ontology
                                                  --gate picks which generated actions carry
                                                  \`policy: { approval: 'required' }\` (default: delete)
-  orangerail sync [--config <path>] [--accept-new] [--accept-governance]
+                                                 --models keeps only those models; --exclude refuses
+                                                 the named ones and records the refusal so later
+                                                 scans stop proposing them
+  orangerail sync [--config <path>] [--accept-new] [--accept-governance] [--exclude <csv>]
                                                    re-scan and report drift
                                                    exit 0 nothing to act on / 1 unresolved drift / 2 could not check
                                                    --accept-governance re-records orangerail.governance.json
+                                                   --exclude records a proposed model as refused instead
+                                                   of creating it
   orangerail mcp [--config <path>]                 launch the MCP server over stdio
                                                    (withholds actions weaker than the recorded baseline)
   orangerail status [--config <path>]              show the governance posture (gated actions, baseline, audit, pending)
@@ -104,6 +109,7 @@ const dispatch = async ({ args }: { args: ParsedArgs }): Promise<number> => {
         ...(args.gate === undefined ? {} : { gate: args.gate }),
         ...(args.sources === undefined ? {} : { sources: args.sources }),
         ...(args.models === undefined ? {} : { models: args.models }),
+        ...(args.exclude === undefined ? {} : { exclude: args.exclude }),
         ...(args.docs === undefined ? {} : { docs: args.docs }),
         ...(args.studio === undefined ? {} : { studio: args.studio }),
         ...(port === undefined ? {} : { port }),
@@ -118,6 +124,7 @@ const dispatch = async ({ args }: { args: ParsedArgs }): Promise<number> => {
     return runSync({
       acceptGovernance: args.acceptGovernance,
       acceptNew: args.acceptNew,
+      ...(args.exclude === undefined ? {} : { exclude: args.exclude }),
       cwd: process.cwd(),
       configPath,
     });

@@ -18,7 +18,7 @@ import {
 import type { ScannedSource } from './ir';
 import { hasScannedContent, scanRepo } from './scan';
 import { hasYamlSpec, YAML_HINT } from './scanners/openapi/scan';
-import { applyFilters, assertSelection } from './select';
+import { applyFilters, assertSelection, unaccountedModels } from './select';
 import { runWizard, type InitFlags } from './wizard';
 
 /**
@@ -70,20 +70,25 @@ const loadGeneratedConfig = async ({ cwd }: { cwd: string }): Promise<Orangerail
 const recordInitialBaseline = ({
   config,
   cwd,
+  excluded,
 }: {
   config: OrangerailConfig;
   cwd: string;
+  /** The `--exclude` names, recorded as refused alongside the posture (ONT-059). */
+  excluded: string[];
 }): string | null => {
   const postures = actionPostures({ registry: config.registry });
 
-  // No actions, no posture to vouch for — a read-only ontology gets no file and
-  // is never nagged about one.
-  if (postures.length === 0) {
+  // No actions and nothing refused, so no posture to vouch for — a read-only
+  // ontology gets no file and is never nagged about one. A refusal is worth
+  // recording on its own, though: it is what keeps a later scan from proposing
+  // the table again, and that is true whether or not anything is gated.
+  if (postures.length === 0 && excluded.length === 0) {
     return null;
   }
 
   try {
-    return writeBaseline({ projectRoot: cwd, postures, recordedBy: 'init' });
+    return writeBaseline({ projectRoot: cwd, postures, recordedBy: 'init', excluded });
   } catch (err) {
     process.stderr.write(
       `orangerail init: could not write ${GOVERNANCE_FILE} (${err instanceof Error ? err.message : String(err)}) — ` +
@@ -253,8 +258,9 @@ export const runInit = async ({
   // degraded verdict means the config does not load, so there is no registry to
   // read and no baseline is written — `sync` then reports the absent baseline
   // exactly as it does for a project that predates the file.
+  const excluded = options.exclude ?? [];
   const config = verdict.ok ? await loadGeneratedConfig({ cwd }) : null;
-  const baseline = config === null ? null : recordInitialBaseline({ config, cwd });
+  const baseline = config === null ? null : recordInitialBaseline({ config, cwd, excluded });
 
   // A three-beat confirmation of what init just did — scanned, generated, and
   // (per the chosen preset) how writes are governed. The gate line states the
@@ -289,7 +295,7 @@ export const runInit = async ({
   // registry to read, and the honest thing is to name the one command that
   // closes the gap rather than record a posture derived from somewhere else.
   const governanceBeat =
-    actionCount === 0
+    actionCount === 0 && excluded.length === 0
       ? { tick: '', body: '' }
       : baseline === null
         ? {
@@ -308,15 +314,41 @@ export const runInit = async ({
               '  `orangerail sync --accept-governance` to vouch for it as reviewed.\n',
           };
 
+  // The refusal beat exists so the recorded deny-list is never something the
+  // operator finds later in a JSON file: what `sync` will stay quiet about from
+  // now on is stated in the same breath as what was generated (ONT-059).
+  const excludedBeat =
+    excluded.length === 0
+      ? ''
+      : `  ✓  refused ${excluded.length} model(s) — ${excluded.join(', ')} — recorded in ${GOVERNANCE_FILE}\n`;
+
   process.stdout.write(
     `  ✓  scanned your sources — ${objectCount} object(s), ${actionCount} action(s)\n` +
       '  ✓  generated a governed MCP server under ontology/\n' +
       `  ✓  ${gateLine}\n` +
+      excludedBeat +
       governanceBeat.tick +
       '\n  These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n' +
       gateGuidance +
       governanceBeat.body,
   );
+
+  // Models the allow-list left behind without refusing them. `sync` will report
+  // every one of them on every run, and the only remedy it used to name was
+  // `--accept-new` — the one that generates the table. Naming them here, with the
+  // command that records the refusal, is the difference between a drift check
+  // that can go green and one that cannot.
+  const unaccounted = unaccountedModels({ source: scanned, options });
+
+  if (unaccounted.length > 0) {
+    process.stdout.write(
+      `\n  ${unaccounted.length} scanned model(s) were neither generated nor refused: ${unaccounted.join(', ')}\n` +
+        '  `orangerail sync` reports these as new on every run, because nothing on disk says you\n' +
+        '  considered them. Record the ones you refuse — read the list first, nothing is selected\n' +
+        '  for you:\n\n' +
+        `    orangerail sync --exclude ${unaccounted.join(',')}\n`,
+    );
+  }
 
   // Both degrade kinds land here: the files are on disk either way, and only
   // the docs/studio handoff — which needs the config to actually load — is

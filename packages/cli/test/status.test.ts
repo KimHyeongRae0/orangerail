@@ -103,6 +103,8 @@ const base: StatusReport = {
   governance: {
     state: 'verified',
     recordedBy: 'sync',
+    excluded: [],
+    exposedExclusions: [],
     postures: [],
     changes: [],
     weakenedActions: [],
@@ -155,6 +157,7 @@ describe('computeStatus — governance posture from registry + store', () => {
         posture.name === 'pingWidget' ? { ...posture, approval: 'required' as const } : posture,
       ),
       recordedBy: 'sync',
+      excluded: [],
     });
 
     const weakened = await computeStatus({ config, projectRoot: root });
@@ -183,6 +186,8 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
         governance: {
           state: 'weakened',
           recordedBy: 'sync',
+          excluded: [],
+          exposedExclusions: [],
           postures: [],
           changes: [],
           weakenedActions: ['deleteOrder'],
@@ -200,7 +205,14 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
     const unrecorded = formatStatusLine({
       report: {
         ...base,
-        governance: { state: 'unrecorded', postures: [], changes: [], weakenedActions: [] },
+        governance: {
+          state: 'unrecorded',
+          excluded: [],
+          exposedExclusions: [],
+          postures: [],
+          changes: [],
+          weakenedActions: [],
+        },
       },
     });
     expect(unrecorded).toContain('no governance baseline recorded');
@@ -212,6 +224,8 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
         governance: {
           state: 'unreadable',
           detail: 'not valid JSON',
+          excluded: [],
+          exposedExclusions: [],
           postures: [],
           changes: [],
           weakenedActions: [],
@@ -224,7 +238,7 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
   it('flags an init-recorded baseline as not yet reviewed', () => {
     expect(
       formatStatusLine({
-        report: { ...base, governance: { ...base.governance, recordedBy: 'init' } },
+        report: { ...base, governance: { ...base.governance, recordedBy: 'init', excluded: [] } },
       }),
     ).toContain('recorded by init, not yet reviewed');
   });
@@ -234,7 +248,14 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
       formatStatusLine({
         report: {
           ...base,
-          governance: { state: 'no-actions', postures: [], changes: [], weakenedActions: [] },
+          governance: {
+            state: 'no-actions',
+            excluded: [],
+            exposedExclusions: [],
+            postures: [],
+            changes: [],
+            weakenedActions: [],
+          },
         },
       }),
     ).toBe(
@@ -270,6 +291,8 @@ describe('formatStatusLine — the MCP startup confidence signal', () => {
         governance: {
           state: 'weakened',
           recordedBy: 'sync',
+          excluded: [],
+          exposedExclusions: [],
           postures: [],
           changes: [],
           weakenedActions: ['deleteOrder'],
@@ -298,6 +321,7 @@ describe('runStatus — exit codes', () => {
         posture.name === 'pingWidget' ? { ...posture, approval: 'required' as const } : posture,
       ),
       recordedBy: 'sync',
+      excluded: [],
     });
 
     const streams = captureStreams();
@@ -639,5 +663,78 @@ describe('multi-server liveness — two servers against one store', () => {
 
     handle.stop();
     expect(readServerLiveness({ dir }).state).toBe('stale');
+  });
+});
+
+/**
+ * ONT-059 — the readout has to be able to say which models were refused, and to
+ * say when the ontology disagrees with that record. The action counts above it
+ * cannot: a server exposing a refused table reports a perfectly healthy posture,
+ * and every number in it is correct.
+ */
+describe('orangerail status — refused models (ONT-059)', () => {
+  it('lists the refused models and stays silent when nothing was refused', async () => {
+    const config = buildConfig();
+    const root = emptyRoot();
+
+    writeBaseline({
+      projectRoot: root,
+      postures: actionPostures({ registry: config.registry }),
+      recordedBy: 'sync',
+      excluded: ['Payment'],
+    });
+
+    const streams = captureStreams();
+    let code: number;
+    try {
+      code = await runStatus({ config, projectRoot: root });
+    } finally {
+      streams.restore();
+    }
+
+    expect(code).toBe(0);
+    expect(streams.out()).toContain('excluded: 1 model(s) refused — Payment');
+  });
+
+  it('exits 1 and names a refused model the ontology exposes anyway', async () => {
+    const config = buildConfig();
+    const root = emptyRoot();
+
+    writeBaseline({
+      projectRoot: root,
+      postures: actionPostures({ registry: config.registry }),
+      recordedBy: 'sync',
+      excluded: ['Widget'],
+    });
+
+    const streams = captureStreams();
+    let code: number;
+    try {
+      code = await runStatus({ config, projectRoot: root });
+    } finally {
+      streams.restore();
+    }
+
+    expect(streams.out()).toContain('EXPOSED — Widget is recorded as excluded');
+    expect(code).toBe(1);
+  });
+
+  it('says so on the server startup line, which is the only place mcp mentions it', () => {
+    const line = formatStatusLine({
+      report: {
+        ...base,
+        governance: {
+          state: 'verified',
+          recordedBy: 'sync',
+          excluded: ['Widget'],
+          exposedExclusions: ['Widget'],
+          postures: [],
+          changes: [],
+          weakenedActions: [],
+        },
+      },
+    });
+
+    expect(line).toContain('SERVING 1 EXCLUDED model(s) (Widget)');
   });
 });

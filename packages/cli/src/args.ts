@@ -18,6 +18,8 @@ export interface ParsedArgs {
   gate?: string;
   sources?: string[];
   models?: string[];
+  /** `--exclude` — model names recorded as refused (`init` and `sync`, ONT-059). */
+  exclude?: string[];
   docs?: boolean;
   studio?: boolean;
   acceptNew: boolean;
@@ -51,6 +53,7 @@ const VALUE_FLAGS = new Set([
   '--gate',
   '--sources',
   '--models',
+  '--exclude',
   '--from-jira',
   '--from-slack',
 ]);
@@ -134,6 +137,7 @@ export const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
   let gate: string | undefined;
   let sources: string[] | undefined;
   let models: string[] | undefined;
+  let exclude: string[] | undefined;
   let docs: boolean | undefined;
   let studio: boolean | undefined;
   let acceptNew = false;
@@ -186,6 +190,8 @@ export const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
         sources = splitCsv({ value });
       } else if (flag === '--models') {
         models = splitCsv({ value });
+      } else if (flag === '--exclude') {
+        exclude = splitCsv({ value });
       } else if (flag === '--from-jira') {
         fromJira = value;
       } else {
@@ -248,6 +254,7 @@ export const parseArgs = ({ argv }: { argv: string[] }): ParsedArgs => {
     ...(gate === undefined ? {} : { gate }),
     ...(sources === undefined ? {} : { sources }),
     ...(models === undefined ? {} : { models }),
+    ...(exclude === undefined ? {} : { exclude }),
     ...(docs === undefined ? {} : { docs }),
     ...(studio === undefined ? {} : { studio }),
     ...(fromJira === undefined ? {} : { fromJira }),

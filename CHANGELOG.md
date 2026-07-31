@@ -222,6 +222,49 @@ both logs consistently and pass verification. See
 
 ### Added
 
+- **`orangerail init --exclude <models>` / `orangerail sync --exclude <models>` —
+  record that a table was refused, so `sync` can be green.** Leaving a table out
+  of the ontology used to be a decision that existed only in the shell history
+  that made it. `--models customer,order` filtered at generation time and wrote
+  nothing down, so every later `orangerail sync` rediscovered the tables it had
+  left out and exited 1 — on a 7-table Postgres schema narrowed to four, 12
+  proposals, on every run, forever. A drift check that can never pass is a check
+  nobody reads, and this one is what makes the un-gated `--gate delete` default
+  defensible. Worse, the only remedy the report named was `--accept-new`, which
+  would have generated `ontology/api_credential.mjs` and put three live secrets
+  back on the agent's surface: clearing the warning by doing what the warning
+  said produced exactly the exposure the operator had avoided.
+
+  A refusal is now recorded in `orangerail.governance.json` — the file that
+  already holds what was intended and is already meant to be committed — under
+  an `excluded` key. `sync` reports those models as `info:` instead of proposing
+  them, does not propose their actions, and `--accept-new` will not create them.
+  `status` lists them, and the server startup line says so.
+
+  It is a list of NAMES considered and refused, never a snapshot of what existed:
+  a model that appears after the refusal was recorded is not in the list and is
+  still reported loudly, and a recorded name that stops matching anything is
+  reported as prunable so it cannot silence a future table that reuses it. The
+  complement of `--models` is NOT recorded — "I want these four" is not "I
+  considered the other three and refuse them" — so `init` names what an allow-list
+  left unaccounted for and hands back the `sync --exclude …` command that records
+  it, with the names in it.
+
+  Nothing is ever suggested. orangerail will not scan your table names for
+  `secret`, `password` or `credential` and pre-select them, for the same reason
+  it does not infer destructiveness from an operation name: a name is syntactic
+  and the danger it stands for is not — the table that leaks a card number in a
+  support transcript is called `payment` — and the moment the tool pre-checks
+  boxes, the operator stops reading the list.
+
+  Both flags validate exactly like `--models`: an unknown name, a name given to
+  both `--models` and `--exclude`, and an `--exclude` that would leave nothing to
+  govern are all refused before a byte is written. `sync --exclude` additionally
+  refuses a model the ontology already exposes, and refuses to invent a baseline
+  it would have to stamp with a provenance nobody earned. A baseline recorded as
+  refused that the ontology serves anyway is reported by `sync` and `status` and
+  fails both.
+
 - **`orangerail init --gate all|delete|none` — choose which generated writes are
   approval-gated.** Defaults to `delete`; see **Upgrading** for what moved and
   why. The wizard asks the question when the flag is absent, and the flag

@@ -53,8 +53,19 @@ let configSerial = 0;
 const sync = async ({
   acceptGovernance = false,
   acceptNew = false,
-}: { acceptGovernance?: boolean; acceptNew?: boolean } = {}): Promise<number> =>
-  runSync({ acceptGovernance, acceptNew, cwd, configPath });
+  exclude,
+}: {
+  acceptGovernance?: boolean;
+  acceptNew?: boolean;
+  exclude?: string[];
+} = {}): Promise<number> =>
+  runSync({
+    acceptGovernance,
+    acceptNew,
+    ...(exclude === undefined ? {} : { exclude }),
+    cwd,
+    configPath,
+  });
 
 const printed = (): string => out.join('');
 
@@ -296,10 +307,22 @@ model Refund {
  */
 describe('runSync — the exit-code contract', () => {
   it('classifies the drift record in one place', () => {
-    const clean = { proposals: 0, fieldDrift: 0, unregistered: 0, governance: 0 };
+    const clean = {
+      proposals: 0,
+      fieldDrift: 0,
+      unregistered: 0,
+      governance: 0,
+      exposedExclusions: 0,
+    };
 
     expect(isDrift({ findings: clean })).toBe(false);
-    for (const key of ['proposals', 'fieldDrift', 'unregistered', 'governance'] as const) {
+    for (const key of [
+      'proposals',
+      'fieldDrift',
+      'unregistered',
+      'governance',
+      'exposedExclusions',
+    ] as const) {
       expect(isDrift({ findings: { ...clean, [key]: 1 } })).toBe(true);
     }
   });
@@ -345,7 +368,7 @@ describe('runSync — a baseline recorded by init is a starting point, not an ap
   ];
 
   const recordAsInit = (): void => {
-    writeBaseline({ projectRoot: cwd, postures: GENERATED, recordedBy: 'init' });
+    writeBaseline({ projectRoot: cwd, postures: GENERATED, recordedBy: 'init', excluded: [] });
   };
 
   it('detects drift against it from the first run — the whole point of writing it', async () => {
@@ -374,5 +397,247 @@ describe('runSync — a baseline recorded by init is a starting point, not an ap
     expect(await sync()).toBe(0);
     expect(printed()).not.toContain('nobody has reviewed');
     expect(printed()).toContain('governance matches the recorded baseline');
+  });
+});
+
+/**
+ * ONT-059 — the reported defect. A project that narrowed its surface on purpose
+ * re-discovered the models it left out on every run, so `sync` exited 1 forever;
+ * a check that can never pass is a check nobody reads, and this one is what makes
+ * the ONT-056 un-gated default defensible. The remedy it printed was the unsafe
+ * one: `--accept-new` would have generated exactly the table an operator had kept
+ * away from the agent.
+ */
+describe('runSync — refused models (ONT-059)', () => {
+  const PRISMA_SCHEMA = `datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Order {
+  id    String @id
+  total Float
+}
+
+model Payment {
+  id        String @id
+  cardLast4 String
+}
+`;
+
+  /** The same schema with a model that appeared AFTER the refusal was recorded. */
+  const SCHEMA_WITH_NEW_MODEL = `${PRISMA_SCHEMA}
+model Refund {
+  id     String @id
+  amount Float
+}
+`;
+
+  /**
+   * A registry carrying every action the Prisma scan derives for `Order`, so the
+   * only thing standing between this project and exit 0 is the refused model.
+   */
+  const ORDER_CRUD = [
+    "{ kind: 'action', name: 'createOrder' }",
+    "{ kind: 'action', name: 'updateOrder', target: Order, targetIdFrom: 'id' }",
+    "{ kind: 'action', name: 'deleteOrder', policy: { approval: 'required' }, target: Order, targetIdFrom: 'id' }",
+  ].join(', ');
+
+  const writeSchema = ({ source = PRISMA_SCHEMA }: { source?: string } = {}): void => {
+    mkdirSync(join(cwd, 'prisma'), { recursive: true });
+    writeFileSync(join(cwd, 'prisma', 'schema.prisma'), source, 'utf8');
+  };
+
+  const recordedExclusions = (): string[] =>
+    (JSON.parse(readFileSync(join(cwd, GOVERNANCE_FILE), 'utf8')) as { excluded: string[] })
+      .excluded;
+
+  it('reproduces the defect: an unrecorded refusal is rediscovered forever', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+    out = [];
+
+    // Nothing on disk says Payment was refused, so every run proposes it and its
+    // three Prisma actions, and the only remedy named is the one that creates it.
+    expect(await sync()).toBe(1);
+    expect(printed()).toContain('proposal: new model Payment');
+    expect(printed()).toContain('proposal: new action createPayment');
+  });
+
+  it('records a refusal and goes green, without touching the recorded provenance', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+    out = [];
+
+    expect(await sync({ exclude: ['Payment'] })).toBe(0);
+    expect(recordedExclusions()).toEqual(['Payment']);
+    expect(printed()).toContain(`recorded 1 refused model(s) in ${GOVERNANCE_FILE}`);
+
+    // The next run is quiet, loud about being quiet, and green.
+    out = [];
+    expect(await sync()).toBe(0);
+    expect(printed()).toContain(`info: Payment is excluded, as recorded in ${GOVERNANCE_FILE}`);
+    expect(printed()).toContain('3 action(s) not proposed');
+    expect(printed()).not.toContain('proposal:');
+  });
+
+  it('records a refusal without laundering an unreviewed posture into a reviewed one', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    // The state `orangerail init` leaves behind: a baseline nobody has vouched for.
+    const generated: ActionPosture[] = [
+      { name: 'createOrder', approval: null, roles: [], where: null, target: null },
+      { name: 'updateOrder', approval: null, roles: [], where: null, target: 'Order#id' },
+      { name: 'deleteOrder', approval: 'required', roles: [], where: null, target: 'Order#id' },
+    ];
+
+    writeBaseline({ projectRoot: cwd, postures: generated, recordedBy: 'init', excluded: [] });
+
+    expect(await sync({ exclude: ['Payment'] })).toBe(0);
+
+    const recorded = JSON.parse(readFileSync(join(cwd, GOVERNANCE_FILE), 'utf8')) as {
+      recordedBy: string;
+      excluded: string[];
+    };
+    expect(recorded.recordedBy).toBe('init');
+    expect(recorded.excluded).toEqual(['Payment']);
+  });
+
+  it('still reports a model that appears AFTER the refusal — a name list is not a snapshot', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+    await sync({ exclude: ['Payment'] });
+
+    writeSchema({ source: SCHEMA_WITH_NEW_MODEL });
+    out = [];
+
+    expect(await sync()).toBe(1);
+    expect(printed()).toContain('proposal: new model Refund');
+    expect(printed()).not.toContain('proposal: new model Payment');
+  });
+
+  it('does not let --accept-new create a refused model, which was the only remedy it named', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema({ source: SCHEMA_WITH_NEW_MODEL });
+    await sync({ acceptGovernance: true });
+    await sync({ exclude: ['Payment'] });
+    out = [];
+
+    expect(await sync({ acceptNew: true })).toBe(0);
+    expect(existsSync(join(cwd, 'ontology', 'Refund.mjs'))).toBe(true);
+    expect(existsSync(join(cwd, 'ontology', 'Payment.mjs'))).toBe(false);
+  });
+
+  it('names the refusal door under the proposals, and suggests no name of its own', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+
+    await sync({ acceptGovernance: true });
+
+    expect(printed()).toContain('`orangerail sync --exclude <name>[,<name>]`');
+    expect(printed()).toContain('nothing is pre-selected');
+  });
+
+  it('reports a recorded name that matches nothing, so it cannot silence a future model', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+    await sync({ exclude: ['Payment'] });
+
+    // The table is dropped from the schema; the refusal now matches nothing.
+    writeSchema({
+      source: PRISMA_SCHEMA.replace(/model Payment \{[^}]*\}\n/, ''),
+    });
+    out = [];
+
+    expect(await sync()).toBe(0);
+    expect(printed()).toContain('recorded exclusion "Payment" matches nothing in your sources');
+  });
+
+  it('fails when the ontology exposes a model the file records as refused', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+
+    // `Order` IS in the registry, so recording it as refused makes the file and
+    // the ontology contradict each other. Only a hand-edit can reach this state,
+    // which is why it has to be reported rather than prevented.
+    writeBaseline({
+      projectRoot: cwd,
+      postures: [],
+      recordedBy: 'sync',
+      excluded: ['Order'],
+    });
+    out = [];
+
+    const code = await sync();
+
+    expect(printed()).toContain('excluded: Order is recorded as excluded');
+    expect(code).toBe(1);
+
+    // No flag on this command resolves it: re-recording the posture does not
+    // stop a table from being reachable.
+    out = [];
+    expect(await sync({ acceptGovernance: true })).toBe(1);
+  });
+
+  it('refuses an --exclude the run cannot honestly record, printing no report and writing nothing', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+
+    // No baseline yet: there is no honest `recordedBy` to stamp.
+    expect(await sync({ exclude: ['Payment'] })).toBe(2);
+    expect(printed()).toContain('--accept-governance');
+    expect(existsSync(join(cwd, GOVERNANCE_FILE))).toBe(false);
+
+    await sync({ acceptGovernance: true });
+    out = [];
+
+    // A typo would sit in a committed file matching nothing while the operator
+    // believed a table had been refused.
+    expect(await sync({ exclude: ['Paymnet'] })).toBe(2);
+    expect(printed()).toContain('which your sources do not have');
+    expect(printed()).not.toContain('proposal:');
+    expect(recordedExclusions()).toEqual([]);
+
+    out = [];
+
+    // A model the ontology already serves would manufacture the contradiction
+    // the check above reports.
+    expect(await sync({ exclude: ['Order'] })).toBe(2);
+    expect(printed()).toContain('which your ontology already exposes');
+    expect(recordedExclusions()).toEqual([]);
+  });
+
+  it('records a refusal and a reviewed posture in one run when both are asked for', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+
+    expect(await sync({ exclude: ['Payment'], acceptGovernance: true })).toBe(0);
+
+    const recorded = JSON.parse(readFileSync(join(cwd, GOVERNANCE_FILE), 'utf8')) as {
+      recordedBy: string;
+      excluded: string[];
+    };
+    expect(recorded.recordedBy).toBe('sync');
+    expect(recorded.excluded).toEqual(['Payment']);
+  });
+
+  it('preserves the deny-list across a later --accept-governance', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+    await sync({ exclude: ['Payment'] });
+
+    writeConfig({ actions: ORDER_CRUD.replace(", policy: { approval: 'required' }", '') });
+    expect(await sync({ acceptGovernance: true })).toBe(0);
+
+    // Re-recording the posture is an assertion about gates, not about which
+    // tables were refused. Dropping the deny-list here would resurrect Payment
+    // as a proposal on the next run.
+    expect(recordedExclusions()).toEqual(['Payment']);
   });
 });

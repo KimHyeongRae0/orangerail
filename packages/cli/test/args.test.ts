@@ -121,6 +121,7 @@ describe('argv — a missing flag value fails loudly (ONT-044 C)', () => {
       '--preset',
       '--sources',
       '--models',
+      '--exclude',
       '--from-jira',
       '--from-slack',
     ]) {
@@ -163,5 +164,24 @@ describe('argv — --port is validated as a port (ONT-044 C/D)', () => {
   it('accepts 0 (ask the OS for an ephemeral port) and a normal port', () => {
     expect(parseArgs({ argv: ['studio', '--port', '0'] }).port).toBe(0);
     expect(parseArgs({ argv: ['studio', '--port=4860'] }).port).toBe(4860);
+  });
+});
+
+/**
+ * `--exclude` (ONT-059) parses exactly like `--models`: same CSV shape, same
+ * required value. Both decide which tables an agent can reach, so a difference
+ * in how they are typed would be a difference nobody expects.
+ */
+describe('--exclude', () => {
+  it('parses a CSV list on init and on sync', () => {
+    expect(parseArgs({ argv: ['init', '--exclude', 'payment, api_credential'] }).exclude).toEqual([
+      'payment',
+      'api_credential',
+    ]);
+    expect(parseArgs({ argv: ['sync', '--exclude=payment'] }).exclude).toEqual(['payment']);
+  });
+
+  it('is absent, not empty, when the flag is not given', () => {
+    expect(parseArgs({ argv: ['sync'] }).exclude).toBeUndefined();
   });
 });

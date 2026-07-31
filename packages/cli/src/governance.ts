@@ -37,6 +37,21 @@ import {
  * actions this module reports as weakened and `orangerail status` reports the
  * baseline state, so a governance verdict is a property of the project, not an
  * implementation detail of one command.
+ *
+ * ## The deny-list (ONT-059)
+ *
+ * The same file records which scanned models were REFUSED. It belongs here and
+ * not in a file of its own for the reason the postures do: this is the committed
+ * record of what was intended for the agent's surface, and "these actions are
+ * gated" and "this table is not reachable at all" are two clauses of one
+ * intention. Two files could disagree, and the second one would arrive with no
+ * convention saying it must be committed.
+ *
+ * It is a list of NAMES considered and refused — never a snapshot of what
+ * existed. A table that appears after the refusal was recorded is not in the
+ * list, so it is still reported loudly. The cost is that a future, unrelated
+ * table reusing a refused name inherits the refusal; the stale-exclusion notice
+ * on every readout is what keeps that from going unnoticed.
  */
 
 /** The baseline filename, next to `orangerail.config.mjs`. */
@@ -90,12 +105,19 @@ const SYNC_NOTE =
 const baselineNote = ({
   recordedBy,
   postures,
+  excluded,
 }: {
   recordedBy: RecordedBy;
   postures: ActionPosture[];
+  excluded: string[];
 }): string => {
+  // The deny-list clause rides on the SAME note rather than a second key: one
+  // note is one thing a reader has to find, and a note that is only sometimes
+  // there is a note nobody looks for.
+  const exclusions = excluded.length === 0 ? '' : ` ${EXCLUSION_NOTE}`;
+
   if (recordedBy === 'sync') {
-    return SYNC_NOTE;
+    return `${SYNC_NOTE}${exclusions}`;
   }
 
   const gated = postures.filter((posture) => posture.approval === 'required').length;
@@ -106,9 +128,26 @@ const baselineNote = ({
     'is a starting point, not an approval. Read it, then run ' +
     '`orangerail sync --accept-governance` to vouch for it. `orangerail sync` reports and fails ' +
     'when the posture of an action weakens against these rows, and `orangerail mcp` refuses to ' +
-    'serve an action that weakened. Commit this file.'
+    'serve an action that weakened. Commit this file.' +
+    exclusions
   );
 };
+
+/**
+ * The note written next to a non-empty deny-list.
+ *
+ * It states the one property of a name-based list that a reader has to know:
+ * these are names, so a NEW table is still reported, and a future table reusing
+ * one of these names is not. Nothing in the tool can resolve that ambiguity —
+ * only the person reading the list can — so the file says it out loud instead of
+ * leaving the behavior to be discovered.
+ */
+const EXCLUSION_NOTE =
+  'These model names were considered and refused: `orangerail sync` reports them as excluded ' +
+  'instead of proposing them, and `--accept-new` will not create files for them. This is a ' +
+  'list of NAMES, not a snapshot — a model that appears later and is not listed here is still ' +
+  'reported as new, and a future model that reuses one of these names inherits the refusal. ' +
+  'Delete a name here to re-admit that model.';
 
 /**
  * One action's governance posture — the fields that decide whether a call is
@@ -178,35 +217,44 @@ export const actionPostures = ({ registry }: { registry: Registry }): ActionPost
     .map((action) => postureOf({ action }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-/** A parsed baseline file: the posture rows plus who recorded them. */
+/** A parsed baseline file: the posture rows, who recorded them, what was refused. */
 export interface Baseline {
   /** Who wrote the file — see {@link RecordedBy}. */
   recordedBy: RecordedBy;
+  /** Model names considered and refused, sorted and de-duplicated (ONT-059). */
+  excluded: string[];
   /** One row per action, sorted by name. */
   actions: ActionPosture[];
 }
+
+/** Sort and de-duplicate a deny-list so the file's bytes never depend on argv order. */
+export const normalizeExclusions = ({ names }: { names: readonly string[] }): string[] =>
+  [...new Set(names)].sort();
 
 /** Render the baseline file's exact bytes — sorted, timestamp-free, newline-terminated. */
 export const serializeBaseline = ({
   postures,
   recordedBy,
+  excluded,
 }: {
   postures: ActionPosture[];
   recordedBy: RecordedBy;
+  excluded: string[];
 }): string =>
   `${JSON.stringify(
     {
       version: BASELINE_VERSION,
       recordedBy,
-      note: baselineNote({ recordedBy, postures }),
+      note: baselineNote({ recordedBy, postures, excluded }),
+      excluded: normalizeExclusions({ names: excluded }),
       actions: postures,
     },
     null,
     2,
   )}\n`;
 
-/** Whether a recorded `roles` value is a well-formed list of role names. */
-const isRoleList = ({ value }: { value: unknown }): boolean =>
+/** Whether a recorded value is a well-formed list of names (roles, exclusions). */
+const isNameList = ({ value }: { value: unknown }): boolean =>
   Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 
 const parseRow = ({ row }: { row: unknown }): ActionPosture => {
@@ -220,7 +268,7 @@ const parseRow = ({ row }: { row: unknown }): ActionPosture => {
     throw new Error(`action \`${record.name}\`: \`approval\` must be "required" or null`);
   }
 
-  if (!isRoleList({ value: record.roles })) {
+  if (!isNameList({ value: record.roles })) {
     throw new Error(`action \`${record.name}\`: \`roles\` must be an array of strings`);
   }
 
@@ -256,7 +304,12 @@ export const parseBaseline = ({ source }: { source: string }): Baseline => {
     throw new Error(`not valid JSON (${err instanceof Error ? err.message : String(err)})`);
   }
 
-  const document = parsed as { version?: unknown; recordedBy?: unknown; actions?: unknown };
+  const document = parsed as {
+    version?: unknown;
+    recordedBy?: unknown;
+    excluded?: unknown;
+    actions?: unknown;
+  };
 
   if (document?.version !== BASELINE_VERSION) {
     throw new Error(`unsupported \`version\` (expected ${BASELINE_VERSION})`);
@@ -264,6 +317,16 @@ export const parseBaseline = ({ source }: { source: string }): Baseline => {
 
   if (!Array.isArray(document.actions)) {
     throw new Error('`actions` must be an array');
+  }
+
+  // A file written before ONT-059 carries no `excluded`, and an absent deny-list
+  // is genuinely an empty one — so, like `recordedBy`, the field is added with no
+  // version bump. A malformed one is a different matter and throws: reading a
+  // broken deny-list as "nothing was refused" would resurrect the refused models
+  // as proposals with `--accept-new` next to them, which is exactly the silence
+  // this file exists to remove.
+  if (document.excluded !== undefined && !isNameList({ value: document.excluded })) {
+    throw new Error('`excluded` must be an array of model names');
   }
 
   // A file written before ONT-050 carries no `recordedBy`. It can only have come
@@ -280,6 +343,7 @@ export const parseBaseline = ({ source }: { source: string }): Baseline => {
 
   return {
     recordedBy: document.recordedBy === 'init' ? 'init' : 'sync',
+    excluded: normalizeExclusions({ names: (document.excluded ?? []) as string[] }),
     actions: document.actions
       .map((row) => parseRow({ row }))
       .sort((a, b) => a.name.localeCompare(b.name)),
@@ -479,6 +543,21 @@ export interface GovernanceReview {
   changes: GovernanceChange[];
   /** Action names whose posture weakened — exactly what the server withholds. */
   weakenedActions: string[];
+  /** Model names recorded as refused; empty unless a baseline was read (ONT-059). */
+  excluded: string[];
+  /**
+   * Recorded exclusions the live registry exposes as objects anyway — the file
+   * says refused, the ontology says reachable.
+   *
+   * It is carried as its own field instead of a sixth {@link GovernanceState}
+   * because it can co-occur with a weakened posture, and one state cannot say
+   * both. `sync` and `status` fail on it; `orangerail mcp` deliberately does not
+   * withhold over it — a weakened posture's likely cause is somebody deleting a
+   * gate, while this one's likely cause is an operator who changed their mind and
+   * has not pruned the file, and taking a running server's tools away over the
+   * second is a different decision from ONT-050's.
+   */
+  exposedExclusions: string[];
   /** Why the baseline could not be read (`state === 'unreadable'`). */
   detail?: string;
 }
@@ -506,6 +585,8 @@ export const reviewGovernance = ({
       postures,
       changes: [],
       weakenedActions: [],
+      excluded: [],
+      exposedExclusions: [],
     };
   }
 
@@ -518,6 +599,8 @@ export const reviewGovernance = ({
       postures,
       changes: [],
       weakenedActions: [],
+      excluded: [],
+      exposedExclusions: [],
       detail: err instanceof Error ? err.message : String(err),
     };
   }
@@ -529,12 +612,19 @@ export const reviewGovernance = ({
     ),
   ].sort();
 
+  // Measured against the LIVE registry for the same reason the postures are: an
+  // ontology file that is on disk but never imported exposes nothing, and one
+  // that is imported exposes its object whatever the generated file set says.
+  const exposed = new Set(registry.listObjects().map((object) => object.name));
+
   return {
     state: weakenedActions.length > 0 ? 'weakened' : 'verified',
     postures,
     recordedBy: baseline.recordedBy,
     changes,
     weakenedActions,
+    excluded: baseline.excluded,
+    exposedExclusions: baseline.excluded.filter((name) => exposed.has(name)),
   };
 };
 
@@ -543,14 +633,17 @@ export const writeBaseline = ({
   projectRoot,
   postures,
   recordedBy,
+  excluded,
 }: {
   projectRoot: string;
   postures: ActionPosture[];
   recordedBy: RecordedBy;
+  /** The deny-list to record. Callers re-recording a posture pass the one they read. */
+  excluded: string[];
 }): string => {
   const path = governancePath({ projectRoot });
 
-  writeFileSync(path, serializeBaseline({ postures, recordedBy }), 'utf8');
+  writeFileSync(path, serializeBaseline({ postures, recordedBy, excluded }), 'utf8');
 
   return path;
 };
@@ -566,6 +659,16 @@ export const writeBaseline = ({
  */
 export const isUnreviewed = ({ review }: { review: GovernanceReview }): boolean =>
   review.recordedBy === 'init';
+
+/**
+ * The one sentence every readout uses for a recorded exclusion the ontology
+ * exposes. Shared so `sync` and `status` cannot describe the same contradiction
+ * in two ways that a reader would take for two different findings.
+ */
+export const exposedExclusionDetail = ({ name }: { name: string }): string =>
+  `${name} is recorded as excluded in ${GOVERNANCE_FILE}, but the ontology exposes it — ` +
+  `remove ontology/${name}.mjs and the actions targeting it, or drop "${name}" from the ` +
+  '`excluded` list to admit it deliberately.';
 
 /**
  * A read-only view of `registry` with `names` withheld: those actions are absent

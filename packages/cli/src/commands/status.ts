@@ -3,6 +3,7 @@ import { verifyAudit } from 'orangerail-core';
 import type { OrangerailConfig } from '../config';
 import { reviewCoreSkew, type CoreSkewReview } from '../core-skew';
 import {
+  exposedExclusionDetail,
   GOVERNANCE_FILE,
   isUnreviewed,
   reviewGovernance,
@@ -155,6 +156,21 @@ const governanceClause = ({ report }: { report: StatusReport }): string => {
 };
 
 /**
+ * The exposed-exclusion clause. `orangerail mcp` does not withhold over this
+ * (ONT-059), so the startup line is the only place the operator learns that the
+ * server they just launched is serving a table the committed record says was
+ * refused. A refusal the product enforces nowhere and mentions nowhere would be
+ * a worse fiction than not recording it.
+ */
+const exclusionClause = ({ report }: { report: StatusReport }): string => {
+  const exposed = report.governance.exposedExclusions;
+
+  return exposed.length === 0
+    ? ''
+    : ` · SERVING ${exposed.length} EXCLUDED model(s) (${exposed.join(', ')}) — ${GOVERNANCE_FILE} records them as refused`;
+};
+
+/**
  * The core-skew clause. Short, and present on every variant of the line for the
  * same reason the governance clause is: a line that reports a healthy chain and
  * live gates on a project that cannot complete a write is telling half the
@@ -190,7 +206,7 @@ export const formatStatusLine = ({ report }: { report: StatusReport }): string =
     // The governance clause rides along even here: a broken chain and a weakened
     // posture are different failures, and swallowing one because the other is
     // louder is how a readout ends up telling half the truth.
-    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'${governanceClause({ report })}${skewClause({ report })}`;
+    return `orangerail mcp: serving, but AUDIT CHAIN FAILED (${report.audit.issues.length} issue(s)) — run 'orangerail audit verify'${governanceClause({ report })}${exclusionClause({ report })}${skewClause({ report })}`;
   }
 
   const gate = report.readOnly
@@ -198,7 +214,7 @@ export const formatStatusLine = ({ report }: { report: StatusReport }): string =
     : `${report.gatedCount} action(s) approval-gated`;
   const pending = report.pendingCount > 0 ? ` · ${report.pendingCount} pending approval(s)` : '';
 
-  return `orangerail mcp: serving · governance active · ${gate}${governanceClause({ report })} · audit chain OK (${report.audit.count} record(s))${pending}${skewClause({ report })}`;
+  return `orangerail mcp: serving · governance active · ${gate}${governanceClause({ report })}${exclusionClause({ report })} · audit chain OK (${report.audit.count} record(s))${pending}${skewClause({ report })}`;
 };
 
 /**
@@ -252,6 +268,34 @@ const writeBaselineBlock = ({ report }: { report: StatusReport }): void => {
           '            nobody has reviewed it yet. `orangerail sync --accept-governance` vouches for it.\n'
       : `  baseline: ${review.postures.length} action(s) match ${GOVERNANCE_FILE}\n`,
   );
+};
+
+/**
+ * The `excluded:` block — which models were refused, and whether the ontology
+ * agrees.
+ *
+ * It is on this readout because the deny-list is part of what the agent can
+ * reach, and the counts above cannot express it: an ontology serving a table the
+ * committed record says was refused reports perfectly healthy numbers, and the
+ * numbers are correct. Silent when nothing was refused — a line about an empty
+ * list on every run is what trains an operator to skip the block.
+ */
+const writeExclusionBlock = ({ report }: { report: StatusReport }): void => {
+  const review = report.governance;
+
+  if (review.excluded.length === 0) {
+    return;
+  }
+
+  const out = process.stdout;
+
+  out.write(
+    `  excluded: ${review.excluded.length} model(s) refused — ${review.excluded.join(', ')}\n`,
+  );
+
+  for (const name of review.exposedExclusions) {
+    out.write(`            EXPOSED — ${exposedExclusionDetail({ name })}\n`);
+  }
 };
 
 /**
@@ -317,6 +361,7 @@ export const runStatus = async ({
   out.write(`  objects:  ${report.objectCount}\n`);
   out.write(`  actions:  ${report.gatedCount} approval-gated, ${report.autoCount} auto\n`);
   writeBaselineBlock({ report });
+  writeExclusionBlock({ report });
   out.write(`  preset:   ${report.preset}${report.readOnly ? ' (writes not exposed)' : ''}\n`);
   out.write(`  pending:  ${report.pendingCount} approval(s) awaiting a decision\n`);
   out.write(`  server:   ${formatServerLiveness({ server: report.server })}\n`);
@@ -324,10 +369,14 @@ export const runStatus = async ({
   if (report.audit.ok) {
     out.write(`  audit:    chain OK — ${report.audit.count} record(s) verified\n`);
 
-    // A weakened posture and a stale core are the findings on this readout that
-    // the numbers above cannot express, so they own the exit code the same way
-    // a broken chain does.
-    return report.governance.state === 'weakened' || report.skew.state === 'stale' ? 1 : 0;
+    // A weakened posture, a stale core and an exposed exclusion are the findings
+    // on this readout that the numbers above cannot express, so they own the
+    // exit code the same way a broken chain does.
+    return report.governance.state === 'weakened' ||
+      report.governance.exposedExclusions.length > 0 ||
+      report.skew.state === 'stale'
+      ? 1
+      : 0;
   }
 
   // The FAILURE goes to STDERR, not stdout: `orangerail status >/dev/null` used
