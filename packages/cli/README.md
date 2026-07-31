@@ -85,6 +85,28 @@ stdin/stdout, and it dies when the host does. You never start it by hand.
 `status`, `approvals` and `audit verify` are ordinary commands you run in your own
 terminal against the same store while the host's server is up.
 
+**That `.mcp.json` is also read back to you.** Whatever else it declares is a set
+of tools orangerail does not govern — not gated, not on this project's audit
+chain, and reachable by the agent the moment a question the declared verbs cannot
+answer comes up. `status` names them under `hosts:`, and `init` names them in its
+closing summary the moment you generate a narrow surface next to a wide one:
+
+```
+  hosts:    UNGOVERNED TOOLS ALONGSIDE — 1 other MCP server(s) declared here:
+              - postgres (.mcp.json)
+```
+
+Read what that claim is and is not. It is **project scope only** —
+`.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, next to your config — so a
+clean line means "nothing in this repo declares another server", never "nothing
+else is mounted"; `~/.claude.json`, Claude Desktop's config and `~/.cursor/mcp.json`
+are deliberately not read. It reports **names only**, never a command, argument or
+environment value, because a database server's arguments routinely carry a
+connection string. It does not connect to the other server, and it does not block,
+proxy or govern it. And it **exits 0**: mounting a Slack server next to orangerail
+is an ordinary choice, and the claim is the narrow one — those tools are outside
+this project's governance, not that they are unsafe.
+
 ## Commands
 
 ```
@@ -108,6 +130,8 @@ orangerail sync [--config <path>] [--accept-new] [--accept-governance] [--exclud
 orangerail mcp [--config <path>]               launch the MCP server over stdio
                                                (withholds actions weaker than the baseline)
 orangerail status [--config <path>]            show the governance posture (exit 1 on drift)
+                                               plus any MCP server mounted alongside that
+                                               this project does not govern (never exit 1)
 orangerail studio [--config <path>] [--port <n>] [--no-open]
                                                serve the read-only domain map locally
 orangerail docs [--config <path>] [--out <dir>]

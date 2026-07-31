@@ -740,6 +740,21 @@ on the audit chain. The gate held on its own tools and was simply not on the pat
 agent has exactly one route to this database" as a precondition of installing orangerail, not
 as advice.
 
+**`orangerail status` now tells you when that precondition does not hold — as far as it can
+see.** It reads the project's own MCP client config (`.mcp.json`, `.cursor/mcp.json`,
+`.vscode/mcp.json`), and any server declared there that is not this project's `orangerail
+mcp` is named on the readout under `hosts:`, as is the `init` closing summary the moment you
+generate a narrow surface next to a wide one. It reports server names only — never a
+command, an argument or an environment value, because a database server's arguments routinely
+carry a connection string. It exits **0** either way: mounting a Slack server next to
+orangerail is an ordinary, deliberate choice, and the honest claim is the narrow one — those
+tools are outside this project's governance, not that they are unsafe. And it is a floor
+rather than an inventory: **project-scope config only**. User- and machine-scope config
+(`~/.claude.json`, Claude Desktop's, `~/.cursor/mcp.json`) is deliberately not read, so a
+clean `hosts:` line means "nothing in this repo declares another server", never "nothing else
+is mounted". orangerail does not block, proxy or govern whatever it finds — it makes the fact
+visible, which is the part that was missing.
+
 **There is no aggregation, no join, and list results are capped.** The generated read tools
 are exactly two shapes: a `findUnique` by id, and a `findMany` with your filter, ordered by
 id, returning 50 rows by default and 200 at most, with a cursor to page. There is no

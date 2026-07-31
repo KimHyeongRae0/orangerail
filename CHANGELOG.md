@@ -265,6 +265,57 @@ both logs consistently and pass verification. See
   refused that the ontology serves anyway is reported by `sync` and `status` and
   fails both.
 
+- **`orangerail status` and the `orangerail init` summary now name the MCP
+  servers mounted next to this project.** Until now nothing in this product read
+  any host agent configuration, and the consequence was measured with a real
+  agent: a project narrowed to four models, with a wide SQL server still
+  registered in the same `.mcp.json`, answered an ordinary support question by
+  falling back to that server's raw-query tool — seven queries, one of them over
+  the table the narrowing existed to exclude, with no error, no warning and
+  nothing on the audit chain. Adopting orangerail had reduced exposure by
+  exactly zero and no surface said so.
+
+  `status` now carries a `hosts:` block, and `init` closes with a beat naming any
+  server declared alongside that this project does not govern:
+
+  ```
+    hosts:    UNGOVERNED TOOLS ALONGSIDE — 1 other MCP server(s) declared here:
+                - postgres (.mcp.json)
+              orangerail does not gate those tools, they leave no record on the chain
+              above, and an agent that cannot answer a question with the verbs above can
+              reach for them instead. …
+  ```
+
+  Four things it deliberately does **not** do, each of which was the alternative:
+
+  - **It reads project scope only** — `.mcp.json`, `.cursor/mcp.json`,
+    `.vscode/mcp.json`, next to `orangerail.config.mjs`. `~/.claude.json`,
+    Claude Desktop's config and `~/.cursor/mcp.json` are not read: a health check
+    reaching into a home directory is a privacy-relevant side effect, and
+    `~/.claude.json` is the host's entire local state rather than an MCP config.
+    Every variant of the block states that bound, and a project with no host
+    config at all is told orangerail *cannot tell* what is mounted rather than
+    being left with a reassuring silence.
+  - **It has no blocklist.** No vendor name appears in the source and a test
+    enforces it. The signal is positive identification of *our* server by what
+    its `command`/`args` execute; everything else is, by definition, tools this
+    project does not govern — equally true of a raw SQL server and a Slack
+    server, which is why the wording is "outside this project's governance" and
+    never "unsafe".
+  - **It does not connect to the other server.** Naming its actual tools would
+    mean spawning an arbitrary binary out of a read-only health check, and the
+    claim being made is fully supported by the config file alone.
+  - **It reports server names only** — never a `command`, an `args` entry or an
+    `env` value. A database server's arguments routinely carry a connection
+    string, and a diagnostic that copies a credential onto a terminal and into a
+    CI log would be a new leak introduced by a leak warning.
+
+  **The exit code does not change.** `status` still exits 1 only for a core skew
+  or a posture weaker than the baseline — defects in *this* project. A foreign
+  server is a legitimate configuration choice orangerail cannot fix and may not
+  fully see, and a health check that fails on a normal setup is one nobody runs.
+  The loudness is in the wording. `orangerail mcp`'s startup line carries a
+  one-clause version.
 - **`orangerail init --gate all|delete|none` — choose which generated writes are
   approval-gated.** Defaults to `delete`; see **Upgrading** for what moved and
   why. The wizard asks the question when the flag is absent, and the flag
