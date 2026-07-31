@@ -6,7 +6,8 @@ of this repo (see each example's honest caveat about running standalone).
 
 | Example | What it shows |
 | --- | --- |
-| [governed-writes](./governed-writes) | A destructive write stays available to an agent but is staged for human approval instead of executing — with a hash-chained audit log. Resolves the read-only-vs-write dilemma. |
+| [unattended-queue](./unattended-queue) | A 15-item back-office queue worked with the operator away. Twelve ordinary writes finish with nobody present; three deletions stop and become approvals bound to the exact call. Start here. |
+| [governed-writes](./governed-writes) | The same gate in isolation — one destructive write, blocked, unforceable by the agent, and run only after a human decided, on a hash-chained audit log. |
 
 Each folder has its own `README.md` with the scenario, the exact run steps, and the
 proof output.

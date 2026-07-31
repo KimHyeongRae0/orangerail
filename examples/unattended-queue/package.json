@@ -1,0 +1,12 @@
+{
+  "name": "orangerail-example-unattended-queue",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A 15-item back-office queue worked with the operator away: twelve ordinary writes finish unattended, three deletions stop and become approvals.",
+  "devDependencies": {
+    "prisma": "^6",
+    "@prisma/client": "^6",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}

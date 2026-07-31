@@ -218,7 +218,7 @@ What none of this does: the chain hash is unkeyed, `hashAuditRecord` is a public
 export, and the anchor is an unsigned `audit.head.json` beside the records it
 anchors. An attacker with write access to the store directory can still rewrite
 both logs consistently and pass verification. See
-[What the audit log proves](./README.md#what-the-audit-log-proves).
+[What the audit log proves](./docs/audit-log.md).
 
 ### Added
 
@@ -703,6 +703,47 @@ both logs consistently and pass verification. See
 
 ### Documentation
 
+- **The README leads with unattended completion, and prints the arm where a markdown rules
+  file matched it.** The document sold a restriction: a table of what an agent cannot do, and a
+  section called "See it stop an agent". Nobody wants a narrower agent — the cheapest way to
+  narrow one is to give it no tools — and the need this actually meets is the opposite,
+  *let it run while I am not there*. The first screen now says that the problem is not that the
+  agent does too much but that your only control is a question it has to ask you, and that the
+  question is the wrong shape: a permission prompt asks about a tool, while the risk you carry
+  is about your domain, a distinction that exists only in your schema.
+
+  It opens on a measured run — a 15-item back-office queue with the operator gone: 12 of 12
+  ordinary writes completed unattended, 0 of 3 deletions executed, 3 staged, 27 audit records
+  verified. Immediately below it is the control arm, and the control arm **tied**. A Postgres
+  MCP server with full write access and no enforcement of any kind, plus a deliberately
+  well-written 51-line `CLAUDE.md`, run three times against three database clones, completed
+  12/12, executed 0 deletions, stopped 3, touched no forbidden table, and did it with zero
+  run-to-run variance. So the README no longer argues that a model will eventually ignore your
+  rules — it did not, and that argument gets weaker every time models improve. What it argues
+  instead is what survived the tie: the stop produces an executable object rather than a
+  paragraph, the policy is derived from your schema and drift-checked rather than hand-written
+  prose that silently goes stale, and enforcement travels with the server rather than binding
+  one host directory. The measurement's boundary is stated with it (one schema, one model, one
+  afternoon; adversarial phrasing and weaker models untested), as is the sentence that follows
+  from all of it: **a solo developer with a good model and a good rules file may not need this.**
+
+  The document went from 879 lines to 512. Nothing honest was deleted — the disclosure moved
+  into `docs/limits.md` (preconditions, the second-server hole, no aggregation, no DDL, bulk
+  ergonomics, and the full account of the `0.1.0` filter oracle), `docs/audit-log.md`,
+  `docs/comparisons.md` and `docs/host-approval-prompt.md`, all linked from the README.
+  `docs/audit-log.md` additionally gains a section saying plainly that Postgres triggers or
+  `pgaudit` cover more than this chain ever will, because they see writes from every source
+  and orangerail only ever sees its own tools.
+- **New example: `examples/unattended-queue`.** The same 15-item queue, driven through a real
+  MCP client over the shipped CLI, so the server-side half of the claim above is reproducible
+  without an API key. Twelve ordinary writes execute unattended, three deletions stage, the
+  agent's own `check_approval` comes back `pending`, the operator approves one and the other two
+  stay waiting, and the chain verifies. It resets the database *and* the approvals store first,
+  so two consecutive runs are identical modulo approval ids. The client is a script rather than
+  a model on purpose — it demonstrates the server's behaviour, and the model-side claim is
+  reported as a measurement rather than dressed up as reproducible. `Payment` is generated out
+  with `--exclude Payment`, so there is no tool over card data at all, and the walkthrough
+  asserts it.
 - **The README leads with the argument rather than the inventory.** It opened first on
   approval gates, then (correctly) on the generated surface — but both were descriptions of
   outputs, and a reader finished the first screen knowing what `init` writes and not why they
@@ -766,7 +807,7 @@ both logs consistently and pass verification. See
   the scope list omitted.
 - The audit log is no longer described as "tamper-evident" anywhere. What
   `orangerail audit verify` does and does not prove is stated exactly in
-  [What the audit log proves](./README.md#what-the-audit-log-proves), along with
+  [What the audit log proves](./docs/audit-log.md), along with
   the store-location hazard: `init` scaffolds the store inside the workspace the
   governed agent can write, and relocating it is the `dir` argument of
   `createFileStore` in your own `orangerail.config.mjs`.

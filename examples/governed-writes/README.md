@@ -1,23 +1,26 @@
 # Example: governed writes
 
-**The dilemma this resolves.** When you give an AI agent tools over your database,
-destructive operations (delete a row, apply a migration, change state) come along
-for the ride. The common guardrail is a single **read-only switch**: flip it on and
-the agent is safe but can no longer do the writes you actually wanted; flip it off
-and every destructive tool executes the moment the model decides to call it. Worse,
-in many servers a destructive tool still appears in the tool list even in read-only
-mode, so the agent plans around a capability it is not allowed to use — a false
-signal. This binary is the exact gap discussed across several database/API MCP
-servers ("add your own approval/guardrails — that's out of scope").
+**This is the stop, shown on its own.** For the whole picture — a queue worked
+unattended, where the stop is the exception rather than the story — start with
+[`unattended-queue`](../unattended-queue). This example zooms in on the single moment
+that one depends on, so you can watch it happen call by call.
 
-Orangerail removes the binary. A write stays **available** to the agent, but calling
-it **stages the operation for human approval** instead of executing it: the tool
-returns an `approvalId`, a human approves out of band, and only then does it run —
-with every executed write recorded on a hash-chained audit log that `orangerail audit
-verify` checks against itself and against the approvals store. That log is an audit
-trail behind a human checkpoint, not a tamper-evident boundary against someone who can
-write the store directory — the limit is stated exactly in
-[What the audit log proves](../../README.md#what-the-audit-log-proves).
+**Why the moment needs a mechanism.** When you give an AI agent tools over your
+database, destructive operations come along for the ride. The common guardrail is a
+single **read-only switch**: flip it on and the agent can no longer do the writes you
+actually wanted; flip it off and every destructive tool executes the moment the model
+decides to call it. Worse, in many servers a destructive tool still appears in the tool
+list even in read-only mode, so the agent plans around a capability it is not allowed to
+use — a false signal. Neither position lets you leave.
+
+Orangerail removes the binary. A write stays **available** to the agent, but calling it
+**stages the operation for human approval** instead of executing it: the tool returns an
+`approvalId` that outlives the process, a human approves out of band — possibly a
+different human, possibly tomorrow — and only then does it run, with every executed write
+recorded on a hash-chained audit log that `orangerail audit verify` checks against itself
+and against the approvals store. That log is an audit trail behind a human checkpoint, not
+a boundary against someone who can write the store directory — the limit is stated exactly
+in [What the audit log proves](../../docs/audit-log.md).
 
 This example is a tiny content database (`Article`, `Comment`). `deleteArticle` is
 the destructive tool.
@@ -163,7 +166,7 @@ non-zero so a script can gate on it.
   `createFileStore({ dir: join(here, '.orangerail', 'store') })` — inside this folder,
   which is right for a scripted walkthrough and wrong for a real agent that has file
   tools over the repo. See
-  [Keep the store out of the agent's reach](../../README.md#keep-the-store-out-of-the-agents-reach).
+  [Keep the store out of the agent's reach](../../docs/audit-log.md#keep-the-store-out-of-the-agents-reach).
 
 ## Honest caveat
 

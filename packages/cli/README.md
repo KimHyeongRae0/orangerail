@@ -248,7 +248,7 @@ const store = createFileStore({ dir: '/var/lib/orangerail/store' });
 
 Point it somewhere the agent's tools cannot reach. The audit log's guarantees, and
 their limits, are stated exactly under
-[What the audit log proves](https://github.com/KimHyeongRae0/orangerail#what-the-audit-log-proves).
+[What the audit log proves](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/audit-log.md).
 
 ## Store lock recovery
 

@@ -1,0 +1,64 @@
+// A small commerce database — the shape a back-office agent is usually pointed at.
+// Four tables carry the work an agent should be able to do while nobody is watching
+// (status changes, restocks, price edits, a new SKU) and the deletions that should
+// not happen unattended. `Payment` exists on purpose and is deliberately left OUT of
+// the generated ontology, so this example also shows what a refused table looks like.
+// See ../README.md for the scenario.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id     String  @id
+  email  String  @unique
+  name   String
+  tier   String  @default("free")
+  orders Order[]
+}
+
+model Product {
+  id         String      @id
+  sku        String      @unique
+  title      String
+  priceCents Int
+  stock      Int         @default(0)
+  items      OrderItem[]
+}
+
+model Order {
+  id          String      @id
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  customerId  String
+  status      String      @default("pending")
+  placedAt    DateTime    @default(now())
+  cancelledAt DateTime?
+  items       OrderItem[]
+  payments    Payment[]
+}
+
+model OrderItem {
+  id        String  @id
+  order     Order   @relation(fields: [orderId], references: [id])
+  orderId   String
+  product   Product @relation(fields: [productId], references: [id])
+  productId String
+  qty       Int
+  unitCents Int
+}
+
+// Never generated into `ontology/`. Card data an agent has no reason to reach,
+// and the reason `--exclude payment` is part of the setup below.
+model Payment {
+  id           String   @id
+  order        Order    @relation(fields: [orderId], references: [id])
+  orderId      String
+  amountCents  Int
+  cardLast4    String
+  processorRef String
+  paidAt       DateTime @default(now())
+}

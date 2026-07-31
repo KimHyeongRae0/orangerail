@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "recordedBy": "sync",
+  "note": "Governance baseline recorded by `orangerail sync --accept-governance`: a human reviewed this posture. `orangerail sync` reports and fails when the posture of an action weakens against these rows, and `orangerail mcp` refuses to serve an action that weakened. Commit this file; re-record it after an intentional policy change. These model names were considered and refused: `orangerail sync` reports them as excluded instead of proposing them, and `--accept-new` will not create files for them. This is a list of NAMES, not a snapshot — a model that appears later and is not listed here is still reported as new, and a future model that reuses one of these names inherits the refusal. Delete a name here to re-admit that model.",
+  "excluded": [
+    "Payment"
+  ],
+  "actions": [
+    {
+      "name": "createCustomer",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "createOrder",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "createOrderItem",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "createProduct",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "deleteCustomer",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Customer#id"
+    },
+    {
+      "name": "deleteOrder",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Order#id"
+    },
+    {
+      "name": "deleteOrderItem",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "OrderItem#id"
+    },
+    {
+      "name": "deleteProduct",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Product#id"
+    },
+    {
+      "name": "updateCustomer",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": "Customer#id"
+    },
+    {
+      "name": "updateOrder",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": "Order#id"
+    },
+    {
+      "name": "updateOrderItem",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": "OrderItem#id"
+    },
+    {
+      "name": "updateProduct",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": "Product#id"
+    }
+  ]
+}
