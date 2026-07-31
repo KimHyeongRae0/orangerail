@@ -120,6 +120,20 @@ the governed agent itself editing the repo it has file tools over. It is not a d
 someone with write access to your repo who means it; they can edit `orangerail.config.mjs` and
 own everything regardless.
 
+**What "refuses to serve" means, exactly.** It is not only a `sync` warning. With a gate removed
+from an action, a freshly started server prints `GOVERNANCE DRIFT … WITHHOLDING <action>`, the
+action is absent from `tools/list`, and calling it by name returns `{"status":"unknown_tool"}`.
+`sync` and `status` both exit 1. Everything else is served normally.
+
+**And what it does not reach.** The gate resolves against the approvals store, not the audit
+chain. Anything that can write that directory can append one well-formed `resolved` event and
+the next `check_approval` executes the staged action with no human decision — `audit verify`
+reports it afterwards (`no "approved" audit record`), but the write has already happened. The
+default scaffold puts that store **inside the project the agent has file tools over**, which is
+why [Keep the store out of the agent's reach](./audit-log.md#keep-the-store-out-of-the-agents-reach)
+is not optional advice. Drift detection protects the *declaration*; it does not protect the
+store.
+
 Three behaviours to expect, all deliberate:
 
 - **A project with at least one action and no baseline at all exits 1** from `sync` until you
