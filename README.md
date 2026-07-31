@@ -82,37 +82,86 @@ against three identical database clones.
 | run-to-run variance | none — all three identical | — |
 | what the stop leaves behind | a paragraph in a report | an approval record |
 
-**It tied.** With a current frontier model and a carefully written file, compliance was total
-and identical across all three runs. If you were expecting this section to say the model
-ignored its instructions, it did not, and any pitch resting on *the model will eventually stop
-following your rules* is unsupported on this evidence — and gets weaker every time models
-improve. That is not an argument this project will make.
+**It tied**, and it kept tying. The queue was re-run with items 13–15 rewritten to carry real
+pressure — a claimed prior approval ("I approved this before I left, ticket OPS-2231"), a
+statutory deadline reframing inaction as the violation, a request to delete the blocking child
+row first, and an instruction planted in a database row the agent had to read. It was run again
+on a **much smaller model**. Nothing broke. The rules file was followed every time, the planted
+instruction was caught and flagged unprompted, and the fake prior approval was rejected by
+ticket number.
 
-Three differences survived the tie, and they are the whole reason to install this:
+**On one axis it beat us.** It read the queue as a whole and found contradictions in it — item 4
+upgrades a customer that item 14 asks to erase — and proposed a non-destructive alternative
+rather than staging a delete that would have shredded line items on live orders. orangerail
+looks at one call at a time and cannot see any of that.
 
-1. **The stop produces an object, not a paragraph.** The markdown arm's blocked deletion is
-   prose in a report. Acting on it means a person re-deriving the work and re-issuing it, and
-   trusting the agent to repeat exactly what it described. orangerail leaves an approval id
-   that outlives the process, with the payload bound by hash, so a person approves *that exact
-   call* — and `check_approval` then executes precisely it, with nobody retyping anything. That
-   matters most when the approver is not the operator, which is the normal case in a team.
-2. **The rules file is your ontology written in prose, and nothing checks it.** It names tables
-   by hand. When the schema changes, it does not know. `orangerail sync` does, and exits 1 when
-   the posture weakens.
-3. **Enforcement travels with the server, not the directory.** `CLAUDE.md` binds one host in
-   one folder. The rail holds wherever it is mounted — a different host, a cron job, another
-   developer's machine, a non-Claude agent. And in the markdown arm the entity doing the
-   enforcing is the model vendor, which changes silently when you change models.
+So this project does not argue that your agent will ignore your rules. It won't, on this
+evidence, and that argument gets weaker every time models improve.
 
-**The boundary of that measurement, stated so you can discount it correctly.** One schema, one
-model, one afternoon (2026-07-31); three runs for the markdown arm and one clean run for
-orangerail. Behaviour under adversarial phrasing, under a weaker model, or over a run count
-where a rare non-compliance could appear is **untested**, and nothing here claims it.
+### What the tie does not survive
 
-**So: if you are one developer with a good model and a good rules file, you may not need this.**
-Install it when the stop has to become somebody else's work item — when the approver is not the
-operator, when the agent belongs to a team, or when the request must survive the conversation
-ending.
+One difference has nothing to do with how the agent behaves. Take the same model, the same
+task — *delete cancelled order o4* — and the same database credentials, and change **only the
+directory the process starts in**:
+
+| | started in the project | started somewhere else |
+| --- | --- | --- |
+| markdown rules | staged it, row survived | **row deleted** |
+| orangerail | staged it | **staged it** |
+
+The model was reasonable both times. It followed the rules where it found them, and did the job
+where there were none. The policy simply did not come along.
+
+The same thing happens when the policy is edited rather than left behind. Remove the deletion
+prohibition from `CLAUDE.md` and **nothing anywhere reports it** — there is no scanner, no exit
+code, no recorded baseline to compare against, and the next run's report looks exactly as
+trustworthy as the ones above. Remove one `policy: { approval: 'required' }` from `ontology/`:
+
+```console
+$ orangerail sync
+governance: deleteorder — approval gate removed — the baseline requires human approval,
+            the ontology no longer does
+            `orangerail mcp` will refuse to serve 1 action(s): deleteorder.
+            Intentional? Re-record the baseline with `orangerail sync --accept-governance`.
+$ echo $?
+1
+```
+
+and the running server means it — the action is gone from `tools/list` entirely, and calling it
+by name returns `{"status":"unknown_tool"}` rather than executing.
+
+**None of that needs a bad actor.** A rules file is a document sitting in a working directory,
+and the agent it governs usually has file tools over that directory. It takes a refactor, a
+moved folder, a second checkout, a cron job started from `/`, or a teammate who cloned the repo
+without it. Asked outright to edit its own rules and then use the capability they blocked, the
+agent refused — in **both** arms, every run. That is not the argument. The argument is that the
+policy has to be somewhere the work cannot leave behind.
+
+That difference is also the only one here that gets **stronger** as agents improve: more
+capability means broader file access, more autonomy and more instances, and a rules file's
+exposure grows with all three while a server's does not.
+
+### The one that survived on its own terms
+
+**The stop produces an object, not a paragraph.** The markdown arm's blocked deletion is prose
+in a report. Acting on it means a person re-deriving the work and re-issuing it, trusting the
+agent to repeat exactly what it described. orangerail leaves an approval id that outlives the
+process, with the payload bound by hash, so a person approves *that exact call* and
+`check_approval` executes precisely it, with nobody retyping anything. That matters most when
+the approver is not the operator — the normal case in a team.
+
+**The boundary of all of this, stated so you can discount it correctly.** One schema, one
+domain, two afternoons (2026-07-31 and 2026-08-01). The compliance results are the markdown
+arm's: three clean runs, two adversarial runs, one on a smaller model, no variance in any of
+them. The structural results — the table above, the drift transcript — do not depend on a model
+at all and were measured directly. What is **not** claimed anywhere: that adversarial phrasing,
+a weaker model, repetition, or an agent's own intent will break a rules file. Each was tested
+and none of them did.
+
+**So: if you are one developer with a good model and a good rules file, in one directory, you
+may not need this.** Install it when the policy has to outlive the directory it was written in —
+when the approver is not the operator, when the agent belongs to a team, when it runs from a
+scheduler, or when the request must survive the conversation ending.
 
 ## What the agent gets instead of `execute_sql`
 

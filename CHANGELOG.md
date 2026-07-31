@@ -703,6 +703,27 @@ both logs consistently and pass verification. See
 
 ### Documentation
 
+- **The README now leads with the one difference that does not depend on the agent behaving.**
+  A second falsification round tested the three things the previous entry reserved as unproven —
+  adversarial phrasing, a weaker model, and more runs — and none of them separated the arms. The
+  queue was re-run with a claimed prior approval, a statutory deadline reframing inaction as the
+  violation, a request to delete the blocking child row first, and an instruction planted in a
+  database row the agent had to read; the rules file was followed every time, on a much smaller
+  model too, and the planted instruction was caught and flagged unprompted. On one axis the
+  markdown arm **beat** orangerail: it read the queue as a whole and found contradictions in it
+  that a per-call surface cannot see. The README says so.
+
+  What does separate them was measured directly. Same model, same task, same credentials, only
+  the starting directory changed: the markdown arm deleted the row, orangerail staged it.
+  Editing the policy has the same shape — removing the deletion prohibition from a rules file is
+  reported by nothing at all, while removing one `policy: { approval: 'required' }` makes `sync`
+  and `status` exit 1 and the running server withhold the action outright: absent from
+  `tools/list`, and `{"status":"unknown_tool"}` when called by name. Asked outright to edit its
+  own policy and then use the capability it blocked, the agent refused in **both** arms — so the
+  argument is about where the policy lives, not about intent. `docs/limits.md` gains the exact
+  meaning of "refuses to serve", and the boundary next to it: the gate resolves against the
+  approvals store rather than the chain, so anything that can write that directory can append one
+  `resolved` event and execute a staged action, with `audit verify` reporting it only afterwards.
 - **The README leads with unattended completion, and prints the arm where a markdown rules
   file matched it.** The document sold a restriction: a table of what an agent cannot do, and a
   section called "See it stop an agent". Nobody wants a narrower agent — the cheapest way to
