@@ -9,7 +9,7 @@
  *
  *   Phase 1 (AC-1/2/3, THE RED SOURCE): for each of the five packages, read the
  *     packed tarball's embedded package.json and assert the publish contract —
- *     version "0.1.0", publishConfig.access "public", license "MIT", NO
+ *     version (read from `orangerail-core`), publishConfig.access "public", license "MIT", NO
  *     `private`, NO `workspace:` string in any runtime dependency, the tarball
  *     ships `dist` (studio: both `dist/app/index.html` and `dist/node/index.js`)
  *     and a `LICENSE`, and `orangerail-studio`'s runtime deps DO NOT include
@@ -37,7 +37,7 @@
  * RED (pre-implementation): on the current tree every packed tarball is version
  * "0.0.0" with `private: true`, no `publishConfig`, no `license`, and studio
  * still lists react/@xyflow/react/elkjs as runtime deps. Phase 1's FIRST
- * tarball-manifest assertion (core version must be "0.1.0") FAILs, the run
+ * tarball-manifest assertion (all five must agree with `orangerail-core`) FAILs, the run
  * aborts, and Phases 2/3 are never reached. That FAIL is attributable to the
  * absent publish-readiness feature, not a harness error. `verify.sh` still
  * PASSes because the tree compiles and all suites pass.
@@ -49,7 +49,15 @@
  * boot this ticket must prove.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,7 +85,17 @@ const PACKAGES = [
   { key: 'cli', dir: 'packages/cli', name: 'orangerail' },
 ];
 
-const EXPECTED_VERSION = '0.1.0';
+/**
+ * The invariant this asserts is that all five packages ship as ONE coordinated
+ * release, not that they sit at any particular number — the CLI depends on the
+ * other four at an exact version, so a half-finished bump is the failure worth
+ * catching. Reading the expected value off `orangerail-core` keeps that check
+ * honest through every release; a literal here made the suite fail on the
+ * `0.1.0` → `0.1.1` bump for no reason other than that it was pinned.
+ */
+const EXPECTED_VERSION = JSON.parse(
+  readFileSync(join(ROOT, 'packages', 'core', 'package.json'), 'utf8'),
+).version;
 const STUDIO_BANNED_DEPS = ['react', 'react-dom', '@xyflow/react', 'elkjs'];
 const ACTIONS = ['createNote', 'updateNote', 'deleteNote'];
 
