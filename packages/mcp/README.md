@@ -199,4 +199,4 @@ The FULL text goes to the operator instead:
   both logs consistently. Put the store somewhere the governed agent cannot write
   — `orangerail init` scaffolds it inside the scanned project by default. Stated
   exactly under
-  [What the audit log proves](https://github.com/KimHyeongRae0/orangerail#what-the-audit-log-proves).
+  [What the audit log proves](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/audit-log.md).
