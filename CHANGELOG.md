@@ -46,6 +46,7 @@ that is Prisma's signed `BigInt` scalar, and it is written down in
 ### Fixed
 
 
+
 - **One `BigInt` column took the whole model out of service.** Measured against
   MySQL 9.7.1 with prisma / `@prisma/adapter-mariadb` 7.9.1: every `_get` and
   `_list` threw `Do not know how to serialize a BigInt` and reached the agent as
@@ -176,6 +177,62 @@ full against a reference captured on `main`.
   An approval that was ALREADY orphaned still fails verification. This prevents
   new ones; it does not launder the ones on your chain, and nothing rewrites
   history to make them go away.
+
+
+- **`orangerail approvals show` crashed on the one screen the gate exists for.**
+  A staged action whose target row carried anything `JSON.stringify` refuses to
+  print — a circular reference, a function-valued column, a symbol key, a
+  `BigInt`, a getter that throws — ended the command at
+  `orangerail: Converting circular structure to JSON` with exit 1 and nothing on
+  stdout.
+
+  What made it expensive is how healthy everything around it looked. The
+  approval staged correctly, its own input (`{"id":3}`) was ordinary JSON,
+  `approvals list` showed it waiting, and `approvals reject` worked. The only
+  thing that did not work was READING what was being decided, so an approver
+  could see that something was pending and could act on it only by rejecting it
+  blind. A gate exists so a human can look at a staged action before it runs;
+  this removed exactly that and left the rest standing.
+
+  The renderer behind `approvals show` (and `approvals list`) is now total. Any
+  part of a value that cannot be printed as it is becomes a marker naming what
+  was there, and the block is followed by a list of those fields by key:
+
+  ```console
+  $ orangerail approvals show dc585cef-c4af-4ba2-bb36-f1d4d04bfc66
+  target (current state, read now):
+  {
+    "id": "p3",
+    "title": "Blue Mug",
+    "self": "<UNRENDERABLE — a circular reference back to a value already shown above>",
+    "loadOrders": "<UNRENDERABLE — a function (loadOrders)>"
+  }
+    NOT SHOWN AS-IS — 2 field(s) above are markers, not values:
+      $.self — a circular reference back to a value already shown above
+      $.loadOrders — a function (loadOrders)
+  ```
+
+  Nothing is dropped quietly, which is the half of this that is not about the
+  crash. `JSON.stringify` also DELETES what it cannot print — an `undefined`
+  column, a function, a symbol-keyed field — and prints `NaN` as `null` and a
+  `Map` as `{}`. On a screen whose entire job is showing a human what they are
+  about to authorize, a row rendered with a field silently missing is the same
+  defect as a row that never rendered: the decision is made without it either
+  way. Every one of those now appears with its key and a reason.
+
+  The marker list is printed AFTER the default view's length cap, so an approver
+  is told which fields are not verbatim even when the cut lands above them.
+  Default mode still truncates a large row and still says so with exact counts;
+  `--full` prints everything, markers and list included, and truncates nothing.
+  An ordinary approval — everything about it serializable — renders byte for
+  byte what it always did, which a golden-output test now holds in place.
+
+  `approvals show` also no longer loses the screen to a `redactPrior` mask that
+  throws. That is reported as `COULD NOT READ`, the state this view already had
+  for a target read that failed, rather than as an exit code.
+
+  Fixed in the `orangerail` CLI. `approvals show` remains a read command and
+  writes nothing.
 
 ### Documentation
 
