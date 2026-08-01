@@ -1,0 +1,37 @@
+// ONT-068 e2e fixture — the three shapes a BigInt column actually arrives in.
+//
+// `Signed` is what Rails has generated since 5.1 and `Unsigned` is what
+// `$table->id()` has generated in every default Laravel migration since 5.8, so
+// between them they cover the primary key of a stock schema from either. `Fk` is
+// the model whose own key is clean: an INT primary key carrying one BIGINT
+// foreign key, which is enough to take the model out of service on its own.
+//
+// `prisma-client-js` on purpose: the `prisma-client` generator emits TypeScript
+// and nothing else, which is a separate concern (ONT-067). Prisma 7 rejects `url`
+// in the datasource block (P1012) — it lives in prisma.config.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Signed {
+  id   BigInt @id @default(autoincrement())
+  name String @db.VarChar(64)
+}
+
+model Unsigned {
+  id   BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  name String @db.VarChar(64)
+}
+
+model Fk {
+  id       Int    @id @default(autoincrement())
+  signedId BigInt
+  label    String @db.VarChar(64)
+
+  @@index([signedId], map: "fk_signed")
+}

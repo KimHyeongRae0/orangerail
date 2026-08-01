@@ -1,4 +1,4 @@
-import type { PublicDiagnosticCode } from 'orangerail-core';
+import { DECIMAL_INTEGER_SOURCE, type PublicDiagnosticCode } from 'orangerail-core';
 
 import type { IrObject } from '../ir';
 import { escapeBlockComment, escapeStringLiteral, sanitizeIdentifier } from './escape';
@@ -235,6 +235,82 @@ export const wrapResolveError = ({
   });
 };
 
+/** Whether any column this object declares is a `BigInt` (ONT-068). */
+const hasBigIntColumn = ({ object }: { object: IrObject }): boolean =>
+  object.fields.some((field) => field.scalar === 'bigint');
+
+/**
+ * The module-level helpers a `BigInt`-bearing object's resolve needs, emitted
+ * into the generated file rather than imported: an `ontology/*.mjs` has no
+ * orangerail import of its own and must keep working without one (D6).
+ *
+ * `DECIMAL_ID` appears only when the KEY is a `BigInt` — it is what turns a
+ * malformed id or cursor into the ordinary not-found path instead of a driver
+ * throw. `renderBigInts` appears whenever ANY column is one, because a row is
+ * unserializable if a single field in it is a `BigInt`, key or not.
+ */
+const bigIntHelpers = ({
+  decimalId,
+  render,
+}: {
+  decimalId: boolean;
+  render: boolean;
+}): string[] => {
+  const lines: string[] = [];
+
+  if (decimalId) {
+    lines.push(
+      '/** The wire form of a BigInt key: a decimal integer, optionally signed. */',
+      `const DECIMAL_ID = new RegExp(${escapeStringLiteral({ value: DECIMAL_INTEGER_SOURCE })});`,
+    );
+  }
+
+  if (!render) {
+    return lines;
+  }
+
+  if (decimalId) {
+    lines.push('');
+  }
+
+  lines.push(
+    '/**',
+    ' * Render every BigInt in a row as its decimal string.',
+    ' *',
+    ' * A BIGINT column arrives from Prisma as a JS BigInt, and `JSON.stringify`',
+    ' * refuses to serialize one — so an unrendered row turns every read of this',
+    ' * object into an internal error, and it reaches the audit chain through the',
+    ' * prior-state read a governed write takes before it runs. A decimal string',
+    ' * survives JSON and keeps every digit above 2^53; a JSON number does not.',
+    ' *',
+    ' * Only a plain object and an array are descended into: a Date has to stay a',
+    ' * Date, or the audit hash of a write that returns one stops matching what the',
+    ' * store persisted. `seen` covers a value that points at itself — a row decoded',
+    ' * from the wire never does, an edited resolver can.',
+    ' */',
+    'const renderBigInts = (value, seen = new Set()) => {',
+    "  if (typeof value === 'bigint') {",
+    '    return value.toString();',
+    '  }',
+    "  if (value === null || typeof value !== 'object' || seen.has(value)) {",
+    '    return value;',
+    '  }',
+    '  const proto = Object.getPrototypeOf(value);',
+    '  if (!Array.isArray(value) && proto !== Object.prototype && proto !== null) {',
+    '    return value;',
+    '  }',
+    '  seen.add(value);',
+    '  const rendered = Array.isArray(value)',
+    '    ? value.map((item) => renderBigInts(item, seen))',
+    '    : Object.fromEntries(Object.keys(value).map((key) => [key, renderBigInts(value[key], seen)]));',
+    '  seen.delete(value);',
+    '  return rendered;',
+    '};',
+  );
+
+  return lines;
+};
+
 const renderResolve = ({ object }: { object: IrObject }): string => {
   if (object.idField === undefined) {
     return '';
@@ -247,55 +323,83 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
   // keys a numeric `@id` by number and a string key otherwise. Coerce at the one
   // place that knows the scanned key's scalar — this fixes both id-resolution
   // callers (the MCP `<Object>_get` tool and the engine's `where` target fetch).
+  //
+  // A `BigInt` key is neither of those: it is carried as a DECIMAL STRING and
+  // handed to Prisma as one, which the driver accepts at any width. `Number(id)`
+  // would be the wrong-row bug this exists to remove — `9007199254740993` becomes
+  // `…992` and the call quietly targets a different row.
   const idScalar = object.fields.find((field) => field.name === object.idField)?.scalar;
   const numericKey = idScalar === 'int' || idScalar === 'float';
+  const bigintKey = idScalar === 'bigint';
+
+  // Rows are rendered whenever ANY column here is a `BigInt`, not only when the
+  // key is one. A model whose own key is an `Int` but which carries a `BigInt`
+  // foreign key hands back an unserializable row from every read — that one
+  // column is enough to take the model out of service.
+  const render = hasBigIntColumn({ object });
+  const rendered = ({ expr }: { expr: string }): string =>
+    render ? `renderBigInts(${expr})` : expr;
 
   // `get`: coerce a numeric key with `Number(id)` and fail a non-numeric id to a
   // clean not-found (`null`) rather than handing Prisma a `NaN` and leaking a raw
-  // validation error; a string key passes through untouched.
+  // validation error; a `BigInt` key checks the id's SHAPE for the same reason,
+  // because `where: { id: 'not-a-number' }` is a driver throw redacted down to an
+  // opaque `resolve_error`; a string key passes through untouched.
   //
   // `return await` is load-bearing, not a lint quirk (ONT-045). A bare
   // `return prisma.x.findUnique(...)` inside `try` settles AFTER the try block
   // has been left, so the `catch` never runs and the raw driver error escapes
   // unwrapped — the diagnostic below was dead code on this path. The `list`
   // branch happened to be correct because it assigns through `await` first.
-  const getLines = numericKey
+  // `renderBigInts(await …)` keeps the `await` inside the block for the same
+  // reason.
+  const keyGuard = numericKey
     ? [
-        '    get: async ({ id }) => {',
-        '      try {',
-        '        const prisma = await getPrisma();',
         '        const key = Number(id);',
         '        if (Number.isNaN(key)) {',
         '          return null;',
         '        }',
-        `        return await ${member}.findUnique({ where: { ${idKey}: key } });`,
-        '      } catch (error) {',
-        '        throw wrapPrismaError(error);',
-        '      }',
-        '    },',
       ]
-    : [
-        '    get: async ({ id }) => {',
-        '      try {',
-        '        const prisma = await getPrisma();',
-        `        return await ${member}.findUnique({ where: { ${idKey}: id } });`,
-        '      } catch (error) {',
-        '        throw wrapPrismaError(error);',
-        '      }',
-        '    },',
-      ];
+    : bigintKey
+      ? ['        if (!DECIMAL_ID.test(id)) {', '          return null;', '        }']
+      : [];
+  const keyExpr = numericKey ? 'key' : 'id';
+
+  const getLines = [
+    '    get: async ({ id }) => {',
+    '      try {',
+    '        const prisma = await getPrisma();',
+    ...keyGuard,
+    `        return ${rendered({ expr: `await ${member}.findUnique({ where: { ${idKey}: ${keyExpr} } })` })};`,
+    '      } catch (error) {',
+    '        throw wrapPrismaError(error);',
+    '      }',
+    '    },',
+  ];
 
   // `list`: honor the advertised `filter`/`limit`/`cursor` and return a
   // `nextCursor` so a table larger than one page stays reachable — the bare
   // `take: 50` silently dropped every row past the first 50 with no way to page.
   // Cursor pagination keys on the id (ordered ascending); the opaque cursor is a
   // string, coerced to the key's scalar just like `get`.
+  //
+  // A `BigInt` cursor is checked the same way the id is, and a cursor that is not
+  // a key yields an empty page: it names no row, so nothing follows it. Letting
+  // it through would make a mistyped cursor a `resolve_error` on a read.
   const cursorExpr = numericKey ? 'Number(cursor)' : 'cursor';
+  const cursorGuard = bigintKey
+    ? [
+        '        if (cursor !== undefined && !DECIMAL_ID.test(cursor)) {',
+        '          return { items: [] };',
+        '        }',
+      ]
+    : [];
   const listLines = [
     '    list: async ({ filter, cursor, limit } = {}) => {',
     '      try {',
     '        const prisma = await getPrisma();',
     "        const take = typeof limit === 'number' && limit > 0 ? Math.min(limit, 200) : 50;",
+    ...cursorGuard,
     `        const rows = await ${member}.findMany({`,
     '          ...(filter ? { where: filter } : {}),',
     `          orderBy: { ${idKey}: 'asc' },`,
@@ -303,7 +407,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
     `          ...(cursor === undefined ? {} : { cursor: { ${idKey}: ${cursorExpr} }, skip: 1 }),`,
     '        });',
     '        const hasMore = rows.length > take;',
-    '        const items = hasMore ? rows.slice(0, take) : rows;',
+    `        const items = ${rendered({ expr: 'hasMore ? rows.slice(0, take) : rows' })};`,
     `        return hasMore ? { items, nextCursor: String(items[items.length - 1][${idKey}]) } : { items };`,
     '      } catch (error) {',
     '        throw wrapPrismaError(error);',
@@ -467,6 +571,17 @@ export const emitObjectFile = ({
   const provenance = object.provenance ?? `object ${object.name}`;
   const resolve = renderResolve({ object });
 
+  // Emitted only where they are used, so a schema with no `BigInt` column emits
+  // exactly the bytes it emitted before this existed.
+  const helpers =
+    resolve === ''
+      ? []
+      : bigIntHelpers({
+          decimalId:
+            object.fields.find((field) => field.name === object.idField)?.scalar === 'bigint',
+          render: hasBigIntColumn({ object }),
+        });
+
   const header = [
     '/**',
     ` * Orangerail object \`${escapeBlockComment({ value: object.name })}\` (${escapeBlockComment({ value: provenance })}).`,
@@ -489,6 +604,7 @@ export const emitObjectFile = ({
             construction,
           }),
         ]),
+    ...(helpers.length === 0 ? [] : ['', ...helpers]),
     '',
     `export const ${binding} = registry.defineObject({`,
     `  name: ${escapeStringLiteral({ value: object.name })},`,

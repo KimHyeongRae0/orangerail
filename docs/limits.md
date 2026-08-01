@@ -76,6 +76,32 @@ workflow, the way out is to hand-write one `defineAction` whose `execute` perfor
 batch, so a single approval covers a single reviewed intent — the generated per-row actions
 are a starting point, and `ontology/` is yours to edit.
 
+## A `BigInt` is a string on the wire, and the unsigned range does not fit
+
+A `BigInt` column travels through orangerail as a **decimal string** — in the published
+schema, in an action's input, in a resolver's output, in a cursor, in a filter operand, and in
+the audit record. That is not a stylistic choice. JSON has no integer type wide enough for a
+64-bit key, and `JSON.parse` rounds one above 2^53: an id of `9007199254740993` sent as a JSON
+number arrives as `9007199254740992` and the call quietly targets a different row. So
+`tools/list` publishes such a field as `{"type":"string"}` with a `^-?\d+$` pattern, and a
+number is refused rather than narrowed.
+
+Two consequences to plan around.
+
+**The filter has no `contains`.** Prisma's `BigIntFilter` has ordering and equality and
+nothing else, so a `BigInt` column publishes `equals`, `gt`, `gte`, `in`, `lt`, `lte` and
+`not` over string operands, and `contains` / `startsWith` / `endsWith` are refused by the
+server. Prefix-matching an id was never a query the datasource could answer; the refusal now
+arrives with the field named instead of as an opaque datasource error.
+
+**A `BIGINT UNSIGNED` key above 2^63-1 can be read but not targeted.** MySQL's unsigned range
+runs to 2^64-1 and Prisma's `BigInt` scalar is signed 64-bit. Such a row comes back from
+`_list` with every digit intact, and passing its id to `_get`, `update` or `delete` is refused
+by Prisma before a query is built (`number too large to fit in target type`) — which reaches
+the agent as a correlated `resolve_error`. In practice an `AUTO_INCREMENT` key reaches 2^63
+only if it was seeded there; if yours was, that boundary is the datasource client's and not
+something this transport can widen.
+
 ## Typed is not enforced — where the check actually lives
 
 The read `filter` published to the agent is enforced by the **server**, and orangerail earned
