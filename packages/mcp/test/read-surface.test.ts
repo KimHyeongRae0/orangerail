@@ -219,9 +219,10 @@ describe('ONT-053 — the filter schema is closed and describes the object`s own
     expect(properties['id']!.anyOf[1]).toEqual({ $ref: '#/$defs/stringOperators' });
   });
 
-  it('drops a BigInt column, because it cannot be filtered over JSON-RPC at all', () => {
-    // The emitted `z.bigint()` rejects a JSON number, so advertising the field
-    // would promise a filter that could never succeed.
+  it('drops a hand-written z.bigint(), which no JSON value can satisfy', () => {
+    // `JSON.parse` never yields a BigInt, so advertising this field would promise
+    // a filter that could never succeed. A SCANNED `BigInt` column is a different
+    // node — a decimal string — and IS filterable; see `bigint-surface.test.ts`.
     const spec = specOf({ schema: z.object({ big: z.bigint(), id: z.string() }) });
 
     expect(Object.keys(spec)).toEqual(['id']);

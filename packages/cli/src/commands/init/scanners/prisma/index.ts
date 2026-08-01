@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import type { Scanner } from '../types';
 import { mapPrismaToIr } from './map';
@@ -146,6 +146,14 @@ export const prismaScanner: Scanner = {
     const source = readSchemaSource({ filePath });
     const parsed = parsePrismaSchema({ source });
 
-    return mapPrismaToIr({ parsed });
+    // A generator's `output` is relative to the schema, so the mapper is handed
+    // the directory the schema was read from (ONT-067). For the multi-file
+    // layout that is the schema FOLDER itself — its files are one logical schema
+    // and Prisma resolves a generator declared anywhere in it against the file
+    // that declares it, which in every layout Prisma's own `init` produces is a
+    // file sitting directly in that folder.
+    const schemaDir = isDirectory({ path: filePath }) ? filePath : dirname(filePath);
+
+    return mapPrismaToIr({ parsed, schemaDir });
   },
 };

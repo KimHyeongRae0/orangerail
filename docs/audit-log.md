@@ -24,6 +24,60 @@ orangerail gives you today is **a human checkpoint and an audit trail** — a ga
 execute without a person deciding, and every staged, approved, rejected and executed action is
 on the chain — and not a boundary against someone who owns the disk.
 
+## What the chain does when it cannot describe something
+
+A governed write can return a value JSON refuses to serialize: a row that points back at
+itself, a driver id that comes back as a `BigInt`, an object whose `toJSON` throws. Until
+`0.1.1` that value threw from inside the append, which meant the write had already landed in
+your database and the chain said nothing about it — and the agent, told the call failed, would
+try again.
+
+Three rules now cover it, and they are worth knowing because two of them are visible in your
+log:
+
+**Rendering is total, and it states what it replaced.** A refused value is written with the
+fields that could be persisted intact and a marker in place of the ones that could not:
+`"self": "[unserializable: circular reference]"`, `"id": "[unserializable: bigint
+9007199254740994]"`. It is not silently dropped and the append is never the thing that fails.
+The same rendering feeds the hash, so the record verifies exactly as it was written.
+
+**The record comes before the claim.** `execute` appends `execution_started` and only then
+consumes the approval. If the append fails — an unwritable store, a full disk — the call
+answers `audit_blocked`, nothing runs, and **the approval is still approved**: fix the store
+and the same approval id completes. Under the old order it was already spent, so
+`check_approval` answered "Already executed (consumed)." about an execution that never
+happened, `approvals approve` refused it as `already_resolved`, and `audit verify` failed for
+good. The consume is still a single-winner CAS, so two callers still cannot both execute; the
+loser writes an `execution_aborted` record against the `execution_started` it had already
+written, which is why a race does not read as a replayed approval.
+
+**A terminal record that cannot be written is said out loud.** If the action ran and the store
+refuses its `succeeded`/`failed` record, orangerail appends a `terminal_unrecorded` marker —
+no input, no prior, no result, the smallest record that still names the execution — and
+`audit verify` reports it:
+
+```
+terminal record could not be written for <id>: the action ran and the chain does not carry its outcome
+```
+
+which is a different sentence from the one for a process that died mid-execution:
+
+```
+incomplete execution for <id>: started but never finished — no terminal record was appended, so the process died mid-execution
+```
+
+Tell them apart, because they need different things from you: the first says a write landed and
+you have to reconcile one row by hand, the second says you do not know whether it landed at all.
+If even the marker cannot be appended, `execute` returns `audit_unrecorded` rather than
+reporting a success nothing recorded — the write is done and must not be retried.
+
+One window is left, and it is the mirror of the one this replaced: a process that dies between
+`execution_started` and the consume CAS leaves a started record for an approval that never ran
+and is still executable. Running it later leaves two started records for one approval, which
+`audit verify` reports as a replay, naming both readings. Nothing is rewritten to hide it — the
+chain is append-only, and a repair command that edited history would destroy the only property
+it has.
+
 ## Where a database-level audit is the better tool
 
 Be direct about the alternative, because for many teams it is the right one. Postgres triggers

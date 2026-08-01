@@ -89,9 +89,11 @@ describe('audit chain (AC-7)', () => {
     expect(atVerify).toBe(atWrite);
   });
 
-  it('detects a started-but-unfinished execution (fail-closed detection)', async () => {
-    // A store that drops the terminal append after execute runs: the side
-    // effect happened, but only execution_started survives -> verify must flag.
+  it('names a refused terminal record apart from a process that died (ONT-069 AC-5)', async () => {
+    // A store that refuses the terminal append after execute runs. The side
+    // effect happened; the minimal marker lands where the full record did not,
+    // so verify says the outcome is MISSING rather than that the execution is
+    // still in flight.
     const base = createMemoryStore();
     const store = wrapStoreThrowingOn({ base, phases: ['succeeded', 'failed'] });
 
@@ -110,6 +112,50 @@ describe('audit chain (AC-7)', () => {
 
     const executed = await engine.execute({ approvalId: staged.approvalId });
     expect(executed.status).toBe('executed');
+
+    const phases = (await store.readAudit({})).items.map((record) => record.phase);
+    expect(phases).toContain('terminal_unrecorded');
+
+    const verdict = await verifyAudit({ store });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.issues.some((i) => i.includes('terminal record could not be written'))).toBe(
+      true,
+    );
+    expect(verdict.issues.some((i) => i.includes('incomplete execution'))).toBe(false);
+  });
+
+  it('detects a started-but-unfinished execution (fail-closed detection)', async () => {
+    // A store that drops every terminal append after execute runs, the marker
+    // included: the side effect happened, nothing after execution_started
+    // survives, and the engine says so in its own answer rather than reporting
+    // a plain success.
+    const base = createMemoryStore();
+    const store = wrapStoreThrowingOn({
+      base,
+      phases: ['succeeded', 'failed', 'terminal_unrecorded'],
+    });
+
+    const fixture = buildCouponFixture();
+    const engine = createEngine({ registry: fixture.registry, store });
+
+    const staged = await engine.stage({
+      actionName: 'issueCoupon',
+      input: { productId: 'p1', amount: 1 },
+      caller: agent,
+    });
+    if (staged.status !== 'approval_pending') {
+      throw new Error('staging failed');
+    }
+    await engine.approve({ approvalId: staged.approvalId, approver: csManager });
+
+    const executed = await engine.execute({ approvalId: staged.approvalId });
+    expect(executed.status).toBe('audit_unrecorded');
+    if (executed.status !== 'audit_unrecorded') {
+      throw new Error('expected audit_unrecorded');
+    }
+    // The write is done — the answer carries the result so a caller can hand it
+    // back, and refuses to call it a plain success.
+    expect(executed.result).toEqual({ couponId: 'c-p1', amount: 1 });
 
     const verdict = await verifyAudit({ store });
     expect(verdict.ok).toBe(false);

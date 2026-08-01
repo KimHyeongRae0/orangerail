@@ -17,6 +17,12 @@ import type { z } from 'zod';
  */
 export interface JsonSchemaProperty {
   type?: string | string[];
+  /**
+   * A regex a string leaf must match. Present only where the checker enforces
+   * one — a `BigInt` column's decimal-string operand — so the published schema
+   * keeps stating exactly what `validateFilter` accepts, in both directions.
+   */
+  pattern?: string;
   /** Permitted values; `null` appears for a nullable enum column. */
   enum?: (string | null)[];
   /** Element schema, for `type: 'array'`. */
@@ -55,11 +61,16 @@ export interface JsonSchema {
  * would need a second recursive schema builder tracking zod's internals, and
  * naming the container is already strictly more than saying nothing.
  *
- * `bigint` keeps its historical `integer` mapping, which is not quite true —
- * `JSON.parse` never yields a BigInt, so such a field is uncallable over this
- * transport whatever is advertised. Narrowing it to `{}` would make the schema
- * less informative without making the field any more callable, so it is left
- * alone and the refusal (`expects bigint`) carries the news.
+ * `bigint` is ABSENT, and its absence is the fix rather than a gap (ONT-068). It
+ * used to publish `integer`, which is worse than saying nothing: a JSON number
+ * is exactly what that invites, and `JSON.parse` rounds one above 2^53 — a
+ * request for id `9007199254740993` reached the resolver as `…992` and came back
+ * as an ordinary not-found for a row that exists. The field is uncallable either
+ * way (`JSON.parse` never yields a BigInt), so `{}` — the honest form of
+ * "nothing to say" — costs an untrue label and buys the removal of a wrong-row
+ * bug. A `BigInt` COLUMN no longer arrives here as `z.bigint()` at all: it is
+ * scanned into a decimal-string node and publishes `{"type":"string"}`, which is
+ * both true and callable.
  *
  * `date` is deliberately ABSENT, and differs from `filter.ts` on purpose: the
  * filter maps it to `string` because a scanned `DateTime` column is emitted as
@@ -72,7 +83,6 @@ const JSON_TYPES: Record<string, 'string' | 'number' | 'integer' | 'boolean' | '
     string: 'string',
     number: 'number',
     boolean: 'boolean',
-    bigint: 'integer',
     object: 'object',
     array: 'array',
   };

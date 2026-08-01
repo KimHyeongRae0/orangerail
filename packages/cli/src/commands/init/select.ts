@@ -150,8 +150,11 @@ export const applyFilters = ({
     enums: source.enums,
     actions,
     // The datasource survives filtering: `--models` narrows WHICH tables are
-    // governed, never WHICH database they live in (ONT-049).
+    // governed, never WHICH database they live in (ONT-049). The client
+    // generator survives for the same reason — narrowing the model set does not
+    // move where the client was generated (ONT-067).
     ...(source.datasource === undefined ? {} : { datasource: source.datasource }),
+    ...(source.generator === undefined ? {} : { generator: source.generator }),
     warnings: source.warnings,
     infos: source.infos,
   };

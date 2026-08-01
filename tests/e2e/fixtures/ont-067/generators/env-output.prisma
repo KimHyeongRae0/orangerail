@@ -1,0 +1,6 @@
+// An output that names a value no scan can read.
+
+generator client {
+  provider = "prisma-client"
+  output   = env("PRISMA_CLIENT_OUT")
+}

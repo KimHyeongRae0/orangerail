@@ -1,0 +1,7 @@
+// An output that climbs out of the project. Emitting the `../../..` import this
+// would produce would resolve against wherever the repo happens to be checked out.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../../outside/generated/prisma"
+}

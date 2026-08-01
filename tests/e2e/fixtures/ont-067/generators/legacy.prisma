@@ -1,0 +1,6 @@
+// The pre-7 generator, which generates INTO `@prisma/client`. This is today's
+// working path and its emitted bytes must not move (AC-2).
+
+generator client {
+  provider = "prisma-client-js"
+}

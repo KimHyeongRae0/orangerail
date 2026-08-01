@@ -9,6 +9,92 @@ import type { AuditRecord } from '../store/contract';
  */
 export const GENESIS_HASH = '0'.repeat(64);
 
+/** The rendering of a value `JSON.stringify` refuses, when nothing better survives. */
+const UNSERIALIZABLE = '[unserializable]';
+
+/**
+ * Render one value that `JSON.stringify` threw on, stating what was replaced
+ * instead of dropping it.
+ *
+ * `ancestors` holds the objects currently open ABOVE this one, so only a true
+ * cycle is called a cycle: the same object referenced twice side by side is a
+ * DAG, it serializes fine, and calling it circular would be a false statement in
+ * an audit record. Everything else follows `JSON.stringify`'s own rules — a
+ * `toJSON` is honored, a function/symbol/`undefined` is dropped from an object
+ * and becomes `null` in an array — so a value with one unserializable field
+ * keeps every other field exactly as it would have been persisted.
+ */
+const renderRefused = ({ value, ancestors }: { value: unknown; ancestors: object[] }): unknown => {
+  if (typeof value === 'bigint') {
+    // Keep the digits. A record that says a write returned an id and cannot say
+    // which id is barely worth appending (ONT-069).
+    return `[unserializable: bigint ${value.toString()}]`;
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return typeof value === 'function' || typeof value === 'symbol' ? undefined : value;
+  }
+
+  if (ancestors.includes(value)) {
+    return '[unserializable: circular reference]';
+  }
+
+  const toJson = (value as { toJSON?: unknown }).toJSON;
+  if (typeof toJson === 'function') {
+    return renderRefused({ value: (toJson as () => unknown).call(value), ancestors });
+  }
+
+  const nested = [...ancestors, value];
+
+  if (Array.isArray(value)) {
+    return value.map((item) => renderRefused({ value: item, ancestors: nested }) ?? null);
+  }
+
+  const rendered: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    const child = renderRefused({ value: item, ancestors: nested });
+
+    if (child !== undefined) {
+      rendered[key] = child;
+    }
+  }
+
+  return rendered;
+};
+
+/**
+ * A value's PERSISTED form: what a JSON store writes and later reads back.
+ *
+ * Total by construction (§3.5 / ONT-069). The plain round-trip is tried first
+ * and is what every ordinary value takes, so a chain written before this
+ * function existed hashes bit-for-bit identically. Only a value
+ * `JSON.stringify` THROWS on — a circular reference, a `BigInt`, an object
+ * whose `toJSON` explodes — reaches the fallback, and the fallback always
+ * returns something.
+ *
+ * The `?? 'null'` fallback this replaced covered values JSON DROPS
+ * (`undefined`, a function). It did not cover values JSON throws on, and that
+ * gap was not a hashing curiosity: it threw from inside `appendAudit`, so a
+ * governed write landed in the database while the chain recorded nothing about
+ * it, and the approval behind it was already spent (ONT-069).
+ */
+export const persistedForm = ({ value }: { value: unknown }): unknown => {
+  try {
+    return JSON.parse(JSON.stringify(value) ?? 'null') as unknown;
+  } catch {
+    try {
+      const rendered = renderRefused({ value, ancestors: [] });
+
+      // Round-trip the rendering too: it is the only proof the result is data a
+      // store can write, and a getter that throws lands here rather than inside
+      // the store.
+      return JSON.parse(JSON.stringify(rendered) ?? 'null') as unknown;
+    } catch {
+      return UNSERIALIZABLE;
+    }
+  }
+};
+
 /**
  * sha256 over a value's canonical PERSISTED form — the one hashing primitive
  * both the audit chain and the approval `inputHash` are built on.
@@ -22,12 +108,13 @@ export const GENESIS_HASH = '0'.repeat(64);
  * timestamped write as tampered (ONT-023). A JSON round-trip pins the hashed
  * bytes to exactly what is written and later read.
  *
- * A value JSON drops entirely (`undefined`, a function) hashes as `null` rather
- * than throwing — hashing is never the thing that fails.
+ * Hashing returns for every input, including one JSON drops entirely
+ * (`undefined`, a function — hashed as `null`) and one JSON refuses to
+ * serialize at all (see {@link persistedForm}). Hashing is never the thing that
+ * fails.
  */
 const hashPersisted = ({ value }: { value: unknown }): string => {
-  const persisted = JSON.parse(JSON.stringify(value) ?? 'null') as unknown;
-  const canonical = canonicalJson({ value: persisted });
+  const canonical = canonicalJson({ value: persistedForm({ value }) });
 
   return createHash('sha256').update(canonical).digest('hex');
 };

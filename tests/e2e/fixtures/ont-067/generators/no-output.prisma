@@ -1,0 +1,7 @@
+// The Prisma 7 generator with no `output`. Prisma's own default output differs by
+// generator provider and version, so there is nothing here orangerail could
+// guess that would not reproduce this defect at a different path (AC-3).
+
+generator client {
+  provider = "prisma-client"
+}

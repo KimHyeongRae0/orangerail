@@ -955,3 +955,221 @@ describe('emitted Prisma client construction (ONT-049)', () => {
     );
   });
 });
+
+/**
+ * ONT-067 — the generated client import.
+ *
+ * Prisma 7's `prisma init` writes `provider = "prisma-client"`, which generates
+ * into its own `output` directory and puts nothing into `@prisma/client`. These
+ * pin the specifier the emitted `await import(…)` names, and — the other half of
+ * the contract — that the package path does not move one byte.
+ */
+describe('emitted Prisma client import (ONT-067)', () => {
+  const prismaAction: IrAction = {
+    name: 'createProduct',
+    source: 'prisma',
+    prisma: { model: 'Product', sourceModel: 'Product', op: 'create' },
+    write: true,
+    input: [{ name: 'title', kind: 'scalar', scalar: 'string', optional: false }],
+  };
+
+  const mariadb = SUPPORTED_ADAPTERS.find(
+    (adapter) => adapter.module === '@prisma/adapter-mariadb',
+  ) as PrismaAdapter;
+
+  const generated: PrismaConstruction = {
+    kind: 'adapter',
+    adapter: mariadb,
+    urlEnv: 'DATABASE_URL',
+    clientModule: '../generated/prisma/client.ts',
+  };
+
+  it('imports the generated client instead of the package', () => {
+    const content = emitObjectFile({ object: product, construction: generated }).content;
+
+    expect(content).toContain(
+      'const { PrismaClient } = await import("../generated/prisma/client.ts");',
+    );
+    expect(content).not.toContain("await import('@prisma/client')");
+  });
+
+  it('emits the same import into a Prisma action file', () => {
+    const content = emitActionFile({
+      action: prismaAction,
+      gate: 'all',
+      construction: generated,
+    }).content;
+
+    expect(content).toContain(
+      'const { PrismaClient } = await import("../generated/prisma/client.ts");',
+    );
+  });
+
+  it('escapes a hostile client path instead of interpolating it', () => {
+    // The path is scanned from the user's schema (`output = "…"`), so it is
+    // user-controlled text — raw interpolation would turn a crafted path into
+    // statements in the generated file (D10).
+    const content = emitObjectFile({
+      object: product,
+      construction: { kind: 'bare', clientModule: "./x'); process.exit(1); //" },
+    }).content;
+
+    expect(content).not.toContain("await import('./x'); process.exit(1)");
+    expect(content).toContain('await import("./x\'); process.exit(1); //")');
+  });
+
+  it('stops prescribing an install that cannot populate a generated directory', () => {
+    const content = emitObjectFile({ object: product, construction: generated }).content;
+
+    expect(content).toContain(
+      'Cannot resolve the generated Prisma client at \\"../generated/prisma/client.ts\\"',
+    );
+    expect(content).toContain('npx prisma generate');
+    // The exact circle ONT-067 exists to close: the reader had already run this.
+    expect(content).not.toContain('npm install @prisma/client @prisma/adapter-mariadb');
+  });
+
+  it('keeps the schema-mismatch diagnostic separate from the missing-client one', () => {
+    // ONT-041's "client resolved but exposes no such model" is a different fault
+    // with a different fix, and collapsing the two is what this ticket removes
+    // rather than repeats.
+    const content = emitObjectFile({ object: product, construction: generated }).content;
+
+    expect(content).toContain('The Prisma client exposes no \\"product\\" model');
+    expect(content).toContain('was generated from a different schema');
+  });
+
+  it('names the extension refusal for a generated client this runtime will not load', () => {
+    const content = emitObjectFile({ object: product, construction: generated }).content;
+
+    expect(content).toContain("error.code === 'ERR_UNKNOWN_FILE_EXTENSION'");
+    expect(content).toContain('Node 22.18 or newer');
+  });
+
+  it('emits no extension branch at all on the package path', () => {
+    const content = emitObjectFile({ object: product }).content;
+
+    expect(content).not.toContain('ERR_UNKNOWN_FILE_EXTENSION');
+  });
+});
+
+/**
+ * ONT-067 AC-2 — a schema on `prisma-client-js`, or with no generator block at
+ * all, is today's working path. Its bytes are compared in full against the
+ * pre-ticket render (the construction with no `clientModule`), file by file,
+ * because "looks unchanged" is not a claim a diff can be built on.
+ */
+describe('the package client path does not move (ONT-067 AC-2)', () => {
+  const prismaAction: IrAction = {
+    name: 'createProduct',
+    source: 'prisma',
+    prisma: { model: 'Product', sourceModel: 'Product', op: 'create' },
+    write: true,
+    input: [{ name: 'title', kind: 'scalar', scalar: 'string', optional: false }],
+  };
+
+  const source = sourceOf({ objects: [product, orderItem], actions: [prismaAction] });
+
+  const render = ({ construction }: { construction?: PrismaConstruction }) =>
+    buildFileSet({
+      source,
+      preset: 'approval-for-writes',
+      gate: 'all',
+      ...(construction === undefined ? {} : { construction }),
+    });
+
+  it('renders the bare construction byte-for-byte as it did before the ticket', () => {
+    expect(render({ construction: { kind: 'bare' } })).toEqual(render({}));
+  });
+
+  it('renders an adapter construction with no client module and no new branch', () => {
+    const adapter = SUPPORTED_ADAPTERS.find(
+      (entry) => entry.module === '@prisma/adapter-pg',
+    ) as PrismaAdapter;
+
+    const files = render({ construction: { kind: 'adapter', adapter, urlEnv: 'DATABASE_URL' } });
+
+    for (const file of files) {
+      expect(file.content).not.toContain('ERR_UNKNOWN_FILE_EXTENSION');
+    }
+    expect(files.some((file) => file.content.includes("await import('@prisma/client')"))).toBe(
+      true,
+    );
+  });
+});
+
+describe('wrapResolveError over a generated client (ONT-067)', () => {
+  const clientModule = '../generated/prisma/client.ts';
+
+  const unknownExtension = () => {
+    const error = new TypeError('Unknown file extension ".ts"');
+
+    return Object.assign(error, { code: 'ERR_UNKNOWN_FILE_EXTENSION' });
+  };
+
+  it('does not read an unloadable client as a schema mismatch', () => {
+    // Node raises this as a TypeError, which is the shape of reading an
+    // operation off an undefined model accessor — so without the branch it came
+    // out as "re-run prisma generate" over a client that was generated fine.
+    const wrapped = wrapResolveError({
+      objectName: 'Product',
+      accessor: 'product',
+      error: unknownExtension(),
+      clientModule,
+    });
+
+    expect((wrapped as Error).message).toContain('Cannot load the generated Prisma client');
+    expect((wrapped as Error).message).not.toContain('different schema');
+  });
+
+  it('claims no diagnostic code for it, rather than one whose remedy is wrong', () => {
+    // The closed enum has no member for "the client is there and this runtime
+    // will not load it". Reusing `datasource_client_missing` would make the
+    // transport tell the agent to install and generate — the remedy that cannot
+    // apply. Unclassified falls back to full redaction, and the operator sink
+    // still carries the sentence.
+    const wrapped = wrapResolveError({
+      objectName: 'Product',
+      accessor: 'product',
+      error: unknownExtension(),
+      clientModule,
+    });
+
+    expect(readPublicDiagnostic({ error: wrapped })).toBeUndefined();
+  });
+
+  it('leaves the extension error alone on the package path', () => {
+    const error = unknownExtension();
+
+    const wrapped = wrapResolveError({ objectName: 'Product', accessor: 'product', error });
+
+    expect((wrapped as Error).message).not.toContain('Cannot load the generated Prisma client');
+  });
+
+  it('names the generated path in the module-not-found diagnostic', () => {
+    const missing = Object.assign(new Error('not found'), { code: 'ERR_MODULE_NOT_FOUND' });
+
+    const wrapped = wrapResolveError({
+      objectName: 'Product',
+      accessor: 'product',
+      error: missing,
+      clientModule,
+    });
+
+    expect((wrapped as Error).message).toContain(clientModule);
+    expect(readPublicDiagnostic({ error: wrapped })?.code).toBe('datasource_client_missing');
+  });
+
+  it('keeps prismaClientBlock and the emitted wrapper on one story', () => {
+    const block = prismaClientBlock({
+      diagnosticName: 'Product',
+      sourceModel: 'Product',
+      construction: { kind: 'bare', clientModule },
+    });
+
+    expect(block).toContain(
+      buildResolveDiagnostic({ objectName: 'Product', clientModule }).replaceAll('"', '\\"'),
+    );
+    expect(accessorName({ model: 'Product' })).toBe('product');
+  });
+});
