@@ -71,6 +71,22 @@ you have to reconcile one row by hand, the second says you do not know whether i
 If even the marker cannot be appended, `execute` returns `audit_unrecorded` rather than
 reporting a success nothing recorded — the write is done and must not be retried.
 
+The agent calling through MCP is told exactly that, in a status of its own and a sentence that
+carries both halves:
+
+```
+Executed, and NOT recorded. The action ran and its side effect has already landed — the write
+is done — but the audit chain holds no terminal record of it, not even the minimal marker,
+because the store refused every append. Do NOT retry this call and do NOT re-stage the action:
+either one repeats a write that has already happened. […] correlationId "<id>".
+```
+
+Both halves are load-bearing. Reported as a success, the agent carries on believing the chain
+knows about a write it does not; reported as an ordinary failure, the agent does the one thing
+that must not happen and retries, and the write lands twice. The store error itself stays off
+that path — it goes to the operator sink (stderr by default), keyed by the same correlationId,
+which for this status is the only place it survives at all.
+
 One window is left, and it is the mirror of the one this replaced: a process that dies between
 `execution_started` and the consume CAS leaves a started record for an approval that never ran
 and is still executable. Running it later leaves two started records for one approval, which

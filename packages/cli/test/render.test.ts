@@ -1,7 +1,13 @@
 import type { ApprovalRecord, AuditPrior } from 'orangerail-core';
 import { describe, expect, it } from 'vitest';
 
-import { previewInput, renderApprovalDetail, renderApprovalList, sanitize } from '../src/render';
+import {
+  previewInput,
+  renderApprovalDetail,
+  renderApprovalList,
+  sanitize,
+  toRenderableValue,
+} from '../src/render';
 
 /** ESC (U+001B) built at runtime so this source file carries no control bytes. */
 const ESC = String.fromCharCode(27);
@@ -490,5 +496,35 @@ describe('render - ordinary approval detail is byte-identical (ONT-070 AC-6)', (
         '',
       ].join('\n'),
     );
+  });
+});
+
+/**
+ * ONT-071 — the same walk, exported for a second surface. The studio serves the
+ * mirror as a response body and the field list beside it, so it needs the value
+ * rather than the pretty-printed block, and it needs to name its own root: a
+ * marker reported at `$` tells a reader nothing about which served row it sat in.
+ */
+describe('render - the walk as a value, for a caller that serves JSON (ONT-071)', () => {
+  it('reports paths under the root the caller named', () => {
+    const rows = [{ id: 'a', size: 10n }];
+    const { value, fields } = toRenderableValue({ value: rows, path: 'employee' });
+
+    expect(fields).toEqual([{ path: 'employee[0].size', reason: 'a bigint (10)' }]);
+    expect(() => JSON.stringify(value)).not.toThrow();
+    expect(JSON.stringify(value)).toContain('UNRENDERABLE');
+  });
+
+  it('defaults the root to $, exactly as the approver surface reports it', () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic['self'] = cyclic;
+
+    expect(toRenderableValue({ value: cyclic }).fields[0]?.path).toBe('$.self');
+  });
+
+  it('leaves ordinary JSON identical, key order included', () => {
+    const row = { b: 1, a: [true, null, 'x'], c: { d: 2 } };
+
+    expect(JSON.stringify(toRenderableValue({ value: row }).value)).toBe(JSON.stringify(row));
   });
 });

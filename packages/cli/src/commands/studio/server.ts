@@ -8,6 +8,20 @@ import type {
   InstanceSnapshot,
 } from 'orangerail-studio/snapshot';
 
+import type { UnrenderableField } from '../../render';
+
+/**
+ * The instance snapshot as this server serves it: the rows, plus the list of
+ * fields inside them the total renderer could not print as they are (ONT-071).
+ *
+ * The list is OPTIONAL because this server is generic over its caller — a caller
+ * that never walked its rows supplies none, and gets the honest empty answer
+ * rather than a claim it did not make. `orangerail studio` always supplies it:
+ * `gatherInstances` walks the rows where they enter the CLI, so what arrives
+ * here is already JSON-safe and its markers are already in place.
+ */
+type ServedInstances = InstanceSnapshot & { unrenderable?: UnrenderableField[] };
+
 /** Minimal content-type map for the static assets the app ships (plan 3.6). */
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -143,6 +157,37 @@ const writeJson = ({
 };
 
 /**
+ * Serialize a snapshot for a data route without letting it end the process
+ * (ONT-071).
+ *
+ * The instance rows come from a live datasource, and `JSON.stringify` throws on
+ * several things a real row carries — a `BigInt` column, a structure that points
+ * at itself, a `toJSON` that fails. Thrown from inside a request handler that is
+ * an uncaught exception, and an uncaught exception ends `orangerail studio`: a
+ * browsable map of the ontology killed by one column of one row.
+ *
+ * The fix for the instance route is upstream, in `gatherInstances`, which walks
+ * the rows through the total renderer as they enter the CLI — so by the time
+ * they reach here they are JSON-safe and their markers are already in place, and
+ * this catch is unreachable for them. It stays because the two other routes and
+ * every other caller of this server have made no such promise, and because "the
+ * renderer has no defect" is not something a serving loop should have to assume.
+ */
+const jsonBody = ({ value }: { value: unknown }): { status: number; body: string } => {
+  try {
+    return { status: 200, body: JSON.stringify(value) };
+  } catch (error) {
+    return {
+      status: 500,
+      body: JSON.stringify({
+        error: 'this snapshot could not be serialized',
+        reason: error instanceof Error ? error.message : String(error),
+      }),
+    };
+  }
+};
+
+/**
  * Build the local studio server: static serving of the prebuilt app with strict
  * path containment, `GET /api/registry` returning the snapshot JSON, and
  * `GET /api/events` as an SSE stream. Any non-GET/HEAD method is 405 — no write
@@ -157,7 +202,7 @@ export const createStudioServer = ({
 }: {
   appDir: string;
   getSnapshot: () => GraphSnapshot;
-  getInstances: () => InstanceSnapshot;
+  getInstances: () => ServedInstances;
   getFleet: () => AgentFleetSnapshot;
 }): { server: Server; broadcast: (args: { event: string; data: string }) => void } => {
   const clients = new Set<SseClient>();
@@ -204,17 +249,25 @@ export const createStudioServer = ({
     const path = (req.url ?? '/').split('?')[0];
 
     if (path === '/api/registry') {
-      writeJson({ res, status: 200, body: JSON.stringify(getSnapshot()) });
+      writeJson({ res, ...jsonBody({ value: getSnapshot() }) });
       return;
     }
 
     if (path === '/api/instances') {
-      writeJson({ res, status: 200, body: JSON.stringify(getInstances()) });
+      const instances = getInstances();
+
+      // `unrenderable` is served explicitly rather than left to ride along as an
+      // own property, so the wire contract states it: the rows above may contain
+      // markers, and THIS is the list of which ones, derived from the walk.
+      writeJson({
+        res,
+        ...jsonBody({ value: { ...instances, unrenderable: instances.unrenderable ?? [] } }),
+      });
       return;
     }
 
     if (path === '/api/fleet') {
-      writeJson({ res, status: 200, body: JSON.stringify(getFleet()) });
+      writeJson({ res, ...jsonBody({ value: getFleet() }) });
       return;
     }
 

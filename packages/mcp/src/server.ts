@@ -79,11 +79,22 @@ const REQUIRES_USER_INTERACTION = 'anthropic/requiresUserInteraction';
  * logger instead.
  */
 export type ReportFailure = (args: {
-  status: FailureStatus;
+  status: ReportedStatus;
   tool: string;
   correlationId: string;
   error: string;
 }) => void;
+
+/**
+ * What the operator sink can be called with.
+ *
+ * `audit_unrecorded` is not a {@link FailureStatus} — the redaction table is
+ * written for calls that did nothing, and this one's write already landed — but
+ * its store error has no audit home BY DEFINITION (the append is what failed,
+ * marker and all), so this sink is the only place that text survives at all
+ * (ONT-071).
+ */
+export type ReportedStatus = FailureStatus | 'audit_unrecorded';
 
 const defaultReportFailure: ReportFailure = ({ status, tool, correlationId, error }) => {
   process.stderr.write(`orangerail: ${status} in "${tool}" [${correlationId}]: ${error}\n`);
@@ -387,6 +398,66 @@ type InvalidatedReason = Extract<ExecuteResult, { status: 'invalidated' }>['reas
  * routing the same fact through the diagnostic enum would widen the closed set
  * to buy a second name for something already said.
  */
+/** The one outcome whose side effect already happened (§3.5 / ONT-069). */
+type UnrecordedResult = Extract<ExecuteResult, { status: 'audit_unrecorded' }>;
+
+/** Renders {@link UnrecordedResult}, bound per tool call so it can report first. */
+type UnrecordedMapper = (args: { result: UnrecordedResult }) => ToolResult;
+
+/**
+ * What an agent is told when the write LANDED and nothing recorded it (ONT-071).
+ *
+ * This is the most consequential sentence here, and the two ways to get it wrong
+ * pull in opposite directions. Call it a success and the agent carries on
+ * believing the audit chain knows about a write it does not — the silent path
+ * `audit_unrecorded` exists to remove. Call it an ordinary failure — which is
+ * what `default` did, as `"Unexpected execute result."` with status `error` —
+ * and an agent that has just been told its write failed does the one thing that
+ * must not happen: it retries, and the write happens twice. That reintroduces at
+ * the transport layer exactly the duplicate-write behaviour ONT-069 removed from
+ * the engine.
+ *
+ * So the sentence carries BOTH halves and then the instruction, in that order:
+ * the effect landed, no record of it exists, do not retry. "Do not re-stage" is
+ * there for the gated path, where the approval behind this call is already
+ * spent: re-staging is not a retry of this call, it is a second authorization
+ * for a second write, and the sentence must not read as an invitation to it.
+ *
+ * The store error itself is NOT here, by the same rule every other failure on
+ * this path follows: it names paths and errnos, the agent cannot act on it, and
+ * the correlationId is the handle that takes an operator to the chain state and
+ * to the full text in the host log.
+ */
+const unrecordedMessage = ({ correlationId }: { correlationId: string }): string =>
+  'Executed, and NOT recorded. The action ran and its side effect has already landed — the write ' +
+  'is done — but the audit chain holds no terminal record of it, not even the minimal marker, ' +
+  'because the store refused every append. Do NOT retry this call and do NOT re-stage the ' +
+  'action: either one repeats a write that has already happened. The store error is withheld; ' +
+  'an operator can read it in the host log and reconcile the chain under correlationId ' +
+  `"${correlationId}". Report that id and treat the action as done.`;
+
+/**
+ * The action's own return value, carried back under a status that is not
+ * `executed`.
+ *
+ * The write happened, so this is the only copy of what it produced. An agent
+ * that is refused it has one obvious way to go and get it, and that way is the
+ * retry this whole branch exists to prevent.
+ *
+ * Rendered exactly like a successful result, and a value the transport cannot
+ * serialize is NAMED rather than dropped: the SDK serializes
+ * `structuredContent` after this handler has returned, outside every catch in
+ * this file, so one exotic field in a returned row would otherwise take the
+ * sentence above it down and hand the agent a transport error instead.
+ */
+const carriedResult = ({ value }: { value: unknown }): Record<string, unknown> => {
+  try {
+    return { result: outbound({ value }).value };
+  } catch {
+    return { resultWithheld: 'the action returned a value this transport could not serialize' };
+  }
+};
+
 const invalidatedMessage = ({ reason }: { reason: InvalidatedReason }): string =>
   reason === 'stale_approval'
     ? 'Invalidated (stale_approval): this approval was recorded by an older orangerail-core than the one running, so the payload cannot be verified against it. Nothing executed and the approval is spent — stage the action again. If a fresh staging invalidates the same way, stop retrying and have the operator run `orangerail status`.'
@@ -395,9 +466,11 @@ const invalidatedMessage = ({ reason }: { reason: InvalidatedReason }): string =
 const mapStage = ({
   result,
   failure,
+  unrecorded,
 }: {
   result: StageResult;
   failure: FailureMapper;
+  unrecorded: UnrecordedMapper;
 }): ToolResult => {
   switch (result.status) {
     case 'approval_pending':
@@ -455,10 +528,18 @@ const mapStage = ({
       });
     case 'audit_blocked':
       return failure({ ...result, status: 'audit_blocked' });
+    // An UNGOVERNED action executes on the staging call, so this outcome reaches
+    // an agent through `stage` as readily as through `execute`. One mapper for
+    // both: the sentence cannot be right on one path and missing on the other.
+    case 'audit_unrecorded':
+      return unrecorded({ result });
     case 'failed':
       return failure({ ...result, status: 'failed' });
     case 'consume_failed':
       return err({ status: 'consume_failed', message: `Consume failed (${result.reason}).` });
+    // Still here, and still reachable: an older `orangerail-core` can hand up a
+    // status this build has never heard of, and saying so plainly beats
+    // rendering it as something it is not.
     default:
       return err({ status: 'error', message: 'Unexpected stage result.' });
   }
@@ -467,9 +548,11 @@ const mapStage = ({
 const mapExecute = ({
   result,
   failure,
+  unrecorded,
 }: {
   result: ExecuteResult;
   failure: FailureMapper;
+  unrecorded: UnrecordedMapper;
 }): ToolResult => {
   switch (result.status) {
     case 'executed': {
@@ -504,8 +587,12 @@ const mapExecute = ({
       return failure({ ...result, status: 'resolve_error' });
     case 'audit_blocked':
       return failure({ ...result, status: 'audit_blocked' });
+    case 'audit_unrecorded':
+      return unrecorded({ result });
     case 'failed':
       return failure({ ...result, status: 'failed' });
+    // See the note on the `default` in `mapStage` — a status from a core this
+    // build predates still has to arrive as something, and not as a guess.
     default:
       return err({ status: 'error', message: 'Unexpected execute result.' });
   }
@@ -594,6 +681,26 @@ export const createMcpServer = ({
           correlationId,
           ...(redacted.diagnostic ? { diagnostic: redacted.diagnostic } : {}),
         },
+      });
+    };
+
+  // Reports before it answers, for the same reason every failure does: the
+  // agent's half is the sentence, and the operator's half is the store error
+  // that has nowhere else left to be.
+  const unrecordedFor =
+    ({ tool }: { tool: string }): UnrecordedMapper =>
+    ({ result }) => {
+      reportFailure({
+        status: 'audit_unrecorded',
+        tool,
+        correlationId: result.correlationId,
+        error: result.error,
+      });
+
+      return err({
+        status: 'audit_unrecorded',
+        message: unrecordedMessage({ correlationId: result.correlationId }),
+        extra: { correlationId: result.correlationId, ...carriedResult({ value: result.result }) },
       });
     };
 
@@ -727,10 +834,12 @@ export const createMcpServer = ({
     name,
     args,
     failure,
+    unrecorded,
   }: {
     name: string;
     args: Record<string, unknown>;
     failure: FailureMapper;
+    unrecorded: UnrecordedMapper;
   }): Promise<ToolResult> => {
     const tool = byName.get(name);
     if (!tool) {
@@ -755,6 +864,7 @@ export const createMcpServer = ({
       return mapStage({
         result: await engine.stage({ actionName: tool.action.name, input: args, caller }),
         failure,
+        unrecorded,
       });
     }
 
@@ -785,13 +895,14 @@ export const createMcpServer = ({
       return ok({ message: 'Already executed (consumed).', structured: { status: 'consumed' } });
     }
 
-    return mapExecute({ result: await engine.execute({ approvalId }), failure });
+    return mapExecute({ result: await engine.execute({ approvalId }), failure, unrecorded });
   };
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const name = request.params.name;
     const args = (request.params.arguments ?? {}) as Record<string, unknown>;
     const failure = failureFor({ tool: name });
+    const unrecorded = unrecordedFor({ tool: name });
 
     // Last-resort backstop (§3.10). Anything that still throws — a store read
     // inside check_approval, an identity adapter, a bug — would otherwise be
@@ -799,7 +910,7 @@ export const createMcpServer = ({
     // the raw text. Catching here means NO path out of `tools/call` carries an
     // unredacted error, which is the property the fix is actually claiming.
     try {
-      return await handleCall({ name, args, failure });
+      return await handleCall({ name, args, failure, unrecorded });
     } catch (caught) {
       return failure({
         status: 'internal_error',
