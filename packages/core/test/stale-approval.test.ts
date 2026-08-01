@@ -110,8 +110,17 @@ describe('ONT-058 — an unverifiable approval is not a tampered one', () => {
     const approvalId = staged.status === 'approval_pending' ? staged.approvalId : '';
     await engine.approve({ approvalId, approver });
 
+    // The swap is modelled at the store boundary, on BOTH reads of the approval
+    // — `execute` reads it before it claims it (ONT-069) — so the test states
+    // "the store hands back a payload that is not the approved one" rather than
+    // which call the engine happens to learn it from.
     const swapped: Store = {
       ...inner,
+      getApproval: async (args) => {
+        const record = await inner.getApproval(args);
+
+        return record === null ? null : { ...record, input: { widgetId: 'PRODUCTION-TABLE' } };
+      },
       consumeApproval: async (args) => {
         const result = await inner.consumeApproval(args);
 

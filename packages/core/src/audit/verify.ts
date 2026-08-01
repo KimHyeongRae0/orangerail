@@ -27,9 +27,14 @@ const readAll = async ({ store }: { store: Store }): Promise<AuditRecord[]> => {
 };
 
 /**
- * The phases `execute` can append AFTER the consume CAS has already burned the
- * approval: the execution itself, or one of the pre-execute aborts. Any of them
- * means "this approval was taken off the queue and acted on".
+ * The phases that account for a burned approval: the execution itself, or one of
+ * the pre-execute aborts. Any of them means "this approval was taken off the
+ * queue and acted on".
+ *
+ * Since ONT-069 each of these is appended BEFORE the CAS that spends the
+ * approval, not after — which is why a consumed approval carrying none of them
+ * is now a store that consumed something this engine never asked about, rather
+ * than the routine outcome of an append that threw.
  */
 const POST_CONSUME_PHASES: AuditPhase[] = [
   'execution_started',
@@ -38,11 +43,22 @@ const POST_CONSUME_PHASES: AuditPhase[] = [
   'resolve_error',
 ];
 
+/** The phases that state an execution reached its end, however it ended. */
+const TERMINAL_PHASES: AuditPhase[] = ['succeeded', 'failed', 'terminal_unrecorded'];
+
 /** Everything the chain says about one approvalId, gathered in one pass. */
 interface ApprovalTrace {
   /** First record seen per phase (the chain is walked in seq order). */
   firstByPhase: Map<AuditPhase, AuditRecord>;
   startedCount: number;
+  /**
+   * Attempts that wrote `execution_started` and then lost the claim (ONT-069).
+   * They are started records that are not executions, and the replay check
+   * subtracts them rather than counting a race as tampering.
+   */
+  abortedCount: number;
+  /** Whether any record says this approval's execution reached its end. */
+  terminated: boolean;
   /** Every distinct `actionName` the chain attributes to this approval. */
   actionNames: Set<string>;
   /** Input digest of every record that carries one, in chain order. */
@@ -60,7 +76,14 @@ const traceApprovals = ({ records }: { records: AuditRecord[] }): Map<string, Ap
 
     let trace = traces.get(id);
     if (!trace) {
-      trace = { firstByPhase: new Map(), startedCount: 0, actionNames: new Set(), inputs: [] };
+      trace = {
+        firstByPhase: new Map(),
+        startedCount: 0,
+        abortedCount: 0,
+        terminated: false,
+        actionNames: new Set(),
+        inputs: [],
+      };
       traces.set(id, trace);
     }
 
@@ -69,6 +92,12 @@ const traceApprovals = ({ records }: { records: AuditRecord[] }): Map<string, Ap
     }
     if (record.phase === 'execution_started') {
       trace.startedCount += 1;
+    }
+    if (record.phase === 'execution_aborted') {
+      trace.abortedCount += 1;
+    }
+    if (TERMINAL_PHASES.includes(record.phase)) {
+      trace.terminated = true;
     }
 
     trace.actionNames.add(record.actionName);
@@ -132,11 +161,22 @@ const chainSelfChecks = ({
   }
 
   // X3 — one approval, two executions. The consume CAS is single-winner, so a
-  // second `execution_started` means the approval was re-armed behind the
-  // engine's back (an appended `resolved`/`created` line rewinding the fold).
-  if (trace.startedCount > 1) {
+  // second STARTED-AND-NOT-ABORTED execution means the approval was re-armed
+  // behind the engine's back (an appended `resolved`/`created` line rewinding
+  // the fold).
+  //
+  // The subtraction is what the ONT-069 ordering costs and it costs nothing:
+  // `execution_started` is now written before the claim, so a race leaves the
+  // loser's started record on the chain, and the loser writes an
+  // `execution_aborted` against it. A re-armed approval executes for real and
+  // has no abort to subtract, so the tell still fires. What can also reach this
+  // line is an attempt that died between its audit record and the CAS — it
+  // never ran, and the chain cannot tell that from a replay, so the message
+  // states both readings instead of accusing.
+  const executions = trace.startedCount - trace.abortedCount;
+  if (executions > 1) {
     issues.push(
-      `replayed approval ${id}: ${trace.startedCount} execution_started records for a single-use approval`,
+      `replayed approval ${id}: ${trace.startedCount} execution_started record(s) and ${trace.abortedCount} aborted attempt(s) for a single-use approval — it was re-armed behind the engine's back, or an attempt died between its audit record and the consume CAS`,
     );
   }
 
@@ -249,11 +289,17 @@ const storeChainChecks = ({
     );
   }
 
-  // X10 — an executed approval must be spent. `execute` consumes BEFORE it
-  // appends `execution_started`, so a chain that shows an execution against a
-  // store that still shows the approval as re-usable means the `consumed` event
-  // was erased to re-arm it.
-  if (trace?.firstByPhase.has('execution_started') === true && approval.status !== 'consumed') {
+  // X10 — an executed approval must be spent. `execute` claims the approval
+  // between `execution_started` and `action.execute` (ONT-069), so a TERMINAL
+  // record against a store that still shows the approval as re-usable means the
+  // `consumed` event was erased to re-arm it.
+  //
+  // Keyed on the terminal record rather than the start, because since that
+  // ordering change a bare `execution_started` no longer proves the approval was
+  // claimed: an attempt that died before the CAS wrote one and ran nothing, and
+  // its approval is legitimately still executable. Reporting that as an executed
+  // approval would accuse the operator of tampering for a crash.
+  if (trace?.terminated === true && approval.status !== 'consumed') {
     issues.push(
       `approval ${id} was executed but is "${approval.status}" in the approvals store, not "consumed"`,
     );
@@ -284,12 +330,13 @@ const storeChainChecks = ({
  *   the first) — a break means deletion or reordering;
  * - each record's `hash` must equal a recomputation over its content — a
  *   mismatch means the record was tampered with;
- * - every `execution_started` must have a matching `succeeded`/`failed` for the
- *   same approval — a gap means an incomplete execution (side effect without a
- *   terminal record);
- * - every `consumed` approval must have an `execution_started` record — a gap
- *   means a crash between `consumeApproval` and the audit append (§3.2 third
- *   check, AC-5). An empty store verifies.
+ * - every `execution_started` must be closed for the same approval — by a
+ *   `succeeded`/`failed`, by an `execution_aborted` (an attempt that lost the
+ *   claim), or by a `terminal_unrecorded` marker (the action ran and the store
+ *   refused its outcome, reported in its own words);
+ * - every `consumed` approval must have a post-consume record — a gap means the
+ *   approval was spent without this engine writing anything about it (§3.2
+ *   third check, AC-5). An empty store verifies.
  *
  * On top of that walk, the approvals store and the audit chain are cross-checked
  * against each other wherever they overlap (§3.2 / ONT-040) — staging,
@@ -325,8 +372,18 @@ export const verifyAudit = async ({ store }: { store: Store }): Promise<AuditVer
   // auto actions (no approvalId, §3.2 / AC-2) are paired via their correlation
   // id and a truncated auto terminal is caught — closing the old
   // "no approvalId -> skipped" gap.
-  const started = new Set<string>();
-  const finished = new Set<string>();
+  //
+  // COUNTED rather than set-membership, because one key can now carry several
+  // attempts: a race writes a started record per caller. One abort must not
+  // stand in for a sibling attempt that died mid-execution, so every start needs
+  // a closer of its own.
+  const started = new Map<string, number>();
+  const closed = new Map<string, number>();
+  const unrecorded = new Set<string>();
+
+  const bump = ({ counts, key }: { counts: Map<string, number>; key: string }): void => {
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  };
 
   for (const record of records) {
     const key = record.approvalId ?? record.correlationId;
@@ -335,16 +392,44 @@ export const verifyAudit = async ({ store }: { store: Store }): Promise<AuditVer
     }
 
     if (record.phase === 'execution_started') {
-      started.add(key);
+      bump({ counts: started, key });
     }
-    if (record.phase === 'succeeded' || record.phase === 'failed') {
-      finished.add(key);
+
+    // A start is closed by its outcome, by an `execution_aborted` (an attempt
+    // that lost the claim and ran nothing), or by a `terminal_unrecorded` marker
+    // (the action ran and the store refused its outcome) — none of those is
+    // "still running", and the last one is answered below in its own words.
+    if (
+      record.phase === 'succeeded' ||
+      record.phase === 'failed' ||
+      record.phase === 'execution_aborted' ||
+      record.phase === 'terminal_unrecorded'
+    ) {
+      bump({ counts: closed, key });
+    }
+
+    if (record.phase === 'terminal_unrecorded') {
+      unrecorded.add(key);
     }
   }
 
-  for (const key of started) {
-    if (!finished.has(key)) {
-      issues.push(`incomplete execution for ${key}: started but never finished`);
+  // Two different accidents, two different sentences (§3.5 / ONT-069). A marker
+  // says the action RAN and the chain could not describe the outcome — the
+  // operator has a write to reconcile and knows it. An unpaired start says the
+  // process never got to any terminal record at all. Reporting both as
+  // "incomplete execution" is what sent an operator hunting a crash that never
+  // happened.
+  for (const key of unrecorded) {
+    issues.push(
+      `terminal record could not be written for ${key}: the action ran and the chain does not carry its outcome`,
+    );
+  }
+
+  for (const [key, count] of started) {
+    if ((closed.get(key) ?? 0) < count) {
+      issues.push(
+        `incomplete execution for ${key}: started but never finished — no terminal record was appended, so the process died mid-execution`,
+      );
     }
   }
 
