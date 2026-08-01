@@ -78,14 +78,239 @@ const stripControl = ({ value }: { value: string }): string => value.replace(CON
 export const sanitize = ({ value }: { value: string }): string =>
   escapeInvisible({ value: JSON.stringify(stripControl({ value })) });
 
+/**
+ * A part of a value the renderer could not print as it is: where it sat, and
+ * why.
+ *
+ * Collected during the walk so a block can be followed by a list naming every
+ * field the approver is NOT seeing verbatim. The marker left in place could be
+ * forged — an agent that stages the literal marker text gets a value that reads
+ * like a refusal — but this list is derived from the walk itself, so a forged
+ * marker appears in the block and NOT in the list, and the two disagree.
+ */
+type UnrenderableField = { path: string; reason: string };
+
+/**
+ * How deep the renderer descends before it stops and says so. Cycles are caught
+ * by the ancestor check below, so this only bounds legitimately deep values —
+ * the ones that would otherwise end the walk with a `RangeError` and take the
+ * whole screen with them.
+ */
+const MAX_RENDER_DEPTH = 64;
+
+/** The in-place stand-in for a value that could not be printed as it is. */
+const unrenderable = ({ reason }: { reason: string }): string => `<UNRENDERABLE — ${reason}>`;
+
+/** Describe a thrown value without trusting it to describe itself. */
+const errorText = ({ error }: { error: unknown }): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  try {
+    return String(error);
+  } catch {
+    return 'a value that cannot describe itself';
+  }
+};
+
+/**
+ * Run a read of arbitrary user data — a getter, a `toJSON` — so that a throw
+ * becomes a value the caller can render instead of an exception it must let
+ * past.
+ */
+const attempt = <T>({
+  read,
+}: {
+  read: () => T;
+}): { ok: true; value: T } | { ok: false; error: unknown } => {
+  try {
+    return { ok: true, value: read() };
+  } catch (error) {
+    return { ok: false, error };
+  }
+};
+
+/**
+ * A JSON-safe mirror of `value`, with every part JSON cannot print replaced by a
+ * marker naming what was there and why it is not shown.
+ *
+ * `JSON.stringify` has three failure modes on a row read from a live datasource,
+ * and all three end on the approver's screen. It THROWS (a `BigInt`, a circular
+ * reference, a `toJSON` that fails) and the command exits 1 with nothing
+ * rendered. It DROPS the key (an `undefined` value, a function, a symbol key)
+ * and the approver decides on a row with a field silently missing. Or it prints
+ * something that is not what is there (`NaN` as `null`, a `Map` as `{}`). On a
+ * screen whose entire job is showing a human what they are about to authorize, a
+ * crash and a quiet omission are the same defect, so all three become visible.
+ *
+ * Ordinary JSON — the whole of a value that round-tripped through a store —
+ * walks through unchanged, key order included.
+ */
+const toRenderable = ({
+  value,
+  path,
+  ancestors,
+  fields,
+  depth,
+}: {
+  value: unknown;
+  /** Where this value sits, as it will be named to the approver. */
+  path: string;
+  /** The objects currently open on the walk, so a cycle is caught rather than followed. */
+  ancestors: Set<object>;
+  /** Accumulator, appended to for every part that could not be printed as it is. */
+  fields: UnrenderableField[];
+  depth: number;
+}): unknown => {
+  const refuse = ({ reason, at = path }: { reason: string; at?: string }): string => {
+    fields.push({ path: at, reason });
+
+    return unrenderable({ reason });
+  };
+
+  if (value === null) {
+    return null;
+  }
+
+  switch (typeof value) {
+    case 'string':
+    case 'boolean':
+      return value;
+    case 'number':
+      // JSON prints NaN and +/-Infinity as `null`, which an approver reads as
+      // "this column is empty" rather than "this number is not a number".
+      return Number.isFinite(value) ? value : refuse({ reason: `the number ${String(value)}` });
+    case 'bigint':
+      return refuse({ reason: `a bigint (${value.toString()})` });
+    case 'symbol':
+      return refuse({ reason: `a symbol (${value.toString()})` });
+    case 'function':
+      return refuse({ reason: `a function (${value.name === '' ? 'anonymous' : value.name})` });
+    case 'undefined':
+      return refuse({ reason: 'undefined, which JSON drops key and all' });
+    default:
+      break;
+  }
+
+  const object = value as object;
+
+  if (ancestors.has(object)) {
+    return refuse({ reason: 'a circular reference back to a value already shown above' });
+  }
+  if (depth >= MAX_RENDER_DEPTH) {
+    return refuse({ reason: `nesting deeper than ${MAX_RENDER_DEPTH} levels` });
+  }
+
+  ancestors.add(object);
+
+  try {
+    const toJson = attempt({ read: () => (object as { toJSON?: unknown }).toJSON });
+
+    if (!toJson.ok) {
+      return refuse({ reason: `reading its toJSON threw: ${errorText({ error: toJson.error })}` });
+    }
+
+    // A `Date` and everything else carrying a `toJSON` gets exactly what JSON
+    // gives it, so an ordinary row still renders as it always did.
+    if (typeof toJson.value === 'function') {
+      const produced = attempt({
+        read: () => (toJson.value as (this: unknown) => unknown).call(object),
+      });
+
+      return produced.ok
+        ? toRenderable({ value: produced.value, path, ancestors, fields, depth: depth + 1 })
+        : refuse({ reason: `its toJSON() threw: ${errorText({ error: produced.error })}` });
+    }
+
+    if (Array.isArray(object)) {
+      return object.map((item: unknown, index: number) =>
+        toRenderable({
+          value: item,
+          path: `${path}[${index}]`,
+          ancestors,
+          fields,
+          depth: depth + 1,
+        }),
+      );
+    }
+
+    // JSON prints both as `{}` — every entry gone, with nothing left on screen
+    // to say anything was ever in there.
+    if (object instanceof Map || object instanceof Set) {
+      const kind = object instanceof Map ? 'Map' : 'Set';
+
+      return refuse({ reason: `a ${kind} of ${object.size} entry(ies), which JSON prints as {}` });
+    }
+
+    const rendered: Record<string, unknown> = {};
+
+    for (const key of Object.keys(object)) {
+      const at = `${path}.${key}`;
+      const member = attempt({ read: () => (object as Record<string, unknown>)[key] });
+
+      rendered[key] = member.ok
+        ? toRenderable({ value: member.value, path: at, ancestors, fields, depth: depth + 1 })
+        : refuse({ at, reason: `reading it threw: ${errorText({ error: member.error })}` });
+    }
+
+    // A symbol-keyed field is invisible to JSON: not dropped to `null`, not
+    // named — absent. The key itself has no JSON spelling, so it is printed as a
+    // labelled string key and reported below as a field the block is showing
+    // under a name the value does not actually have.
+    for (const symbol of Object.getOwnPropertySymbols(object)) {
+      if (!Object.prototype.propertyIsEnumerable.call(object, symbol)) {
+        continue;
+      }
+
+      const label = `[symbol key] ${symbol.toString()}`;
+      const at = `${path}.${label}`;
+      const member = attempt({ read: () => (object as Record<symbol, unknown>)[symbol] });
+
+      fields.push({ path: at, reason: 'a symbol-keyed field, which JSON drops entirely' });
+      rendered[label] = member.ok
+        ? toRenderable({ value: member.value, path: at, ancestors, fields, depth: depth + 1 })
+        : unrenderable({ reason: `reading it threw: ${errorText({ error: member.error })}` });
+    }
+
+    return rendered;
+  } finally {
+    ancestors.delete(object);
+  }
+};
+
+/**
+ * Render any value as JSON that always exists, plus the fields inside it that
+ * are markers rather than values.
+ *
+ * Total by construction: `toRenderable` returns only JSON scalars, arrays and
+ * plain objects, so the `JSON.stringify` below has nothing left to throw on. The
+ * catch is the backstop for a defect in this file — an approver still gets a
+ * block and a reason instead of a command that exits 1.
+ */
+const renderTotal = ({
+  value,
+  indent,
+}: {
+  value: unknown;
+  indent: number;
+}): { json: string; fields: UnrenderableField[] } => {
+  const fields: UnrenderableField[] = [];
+
+  try {
+    const renderable = toRenderable({ value, path: '$', ancestors: new Set(), fields, depth: 0 });
+
+    return { json: JSON.stringify(renderable, null, indent), fields };
+  } catch (error) {
+    const reason = `the renderer itself failed: ${errorText({ error })}`;
+
+    return { json: JSON.stringify(unrenderable({ reason })), fields: [{ path: '$', reason }] };
+  }
+};
+
 /** A one-line, length-capped preview of agent-supplied input (already escaped). */
 export const previewInput = ({ input }: { input: unknown }): string => {
-  let json: string;
-  try {
-    json = JSON.stringify(input);
-  } catch {
-    json = String(input);
-  }
+  const { json } = renderTotal({ value: input, indent: 0 });
 
   // JSON.stringify already escapes control/ANSI into safe \uXXXX, but not the
   // bidi/invisible set. Neutralize BEFORE clipping, so the 80-char cap measures
@@ -192,7 +417,42 @@ const capDetailInput = ({
   ].join('\n');
 };
 
-/** Pretty-print a value the way the input block does: sanitized and capped. */
+/**
+ * The lines that follow a block when part of it could not be printed as it is.
+ *
+ * The wording is deliberate. This is not "some fields were skipped": the
+ * approver is being told which parts of the thing they are deciding on they have
+ * NOT seen, in the same place where they would otherwise have assumed the block
+ * above was the whole of it. Paths and reasons carry agent-influenced text
+ * (keys, symbol descriptions, driver messages), so they take the same
+ * strip-then-escape route every other string on this surface takes — a newline
+ * in a key would otherwise let a staged value forge lines of this list.
+ */
+const unrenderableLines = ({ fields }: { fields: UnrenderableField[] }): string[] => {
+  if (fields.length === 0) {
+    return [];
+  }
+
+  const plain = ({ text }: { text: string }): string =>
+    escapeInvisible({ value: stripControl({ value: text }) });
+
+  return [
+    `  NOT SHOWN AS-IS — ${fields.length} field(s) above are markers, not values:`,
+    ...fields.map(
+      (field) => `    ${plain({ text: field.path })} — ${plain({ text: field.reason })}`,
+    ),
+  ];
+};
+
+/**
+ * Pretty-print a value the way the input block does: total, sanitized, capped,
+ * and followed by the list of anything it could not print verbatim.
+ *
+ * The list goes AFTER the cap on purpose. Truncation cuts the block at a fixed
+ * number of lines, so a field that could not be rendered may sit past the cut —
+ * and "you are not seeing this field" is the one thing the default view must
+ * still say when it stops printing.
+ */
 const prettyBlock = ({
   value,
   id,
@@ -204,11 +464,12 @@ const prettyBlock = ({
   full: boolean;
   label?: string;
 }): string => {
-  const pretty = escapeInvisible({
-    value: JSON.stringify(value, null, 2).replace(CONTROL_CHARS_KEEP_NEWLINE, ''),
-  });
+  const { json, fields } = renderTotal({ value, indent: 2 });
 
-  return full ? pretty : capDetailInput({ pretty, id, label });
+  const pretty = escapeInvisible({ value: json.replace(CONTROL_CHARS_KEEP_NEWLINE, '') });
+  const block = full ? pretty : capDetailInput({ pretty, id, label });
+
+  return [block, ...unrenderableLines({ fields })].join('\n');
 };
 
 /**
@@ -310,7 +571,11 @@ export const renderApprovalDetail = ({
     `action:       ${sanitize({ value: record.actionName })}`,
     `status:       ${record.status}`,
     `requestedBy:  ${sanitize({ value: record.requestedBy })}${record.devMode ? ' [dev]' : ''}`,
-    `roles:        ${JSON.stringify(record.requestedByRoles)}`,
+    // Through the total renderer like every other stored value on this screen:
+    // `requestedByRoles` is typed `string[]`, but it arrives from a store the
+    // CLI does not control, and one exotic value in it must not be able to take
+    // down the whole detail view.
+    `roles:        ${renderTotal({ value: record.requestedByRoles, indent: 0 }).json}`,
     `createdAt:    ${record.createdAt}`,
     // Order matters. `unverifiableLine` (ONT-058) says this approval cannot
     // execute at all; the target block (ONT-057) describes what it would change.

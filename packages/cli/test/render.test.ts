@@ -287,3 +287,208 @@ describe('render - approval detail input cap (ONT-044 G)', () => {
     expect(out).toContain('"documentId": "doc-1"');
   });
 });
+
+/**
+ * The approver's screen has to exist (ONT-070). Every case below is a value
+ * `JSON.stringify` refuses to print, prints as something else, or drops without
+ * a trace — and the assertion is always the same pair: the block is still there,
+ * and the field is NAMED. A row shown with a field missing is the same defect as
+ * a screen that never rendered, because the human decides either way.
+ *
+ * Deliberately not led by `BigInt`: the fix has to hold for any unrenderable
+ * type, so the first cases are a cycle, a symbol key and a function.
+ */
+describe('render - a total value renderer (ONT-070)', () => {
+  const withTarget = ({ value, full = false }: { value: unknown; full?: boolean }): string =>
+    renderApprovalDetail({
+      record: record({ id: 'ont-070' }),
+      full,
+      prior: { state: 'value', value },
+    });
+
+  const circular = (): Record<string, unknown> => {
+    const row: Record<string, unknown> = { id: 'p3', stock: 0 };
+    row.self = row;
+
+    return row;
+  };
+
+  it('renders a circular target row instead of throwing, and names the field', () => {
+    const out = withTarget({ value: circular() });
+
+    expect(out).toContain('"stock": 0');
+    expect(out).toContain('UNRENDERABLE');
+    expect(out).toContain('circular reference');
+    expect(out).toContain('$.self');
+  });
+
+  it('names a symbol-keyed field JSON would have dropped entirely', () => {
+    const out = withTarget({ value: { id: 'p3', [Symbol('secret')]: 'kept' } });
+
+    expect(out).toContain('Symbol(secret)');
+    expect(out).toContain('symbol-keyed field');
+  });
+
+  it('names a function-valued field JSON would have dropped entirely', () => {
+    const out = withTarget({ value: { id: 'p3', refund: function refundOrder() {} } });
+
+    expect(out).toContain('"refund"');
+    expect(out).toContain('a function (refundOrder)');
+    expect(out).toContain('$.refund');
+  });
+
+  it('renders a bigint as a marker rather than throwing on it', () => {
+    const out = withTarget({ value: { id: 'p3', balance: 9007199254740993n } });
+
+    expect(out).toContain('a bigint (9007199254740993)');
+    expect(out).toContain('$.balance');
+  });
+
+  it('renders a Uint8Array field with its bytes visible and no crash', () => {
+    const out = withTarget({ value: { id: 'p3', blob: new Uint8Array([1, 2, 3]) } });
+
+    expect(out).toContain('"blob"');
+    expect(out).toContain('"0": 1');
+  });
+
+  it('names an undefined-valued field instead of dropping the key', () => {
+    const out = withTarget({ value: { id: 'p3', deletedAt: undefined } });
+
+    expect(out).toContain('"deletedAt"');
+    expect(out).toContain('$.deletedAt');
+  });
+
+  it('names a field whose getter throws, and still renders its siblings', () => {
+    const row = {
+      id: 'p3',
+      get secret(): string {
+        throw new Error('column is encrypted');
+      },
+    };
+
+    const out = withTarget({ value: row });
+
+    expect(out).toContain('"id": "p3"');
+    expect(out).toContain('column is encrypted');
+    expect(out).toContain('$.secret');
+  });
+
+  it('names a row whose toJSON throws', () => {
+    const out = withTarget({
+      value: {
+        toJSON: () => {
+          throw new Error('serializer exploded');
+        },
+      },
+    });
+
+    expect(out).toContain('serializer exploded');
+  });
+
+  it('renders a NaN as a marker rather than as null', () => {
+    const out = withTarget({ value: { id: 'p3', stock: Number.NaN } });
+
+    expect(out).toContain('the number NaN');
+    expect(out).not.toContain('"stock": null');
+  });
+
+  it('renders an unrenderable INPUT while the target is fine', () => {
+    const row: Record<string, unknown> = { id: 'p3' };
+    row.self = row;
+
+    const out = renderApprovalDetail({
+      record: record({ id: 'ont-070', input: row }),
+      prior: { state: 'value', value: { id: 'p3', stock: 0 } },
+    });
+
+    expect(out).toContain('"stock": 0');
+    expect(out).toContain('circular reference');
+  });
+
+  it('leaves the pre-existing "no such row" answer alone', () => {
+    const out = renderApprovalDetail({
+      record: record({ id: 'ont-070' }),
+      prior: { state: 'none' },
+    });
+
+    expect(out).toContain('NONE — no such object right now.');
+    expect(out).not.toContain('UNRENDERABLE');
+  });
+
+  it('does not truncate a large target row under --full, and does by default', () => {
+    const big = { id: 'p3', blob: 'A'.repeat(1024 * 512) };
+
+    expect(withTarget({ value: big, full: true }).length).toBeGreaterThan(1024 * 512);
+    expect(withTarget({ value: big })).toContain('TRUNCATED');
+  });
+
+  it('still names an unrenderable field when the block above it was truncated', () => {
+    const row: Record<string, unknown> = Object.fromEntries(
+      Array.from({ length: 200 }, (_, i) => [`k${i}`, i]),
+    );
+    row.zzz_self = row;
+
+    const out = withTarget({ value: row });
+
+    expect(out).toContain('TRUNCATED');
+    expect(out).toContain('$.zzz_self');
+  });
+
+  it('previews an unrenderable input in the queue instead of one flat [object Object]', () => {
+    const row: Record<string, unknown> = { id: 'p3' };
+    row.self = row;
+
+    const out = renderApprovalList({ approvals: [record({ id: 'ont-070', input: row })] });
+
+    expect(out).toContain('UNRENDERABLE');
+    expect(out).not.toContain('[object Object]');
+  });
+});
+
+/**
+ * AC-6 golden output: an ordinary approval — everything about it serializable —
+ * renders byte for byte what it rendered before the total renderer existed. The
+ * whole worth of this fix is that nothing moves for the case an operator reads
+ * every day.
+ */
+describe('render - ordinary approval detail is byte-identical (ONT-070 AC-6)', () => {
+  it('matches the golden detail view', () => {
+    const out = renderApprovalDetail({
+      record: {
+        id: 'a1',
+        actionName: 'updateProduct',
+        input: { id: 'p3', stock: 25 },
+        signatureHash: 'sig',
+        inputHash: 'hash',
+        status: 'pending',
+        requestedBy: 'agent',
+        requestedByRoles: ['editor'],
+        devMode: false,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      prior: { state: 'value', value: { id: 'p3', stock: 0 } },
+    });
+
+    expect(out).toBe(
+      [
+        'id:           a1',
+        'action:       "updateProduct"',
+        'status:       pending',
+        'requestedBy:  "agent"',
+        'roles:        ["editor"]',
+        'createdAt:    2026-01-01T00:00:00.000Z',
+        'target (current state, read now):',
+        '{',
+        '  "id": "p3",',
+        '  "stock": 0',
+        '}',
+        'input (agent-supplied):',
+        '{',
+        '  "id": "p3",',
+        '  "stock": 25',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+});

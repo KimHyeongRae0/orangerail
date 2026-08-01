@@ -44,14 +44,25 @@ const currentTarget = async ({
     return undefined;
   }
 
-  const prior = await readActionPrior({ action, input });
+  try {
+    const prior = await readActionPrior({ action, input });
 
-  return maskAuditPrior({
-    actionName,
-    prior,
-    ...(config.redactAudit ? { redactAudit: config.redactAudit } : {}),
-    ...(config.redactPrior ? { redactPrior: config.redactPrior } : {}),
-  });
+    return maskAuditPrior({
+      actionName,
+      prior,
+      ...(config.redactAudit ? { redactAudit: config.redactAudit } : {}),
+      ...(config.redactPrior ? { redactPrior: config.redactPrior } : {}),
+    });
+  } catch (err) {
+    // `readActionPrior` already turns a failing datasource read into an
+    // `unreadable` prior; what can still throw here is project code the CLI
+    // hands the row to — a `redactPrior` mask, a getter on the row itself. A
+    // read that threw is a state this screen can already print, so it is printed
+    // as itself. The alternative is that a mask with a bug removes the approver's
+    // only view of the decision, which is a strictly worse outcome than a
+    // decision surface that says it could not read the row.
+    return { state: 'unreadable', error: err instanceof Error ? err.message : String(err) };
+  }
 };
 
 /** `orangerail approvals list` — render the pending queue (§3.5). Exit 0. */
