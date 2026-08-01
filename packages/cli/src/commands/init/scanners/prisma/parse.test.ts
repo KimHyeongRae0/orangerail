@@ -240,3 +240,120 @@ describe('datasource parsing (ONT-049)', () => {
     expect(parsed.datasource).toEqual({ provider: 'mysql', urlEnv: 'DATABASE_URL' });
   });
 });
+
+describe('generator parsing (ONT-067)', () => {
+  it('reads the provider and output of the block `prisma init` writes', () => {
+    const parsed = parsePrismaSchema({
+      source: `
+        generator client {
+          provider = "prisma-client"
+          output   = "../generated/prisma"
+        }
+        model A { id Int @id }
+      `,
+    });
+
+    expect(parsed.generator).toEqual({
+      provider: 'prisma-client',
+      output: '../generated/prisma',
+    });
+  });
+
+  it('reads the legacy generator, which declares no output', () => {
+    const parsed = parsePrismaSchema({
+      source: `generator client {\n  provider = "prisma-client-js"\n}`,
+    });
+
+    expect(parsed.generator).toEqual({ provider: 'prisma-client-js' });
+  });
+
+  it('is absent for a schema with no generator block', () => {
+    const parsed = parsePrismaSchema({ source: `model A { id Int @id }` });
+
+    expect(parsed.generator).toBeUndefined();
+  });
+
+  it('ignores a generator that does not produce a client', () => {
+    // Prisma allows several generator blocks. An ERD renderer's `output` is a
+    // diagram directory — reading it as the client's would send the emitted
+    // import at a PNG.
+    const parsed = parsePrismaSchema({
+      source: `
+        generator erd {
+          provider = "prisma-erd-generator"
+          output   = "../docs/erd.svg"
+        }
+        generator client {
+          provider = "prisma-client"
+          output   = "../generated/prisma"
+        }
+      `,
+    });
+
+    expect(parsed.generator).toEqual({
+      provider: 'prisma-client',
+      output: '../generated/prisma',
+    });
+  });
+
+  it('keeps the first client generator when a second one follows', () => {
+    const parsed = parsePrismaSchema({
+      source: `
+        generator client {
+          provider = "prisma-client"
+          output   = "../generated/prisma"
+        }
+        generator browser {
+          provider = "prisma-client"
+          output   = "../generated/browser"
+        }
+      `,
+    });
+
+    expect(parsed.generator?.output).toBe('../generated/prisma');
+  });
+
+  it('records an env() output as an expression rather than a path', () => {
+    const parsed = parsePrismaSchema({
+      source: `generator client {\n  provider = "prisma-client"\n  output = env("GEN_OUT")\n}`,
+    });
+
+    expect(parsed.generator).toEqual({
+      provider: 'prisma-client',
+      outputExpression: 'env("GEN_OUT")',
+    });
+  });
+
+  it('records an interpolated output as an expression rather than a path', () => {
+    const parsed = parsePrismaSchema({
+      source: `generator client {\n  provider = "prisma-client"\n  output = "\${ROOT}/client"\n}`,
+    });
+
+    expect(parsed.generator?.output).toBeUndefined();
+    expect(parsed.generator?.outputExpression).toBe('"${ROOT}/client"');
+  });
+
+  it('carries a malformed generator block into invalidBlocks instead of throwing', () => {
+    const parsed = parsePrismaSchema({
+      source: `
+        generator Über {
+          provider = "prisma-client"
+          output   = "../generated/prisma"
+        }
+        model A { id Int @id }
+      `,
+    });
+
+    expect(parsed.invalidBlocks).toEqual(['generator Über']);
+    expect(parsed.generator).toBeUndefined();
+    expect(parsed.models.map((m) => m.name)).toEqual(['A']);
+  });
+
+  it('ignores a generator body that names no provider', () => {
+    const parsed = parsePrismaSchema({
+      source: `generator client {\n  output = "../generated/prisma"\n}\nmodel A { id Int @id }`,
+    });
+
+    expect(parsed.generator).toBeUndefined();
+  });
+});

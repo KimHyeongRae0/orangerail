@@ -188,6 +188,28 @@ export interface IrDatasource {
   urlEnv?: string;
 }
 
+/**
+ * The client generator the scanned schema declares (ONT-067), carried as inert
+ * facts the way `IrDatasource` is.
+ *
+ * `provider` decides WHERE the client lands: `prisma-client-js` generates into
+ * `@prisma/client`, which is what the emitted import has always named, while
+ * Prisma 7's default `prisma-client` writes it into its own `output` directory
+ * and leaves `@prisma/client` carrying nothing.
+ *
+ * `outputDir` is already ABSOLUTE — the scanner resolves the schema's relative
+ * `output` against the schema's own directory, because that is the only place
+ * that knows which file the path was written relative to. Whether that directory
+ * is inside the project is decided later, by the layer that knows the project
+ * root.
+ */
+export interface IrGenerator {
+  provider?: string;
+  outputDir?: string;
+  /** The `output` right-hand side the scanner refused to resolve, quoted verbatim. */
+  outputExpression?: string;
+}
+
 /** The full result of scanning one source file. */
 export interface ScannedSource {
   objects: IrObject[];
@@ -195,6 +217,8 @@ export interface ScannedSource {
   actions: IrAction[];
   /** The scanned datasource, when a source declared one. */
   datasource?: IrDatasource;
+  /** The scanned client generator, when a source declared one. */
+  generator?: IrGenerator;
   /** Skip-with-warning diagnostics (unsupported constructs). */
   warnings: string[];
   /** Informational lines (e.g. GET operations skipped by design). */
@@ -217,11 +241,17 @@ export const mergeSources = ({ a, b }: { a: ScannedSource; b: ScannedSource }): 
   // one a user would call "the" database rather than at whichever sorted last.
   const datasource = a.datasource ?? b.datasource;
 
+  // The generator follows the same rule, and for the same reason: the ROOT
+  // schema's client is the one a user would call "the" client, so a workspace
+  // schema scanned afterwards must not redirect the emitted import (ONT-067).
+  const generator = a.generator ?? b.generator;
+
   return {
     objects: [...a.objects, ...b.objects],
     enums: [...a.enums, ...b.enums],
     actions: [...a.actions, ...b.actions],
     ...(datasource === undefined ? {} : { datasource }),
+    ...(generator === undefined ? {} : { generator }),
     warnings: [...a.warnings, ...b.warnings],
     infos: [...a.infos, ...b.infos],
   };
