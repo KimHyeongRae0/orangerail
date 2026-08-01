@@ -88,7 +88,7 @@ export const sanitize = ({ value }: { value: string }): string =>
  * like a refusal — but this list is derived from the walk itself, so a forged
  * marker appears in the block and NOT in the list, and the two disagree.
  */
-type UnrenderableField = { path: string; reason: string };
+export type UnrenderableField = { path: string; reason: string };
 
 /**
  * How deep the renderer descends before it stops and says so. Cycles are caught
@@ -280,13 +280,48 @@ const toRenderable = ({
 };
 
 /**
+ * Walk a value into its JSON-safe mirror, and report every part of it that came
+ * back a marker rather than a value.
+ *
+ * The pair is the whole contract. The mirror is what a surface shows; the list
+ * is what that surface must say it is NOT showing. The list is derived from the
+ * walk and never from the rendered text, so a value carrying the literal marker
+ * string appears in the mirror and NOT in the list, and the two disagree.
+ *
+ * Exported because the studio server (ONT-071) serves the mirror as the response
+ * body and the list beside it — the same contract on a second surface, out of
+ * the same walk. `path` names the root being walked, so a served row is reported
+ * as `employee[3].salary` rather than as `$`.
+ */
+export const toRenderableValue = ({
+  value,
+  path = '$',
+}: {
+  value: unknown;
+  /** What to call the root in every reported path. Defaults to `$`. */
+  path?: string;
+}): { value: unknown; fields: UnrenderableField[] } => {
+  const fields: UnrenderableField[] = [];
+
+  try {
+    return { value: toRenderable({ value, path, ancestors: new Set(), fields, depth: 0 }), fields };
+  } catch (error) {
+    // The backstop for a defect in the walk itself: a caller still gets a value
+    // it can serialize and a reason, never an exception it has to let past.
+    const reason = `the renderer itself failed: ${errorText({ error })}`;
+
+    return { value: unrenderable({ reason }), fields: [{ path, reason }] };
+  }
+};
+
+/**
  * Render any value as JSON that always exists, plus the fields inside it that
  * are markers rather than values.
  *
- * Total by construction: `toRenderable` returns only JSON scalars, arrays and
- * plain objects, so the `JSON.stringify` below has nothing left to throw on. The
- * catch is the backstop for a defect in this file — an approver still gets a
- * block and a reason instead of a command that exits 1.
+ * Total by construction: the walk returns only JSON scalars, arrays and plain
+ * objects, so the `JSON.stringify` below has nothing left to throw on. The catch
+ * is the backstop for a defect in this file — an approver still gets a block and
+ * a reason instead of a command that exits 1.
  */
 const renderTotal = ({
   value,
@@ -295,12 +330,10 @@ const renderTotal = ({
   value: unknown;
   indent: number;
 }): { json: string; fields: UnrenderableField[] } => {
-  const fields: UnrenderableField[] = [];
+  const rendered = toRenderableValue({ value });
 
   try {
-    const renderable = toRenderable({ value, path: '$', ancestors: new Set(), fields, depth: 0 });
-
-    return { json: JSON.stringify(renderable, null, indent), fields };
+    return { json: JSON.stringify(rendered.value, null, indent), fields: rendered.fields };
   } catch (error) {
     const reason = `the renderer itself failed: ${errorText({ error })}`;
 

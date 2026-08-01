@@ -328,3 +328,109 @@ describe('createStudioServer (plan section 3.6)', () => {
     afterFree.req.destroy();
   });
 });
+
+/**
+ * ONT-071 — the data routes serve values read from a live datasource, and this
+ * server is a node:http request handler: a `JSON.stringify` that throws inside
+ * one is an uncaught exception, and an uncaught exception ends
+ * `orangerail studio`. The instance rows are walked into JSON-safe form upstream
+ * in `gatherInstances`, so what arrives here is already total; these cases cover
+ * what that promise does NOT cover — the other routes, and any caller that made
+ * no such promise.
+ */
+describe('createStudioServer — a snapshot it cannot serialize is answered, not fatal (ONT-071)', () => {
+  let server: Server;
+  let base: string;
+
+  const walked: InstanceSnapshot & { unrenderable: { path: string; reason: string }[] } = {
+    ...instances,
+    employees: [
+      { ...instances.employees[0]!, displayName: '<UNRENDERABLE — a bigint (9007199254740993)>' },
+    ],
+    unrenderable: [{ path: 'employee[0].displayName', reason: 'a bigint (9007199254740993)' }],
+  };
+
+  const cyclic = (): GraphSnapshot => {
+    const graph: GraphSnapshot = { objects: [], links: [], actions: [] };
+    (graph as unknown as { self: unknown }).self = graph;
+
+    return graph;
+  };
+
+  beforeAll(async () => {
+    const appDir = mkdtempSync(join(tmpdir(), 'ont-071-app-'));
+    writeFileSync(join(appDir, 'index.html'), '<h1>studio ok</h1>', 'utf8');
+
+    server = createStudioServer({
+      appDir,
+      getSnapshot: cyclic,
+      getInstances: () => walked,
+      getFleet: () => fleet,
+    }).server;
+
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    base = `http://127.0.0.1:${port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((done) => server.close(() => done()));
+  });
+
+  const get = async ({ path }: { path: string }): Promise<{ status: number; body: string }> => {
+    const res = await fetch(`${base}${path}`);
+
+    return { status: res.status, body: await res.text() };
+  };
+
+  it('serves the marker list beside the rows that carry the markers', async () => {
+    const res = await get({ path: '/api/instances' });
+    const body = JSON.parse(res.body) as {
+      employees: { displayName: string }[];
+      unrenderable: unknown;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.employees[0]?.displayName).toContain('UNRENDERABLE');
+    expect(body.unrenderable).toEqual([
+      { path: 'employee[0].displayName', reason: 'a bigint (9007199254740993)' },
+    ]);
+  });
+
+  it('answers an unserializable snapshot with 500 and stays up', async () => {
+    const refused = await get({ path: '/api/registry' });
+
+    expect(refused.status).toBe(500);
+    expect((JSON.parse(refused.body) as { error: string }).error).toContain(
+      'could not be serialized',
+    );
+
+    // The point of the guard: the process is still here to answer the next
+    // request, which before this it was not.
+    expect((await get({ path: '/api/instances' })).status).toBe(200);
+    expect((await get({ path: '/' })).status).toBe(200);
+  });
+
+  it('serves an empty marker list for a caller that never walked its rows', async () => {
+    const bare = createStudioServer({
+      appDir: mkdtempSync(join(tmpdir(), 'ont-071-bare-')),
+      getSnapshot: () => snapshot,
+      getInstances: () => instances,
+      getFleet: () => fleet,
+    }).server;
+
+    await new Promise<void>((done) => bare.listen(0, '127.0.0.1', done));
+    const address = bare.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/instances`);
+      const body = (await res.json()) as { unrenderable: unknown };
+
+      expect(body.unrenderable).toEqual([]);
+    } finally {
+      await new Promise<void>((done) => bare.close(() => done()));
+    }
+  });
+});

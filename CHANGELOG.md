@@ -234,6 +234,59 @@ full against a reference captured on `main`.
   Fixed in the `orangerail` CLI. `approvals show` remains a read command and
   writes nothing.
 
+- **A write that landed and was never recorded was reported to the agent as a
+  failure.** `audit_unrecorded` — the outcome that means "the side effect
+  happened and the audit chain holds nothing about it, not even the minimal
+  marker" — had no branch in the MCP server, so it fell to `default` and the
+  agent was told `Unexpected execute result.` with status `error`.
+
+  An agent told its write failed retries it, so the transport was reintroducing
+  the duplicate write the engine had just been fixed to stop. It now has a
+  status of its own and a sentence that carries both halves and the instruction:
+
+  ```console
+  Executed, and NOT recorded. The action ran and its side effect has already
+  landed — the write is done — but the audit chain holds no terminal record of
+  it, not even the minimal marker, because the store refused every append. Do
+  NOT retry this call and do NOT re-stage the action: either one repeats a write
+  that has already happened. The store error is withheld; an operator can read
+  it in the host log and reconcile the chain under correlationId "…".
+  ```
+
+  "Do not re-stage" is there for the gated path, where the approval behind the
+  call is already spent: re-staging is not a retry, it is a second authorization
+  for a second write. The action's own return value comes back with it, so
+  wanting the result is never a reason to run the write again — and a return
+  value this transport cannot serialize is named rather than allowed to take the
+  sentence down with it. The store error follows the same redaction rule every
+  other failure does and goes to the operator sink under the same correlationId,
+  which for this status is the only place it survives.
+
+  Reported on both paths — an ungoverned action answers through `stage`, a gated
+  one through `check_approval` — and the `default` branch is still there, and
+  still reachable, for a status from a core this build predates.
+
+- **`orangerail studio` still died on a row it could not print.** The approver's
+  screen was made total; the studio does not go through it, and served its
+  instance rows straight through `JSON.stringify`. A `BigInt` column threw
+  inside a `node:http` request handler, which is an uncaught exception, which
+  ends the process — a browsable map of the ontology killed by one column of one
+  row.
+
+  The rows are now walked by the same renderer, where they enter the CLI rather
+  than at the response: between the two sits the snapshot builder, which sorts
+  by `accountId`/`id`, and a comparator that throws on one exotic key emptied
+  the *entire* snapshot into the gather's catch. A page that silently blanks is
+  no better than one that crashes.
+
+  `/api/instances` serves the marker in place, plus the list of every field that
+  is a marker rather than a value — derived from the walk, never from the
+  rendered text, so a row carrying the literal marker string shows up in the
+  rows and not in the list and the two disagree. The list is capped; the markers
+  in the rows never are, so nothing is hidden from the page. The other data
+  routes can no longer take the process down either: a snapshot that cannot be
+  serialized is answered as a 500 with a reason.
+
 ### Documentation
 
 - `docs/existing-database.md` no longer steers around this defect by prescribing
