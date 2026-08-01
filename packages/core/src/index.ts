@@ -87,3 +87,10 @@ export {
   shapeKeys,
   typeNameOf,
 } from './introspect';
+
+export {
+  DECIMAL_INTEGER_SOURCE,
+  isDecimalInteger,
+  isDecimalIntegerField,
+  renderBigInts,
+} from './json';

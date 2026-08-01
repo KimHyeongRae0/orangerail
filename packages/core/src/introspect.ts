@@ -179,8 +179,12 @@ export const canonicalJson = ({ value }: { value: unknown }): string =>
  * all report "does not accept". Every caller uses the answer to WIDEN what it
  * publishes about a field, so a false negative costs a marker while a false
  * positive would advertise a value the parser rejects.
+ *
+ * Exported to the PACKAGE, not to the world: `json.ts` classifies a
+ * decimal-integer field with the same probe, and a second copy of these
+ * fail-closed rules is a second place they can drift.
  */
-const admits = ({ node, value }: { node: unknown; value: unknown }): boolean => {
+export const admits = ({ node, value }: { node: unknown; value: unknown }): boolean => {
   if (typeof node !== 'object' || node === null) {
     return false;
   }

@@ -12,7 +12,88 @@ under **Upgrading** rather than buried in a list.
 
 Everything below is merged on `main`.
 
+### Upgrading
+
+**A `BigInt` column is now a decimal string on the wire, everywhere.** Published
+schema, action input, resolver output, cursor, filter operand, audit record. If
+you already have a project generated against a schema with a `BigInt` column,
+**re-run `orangerail init`** — the change is in the emitter as well as in the
+transport, and `orangerail sync` will report drift until you do.
+
+What that means at each surface:
+
+```jsonc
+{ "id": "9007199254740993" }                    // an action input — a string, always
+{ "id": { "gte": "9007199254740993" } }         // a filter operand — a string, always
+{ "id": { "contains": "900" } }                 // refused: not on Prisma's BigIntFilter
+{ "id": 9007199254740993 }                      // refused: JSON.parse rounds this
+```
+
+`tools/list` publishes such a field as `{"type":"string"}` with a `^-?\d+$`
+pattern instead of the `{"type":"integer"}` it used to claim, and the `_list`
+filter now **carries** the column (it used to drop it) with `equals`, `gt`,
+`gte`, `in`, `lt`, `lte` and `not` over string operands. `contains`,
+`startsWith` and `endsWith` are absent because Prisma's `BigIntFilter` does not
+have them — advertising them would be a filter the server accepts and the
+datasource then refuses.
+
+Leading zeros are accepted (`"007"` names the row `"7"` names); surrounding
+whitespace, `"1.5"`, `"0x10"` and `""` are refused with the field named. A
+`BIGINT UNSIGNED` value above 2^63-1 can be listed but not targeted by key —
+that is Prisma's signed `BigInt` scalar, and it is written down in
+[docs/limits.md](docs/limits.md).
+
 ### Fixed
+
+- **One `BigInt` column took the whole model out of service.** Measured against
+  MySQL 9.7.1 with prisma / `@prisma/adapter-mariadb` 7.9.1: every `_get` and
+  `_list` threw `Do not know how to serialize a BigInt` and reached the agent as
+  `internal_error`, the one status carrying no actionable text. Every `update`
+  and `delete` was **uncallable** — no JSON value satisfies `z.bigint()`, so
+  `1`, `"1"`, `null`, `[1]` and a raw wire literal were all refused with
+  `Input rejected: "id" expects bigint.` And `create` landed the row in the
+  database, returned `internal_error`, and wrote **no terminal audit record** —
+  so the row existed with nothing in the chain saying it had been written, and
+  the agent's next move was to retry it.
+
+  One `BigInt` **foreign key** did all of that to a model whose own primary key
+  is an `Int`, because the prior target row is read and stamped on the audit
+  record before the write runs. There was no partial-adoption escape: excluding
+  the BigInt-keyed models did not save a child table.
+
+  This is not an exotic schema. `$table->id()` — the first line of every default
+  Laravel migration since 5.8 — is `BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY`,
+  and Rails has defaulted to bigint primary keys since 5.1. In a stock schema
+  from either, every table's key and every foreign key is a `BigInt`.
+
+- **`tools/list` invited the wrong row.** A `BigInt` field published
+  `{"type":"integer"}`, which is what a JSON number is for — and `JSON.parse`
+  rounds one above 2^53. A request for id `9007199254740993` reached the
+  resolver as `9007199254740992` and came back as a clean
+  `No Signed with id "9007199254740992".` — a different row, reported as an
+  ordinary not-found. No layer downstream could detect that, so no number is
+  accepted anywhere now.
+
+  Verified end to end against a live MySQL 9.7.1: reads at `9007199254740993`,
+  cursor pagination stepping across 2^53 with no overlap, `update` and a gated
+  `delete` → `approvals approve` → `check_approval` returning `executed` with
+  the row observably gone, and `orangerail audit verify` reporting
+  `audit chain OK`.
+
+- **A malformed id no longer reaches the driver.** `"not-a-number"`, `""`,
+  `"1.5"` and `"0x10"` take the ordinary not-found path on a read and are
+  refused by name on a write, instead of becoming
+  `Cannot convert not-a-number to a BigInt` redacted down to an opaque
+  `resolve_error`.
+
+- **An action result carrying a `BigInt` no longer costs the audit record.**
+  Results are rendered to their decimal form before the engine hashes them, so
+  the `succeeded` record is written for a write that succeeded — which is what
+  `verifyAudit` was flagging the absence of.
+
+A schema with no `BigInt` column emits **byte-identical** output, asserted in
+full against a reference captured on `main`.
+
 
 - **A project scaffolded by `npx prisma init` on Prisma 7 got a green `init` and
   an ontology whose every tool call failed.** Prisma 7's `prisma init` writes

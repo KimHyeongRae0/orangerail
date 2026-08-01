@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 
 import { shapeKeys } from '../introspect';
+import { renderBigInts } from '../json';
 import { computeSignatureHash } from '../signature';
 import type { ActionDefinition, Identity, ObjectDefinition, Policy, RuntimePolicy } from '../types';
 
@@ -46,6 +47,37 @@ export const isNotImplemented = ({ execute }: { execute: unknown }): boolean =>
   typeof execute === 'function' &&
   (execute as unknown as Record<symbol, unknown>)[NOT_IMPLEMENTED] === true;
 
+/**
+ * Wrap an action's `execute` so the value it resolves to carries no `BigInt`
+ * (ONT-068).
+ *
+ * This is the one place every action result passes through before the engine
+ * has it, and the engine hands it straight to `appendAudit` — where the record
+ * is hashed over its PERSISTED form, i.e. through `JSON.stringify`, which throws
+ * on a `BigInt`. The append failure there is swallowed on purpose ("the side
+ * effect must not be hidden"), so the cost of one `BigInt` in a returned row was
+ * a write that happened, an audit chain that records only that it started, and
+ * an `internal_error` telling the agent to retry it.
+ *
+ * Done here rather than in the emitter because the emitter cannot see the shape
+ * it would have to render: a generated `delete` declares only the id in its
+ * input, while the row Prisma hands back carries every column — including a
+ * `BigInt` foreign key on a model whose own key is an `Int`. It also means a
+ * hand-written action gets the same contract as a generated one.
+ *
+ * The {@link notImplemented} stub is returned UNWRAPPED. Its marker is read off
+ * the function itself in three packages, and a wrapper would hide the stub from
+ * the staging check that exists to reject it before an approval is ever created.
+ */
+const renderingExecute = <Args>({
+  execute,
+}: {
+  execute: (args: Args) => Promise<unknown> | unknown;
+}): ((args: Args) => Promise<unknown> | unknown) =>
+  isNotImplemented({ execute })
+    ? execute
+    : async (args: Args): Promise<unknown> => renderBigInts({ value: await execute(args) });
+
 /** `Product` -> `productId`. */
 const defaultTargetIdFrom = ({ name }: { name: string }): string =>
   `${name.charAt(0).toLowerCase()}${name.slice(1)}Id`;
@@ -84,7 +116,7 @@ export const buildActionDefinition = <
     kind: 'action' as const,
     name: def.name,
     input: def.input,
-    execute: def.execute,
+    execute: renderingExecute({ execute: def.execute }),
     signatureHash,
   };
 
