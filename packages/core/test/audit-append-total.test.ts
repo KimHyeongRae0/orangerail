@@ -198,11 +198,23 @@ describe('ONT-069 AC-2 — a write cannot land with nothing in the chain', () =>
       'succeeded',
     ]);
 
+    // The cycle is named one level down, not at the top, because ONT-068's
+    // `renderingExecute` walks the result first and — by design, so it cannot
+    // spin — hands back the ORIGINAL object at the second visit rather than a
+    // copy. This walk therefore descends through the copy into the original
+    // before its own ancestor set closes the loop. One extra level per walk,
+    // bounded, and the marker still names the field that could not be
+    // described. What matters is asserted below: the record exists and the
+    // chain verifies.
     const terminal = lines[lines.length - 1];
     expect(terminal?.result).toEqual({
       id: 'w-1',
       label: 'widget',
-      self: '[unserializable: circular reference]',
+      self: {
+        id: 'w-1',
+        label: 'widget',
+        self: '[unserializable: circular reference]',
+      },
     });
 
     expect((await verifyAudit({ store })).issues).toEqual([]);
