@@ -5,7 +5,7 @@ import { emitActionFile, type GatePolicy } from './emit-action';
 import { emitConfigFile, emitRegistryFile } from './emit-config';
 import { deriveLinks, emitLinksFile } from './emit-links';
 import { emitObjectFile } from './emit-object';
-import { BARE_CONSTRUCTION, type PrismaConstruction } from './prisma-runtime';
+import { BARE_CONSTRUCTION, ONTOLOGY_DIR, type PrismaConstruction } from './prisma-runtime';
 
 /** A single generated file, path relative to the target repo root. */
 export interface GeneratedFile {
@@ -57,24 +57,24 @@ export const buildFileSet = ({
   files.push({ path: config.filename, content: config.content });
 
   const registry = emitRegistryFile();
-  files.push({ path: `ontology/${registry.filename}`, content: registry.content });
+  files.push({ path: `${ONTOLOGY_DIR}/${registry.filename}`, content: registry.content });
 
   const links = deriveLinks({ objects: source.objects });
   const linksFile = emitLinksFile({ links });
   if (linksFile !== undefined) {
-    files.push({ path: `ontology/${linksFile.filename}`, content: linksFile.content });
+    files.push({ path: `${ONTOLOGY_DIR}/${linksFile.filename}`, content: linksFile.content });
   }
 
   const objects = [...source.objects].sort((a, b) => a.name.localeCompare(b.name));
   for (const object of objects) {
     const file = emitObjectFile({ object, construction });
-    files.push({ path: `ontology/${file.filename}`, content: file.content });
+    files.push({ path: `${ONTOLOGY_DIR}/${file.filename}`, content: file.content });
   }
 
   const actions = [...source.actions].sort((a, b) => a.name.localeCompare(b.name));
   for (const action of actions) {
     const file = emitActionFile({ action, gate, construction });
-    files.push({ path: `ontology/${file.filename}`, content: file.content });
+    files.push({ path: `${ONTOLOGY_DIR}/${file.filename}`, content: file.content });
   }
 
   return files;

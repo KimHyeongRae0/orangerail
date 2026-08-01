@@ -1,0 +1,8 @@
+// Copied verbatim out of what `npx prisma init` writes on prisma 7.9.1. Nothing
+// here is a reconstruction: this exact block is what a user who follows Prisma's
+// own quickstart hands orangerail.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}

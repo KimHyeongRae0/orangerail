@@ -8,6 +8,59 @@ This is a v0 project: the API is the design target and it will move before 1.0.
 Anything that changes what an existing project does on upgrade is called out
 under **Upgrading** rather than buried in a list.
 
+## Unreleased
+
+Everything below is merged on `main`.
+
+### Fixed
+
+- **A project scaffolded by `npx prisma init` on Prisma 7 got a green `init` and
+  an ontology whose every tool call failed.** Prisma 7's `prisma init` writes
+  `generator client { provider = "prisma-client"  output = "../generated/prisma" }`.
+  That generator writes the client into `output` and puts **nothing** into
+  `@prisma/client`, but the emitter imported `@prisma/client` unconditionally —
+  so `init` printed its full success banner, exited 0, and the first read came
+  back with `Cannot find module '.prisma/client/default'`. The remedy that error
+  named (`npm install @prisma/client && npx prisma generate`) was the exact pair
+  of commands the user had already run, and re-running them could never fix it.
+
+  The scanner now reads the generator block it used to skip and emits the import
+  against the resolved output path. Verified end to end against MySQL 9.7.1 with
+  prisma 7.9.1 and `@prisma/adapter-mariadb`: the same schema `prisma init`
+  produces now returns rows on the first `<Object>_list` call.
+
+  A schema on `provider = "prisma-client-js"`, or with no generator block, is
+  unchanged — byte for byte, asserted against a captured reference.
+
+- **`init` refuses instead of guessing when the client's location cannot be
+  read.** A `prisma-client` generator with no `output`, an `output` that is an
+  `env()` call, or an `output` outside the project each refuse before a byte is
+  written — exit 1, no `ontology/`, no config, no `orangerail.governance.json` —
+  naming the field to add and the `prisma-client-js` alternative. Prisma's own
+  default output differs by generator and version, so a guess would only move
+  this defect to a different path.
+
+- **The resolve-time diagnostic no longer prescribes a remedy that cannot
+  apply.** A missing GENERATED client now names the generator's own output path
+  and asks only for `npx prisma generate`, because installing `@prisma/client`
+  can never populate a directory the user's schema names. A client that is
+  present but unloadable — the `prisma-client` generator emits TypeScript and
+  nothing else, and Node runs it natively only from 22.18 — is a third case with
+  its own sentence, instead of being read as "generated from a different schema"
+  because Node raises it as a `TypeError`.
+
+### Documentation
+
+- `docs/existing-database.md` no longer steers around this defect by prescribing
+  `prisma-client-js`. Both client generators are documented, with where each
+  generates to and what the ontology imports for each, plus the Node version the
+  TypeScript client needs.
+
+- The MySQL row of the driver-adapter table is corrected: `@prisma/adapter-mariadb`
+  was run end to end against MySQL 9.7.1 — read, create, update and an approved
+  gated delete through the shipped MCP server, with `orangerail audit verify`
+  reporting `audit chain OK` — rather than being signature-verified only.
+
 ## 0.1.1 — 2026-08-01
 
 The first release after `0.1.0`.

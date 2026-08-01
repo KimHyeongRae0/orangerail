@@ -1,7 +1,17 @@
-import type { IrEnum, IrField, IrObject, IrRelation, IrScalar, ScannedSource } from '../../ir';
+import { resolve } from 'node:path';
+
+import type {
+  IrEnum,
+  IrField,
+  IrGenerator,
+  IrObject,
+  IrRelation,
+  IrScalar,
+  ScannedSource,
+} from '../../ir';
 import { emptySource } from '../../ir';
 import { synthesizePrismaActions } from './actions';
-import type { ParsedSchema, RawField, RawModel } from './parse';
+import type { ParsedSchema, RawField, RawGenerator, RawModel } from './parse';
 
 /**
  * Map a raw parsed Prisma schema into the shared IR (plan D3). Field type
@@ -172,8 +182,36 @@ const resolveEnumFields = ({
   }
 };
 
+/**
+ * Turn a parsed generator block into the IR's, resolving a relative `output`
+ * against the SCHEMA'S OWN directory — which is what Prisma resolves it against,
+ * and the reason `schemaDir` has to travel this far. `output = "../generated/prisma"`
+ * in `packages/db/prisma/schema.prisma` means `packages/db/generated/prisma`, not
+ * something relative to wherever `orangerail init` was invoked.
+ */
+const mapGenerator = ({
+  generator,
+  schemaDir,
+}: {
+  generator: RawGenerator;
+  schemaDir: string;
+}): IrGenerator => ({
+  ...(generator.provider === undefined ? {} : { provider: generator.provider }),
+  ...(generator.output === undefined ? {} : { outputDir: resolve(schemaDir, generator.output) }),
+  ...(generator.outputExpression === undefined
+    ? {}
+    : { outputExpression: generator.outputExpression }),
+});
+
 /** Map a parsed schema into a scanned source (objects, enums, warnings). */
-export const mapPrismaToIr = ({ parsed }: { parsed: ParsedSchema }): ScannedSource => {
+export const mapPrismaToIr = ({
+  parsed,
+  schemaDir,
+}: {
+  parsed: ParsedSchema;
+  /** The directory the schema was read from — what a relative `output` is resolved against. */
+  schemaDir: string;
+}): ScannedSource => {
   const source = emptySource();
 
   const modelNames = new Set(parsed.models.map((m) => m.name));
@@ -204,6 +242,14 @@ export const mapPrismaToIr = ({ parsed }: { parsed: ParsedSchema }): ScannedSour
   // declares no `url`, so an EMPTY block still yields an object with neither key.
   if (parsed.datasource !== undefined) {
     source.datasource = parsed.datasource;
+  }
+
+  // The client generator travels the same way (ONT-067): it decides which module
+  // the emitted `await import(…)` names. Absent when the schema declares no
+  // client generator, which is the pre-Prisma-7 world where `@prisma/client` is
+  // the only answer and the emitted bytes must not move.
+  if (parsed.generator !== undefined) {
+    source.generator = mapGenerator({ generator: parsed.generator, schemaDir });
   }
 
   if (parsed.invalidBlocks.length > 0) {

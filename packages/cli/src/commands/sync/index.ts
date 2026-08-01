@@ -631,6 +631,7 @@ export const runSync = async ({
       cwd,
       provider: scanned.datasource?.provider,
       urlEnv: scanned.datasource?.urlEnv,
+      ...(scanned.generator === undefined ? {} : { generator: scanned.generator }),
       // Asked of the VISIBLE diff: a refused model is never written, so its
       // Prisma call sites do not exist and must not decide whether the run is
       // refused over the repo's Prisma major.
