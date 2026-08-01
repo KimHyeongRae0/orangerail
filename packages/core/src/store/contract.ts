@@ -61,6 +61,23 @@ export type AuditPhase =
   | 'execution_started'
   | 'succeeded'
   | 'failed'
+  /**
+   * An attempt that appended `execution_started` and then lost the consume CAS
+   * to another attempt (§3.4 / ONT-069). The record is appended BEFORE the
+   * claim, so the approval survives an append that fails — and so a race leaves
+   * a losing `execution_started` behind. This is the loser saying so: nothing
+   * ran under it, and `verifyAudit` must not count it as a second execution.
+   */
+  | 'execution_aborted'
+  /**
+   * The action ran and its terminal record could not be appended (§3.5 /
+   * ONT-069) — a minimal marker carrying no input, prior or result, so it can
+   * land where the full record did not. Terminal for the started->terminal
+   * pairing, and its own reported issue: the chain knows a write happened and
+   * cannot describe it, which is a different fact from a process that died
+   * mid-execution and must not be reported as one.
+   */
+  | 'terminal_unrecorded'
   /** Sandbox dry-run terminal record (§3.6) — the would-be input, never executed. */
   | 'dry_run'
   /** A `notImplemented` stub rejected at staging before any approval (§3.7). */
@@ -141,9 +158,10 @@ export interface AuditRecord {
    * What the action's target looked like BEFORE the write (§3.11 / ONT-057).
    *
    * Set ONLY on `execution_started`, and deliberately not on `succeeded`. That
-   * append is the fail-closed one — a throw there aborts before `execute` runs
-   * ("no record, no start") — while the terminal append is best-effort and
-   * swallowed. Putting the recovery value on the terminal record would lose it
+   * append is the fail-closed one — a throw there aborts before the approval is
+   * claimed and before `execute` runs ("no record, no start") — while the
+   * terminal append happens after the side effect and can only be degraded, not
+   * refused. Putting the recovery value on the terminal record would lose it
    * in exactly the case where recovery matters most: the process that died
    * between the side effect and its terminal append. The pair is joined on
    * `approvalId ?? correlationId`, which `verifyAudit` already forces to exist.
@@ -221,7 +239,10 @@ export interface Store {
   /**
    * Every approval record regardless of status. Feeds `verifyAudit`'s
    * orphaned-consumed cross-check (§3.2): a `consumed` approval with no
-   * `execution_started` audit record is a crash between consume and the append.
+   * post-consume audit record at all. The engine appends before it claims
+   * (ONT-069), so a new one of these cannot be produced by an append that
+   * failed — what is left is a store that consumed an approval nothing in this
+   * engine asked about, and the chains written before that ordering existed.
    */
   listApprovals: () => Promise<ApprovalRecord[]>;
   appendAudit: (args: { record: AuditInput }) => Promise<AuditRecord>;

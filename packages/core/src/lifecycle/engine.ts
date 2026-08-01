@@ -1,12 +1,19 @@
 import { randomUUID } from 'node:crypto';
 
-import { hashApprovalInput } from '../audit/chain';
+import { hashApprovalInput, persistedForm } from '../audit/chain';
 import { isNotImplemented } from '../define/action';
 import { readPublicDiagnostic, type PublicDiagnostic } from '../diagnostic';
 import { authorizeApprover } from '../identity/contract';
 import { evaluateWhere } from '../policy/where';
 import type { Registry } from '../registry';
-import type { ApprovalRecord, AuditInput, AuditPhase, AuditPrior, Store } from '../store/contract';
+import type {
+  ApprovalRecord,
+  AuditInput,
+  AuditPhase,
+  AuditPrior,
+  ConsumeApprovalResult,
+  Store,
+} from '../store/contract';
 import type { Identity, RuntimeAction } from '../types';
 
 /** Engine execution mode (§3.6). `dry_run` powers the sandbox preset. */
@@ -95,6 +102,15 @@ export type ExecuteResult =
   | { status: 'dry_run' }
   | ({ status: 'resolve_error' } & FailureDetail)
   | ({ status: 'audit_blocked' } & FailureDetail)
+  /**
+   * The side effect LANDED and the chain holds no terminal record for it — not
+   * even the minimal marker, so the store is refusing every write (§3.5 /
+   * ONT-069). `result` is the action's own return value and is carried so a
+   * caller can still hand it back; the outcome is not `executed` because
+   * answering "success" for a write nothing recorded is the silent path this
+   * status exists to remove. A caller MUST NOT retry it: the write is done.
+   */
+  | ({ status: 'audit_unrecorded'; result: unknown } & FailureDetail)
   | ({ status: 'failed' } & FailureDetail);
 
 /** Result of {@link Engine.stage}. */
@@ -271,6 +287,16 @@ export const maskAuditPrior = ({
   return redactAudit ? { state: 'withheld' } : prior;
 };
 
+/**
+ * Render a prior state into the form the store will hold (§3.5 / ONT-069). Only
+ * the `value` arm carries caller data; the other arms are the engine's own
+ * closed vocabulary and are already persistable.
+ */
+const persistedPrior = ({ prior }: { prior: AuditPrior }): AuditPrior =>
+  prior.state === 'value'
+    ? { state: 'value', value: persistedForm({ value: prior.value }) }
+    : prior;
+
 type WhereCheck =
   | { kind: 'pass'; target?: TargetFetch | undefined }
   | { kind: 'fail' }
@@ -334,6 +360,16 @@ export const createEngine = ({
         ? maskAuditPrior({ actionName, prior, redactAudit, redactPrior })
         : undefined;
 
+    // Every value the caller supplies is rendered into its persisted form HERE,
+    // before it can reach the store (§3.5 / ONT-069). A value JSON refuses —
+    // `execute` returning a row with a self-reference, a driver id that came
+    // back as a BigInt — used to throw from inside `appendAudit`, which meant
+    // the write had happened and the chain said nothing about it. An audit
+    // record that states what it could not render is worth incomparably more
+    // than an append that refuses to happen; see `persistedForm`. An ordinary
+    // value round-trips unchanged, so existing chains hash bit-for-bit as
+    // before.
+    //
     // Every optional field is spread ONLY when present, so a record without a
     // correlationId or a prior (every existing record) hashes exactly as
     // before (§3.2 / §3.11).
@@ -345,9 +381,9 @@ export const createEngine = ({
       ...(correlationId !== undefined ? { correlationId } : {}),
       ...(requestedBy !== undefined ? { requestedBy } : {}),
       ...(approver !== undefined ? { approver } : {}),
-      ...(auditInput !== undefined ? { input: auditInput } : {}),
-      ...(auditPrior !== undefined ? { prior: auditPrior } : {}),
-      ...(result !== undefined ? { result } : {}),
+      ...(auditInput !== undefined ? { input: persistedForm({ value: auditInput }) } : {}),
+      ...(auditPrior !== undefined ? { prior: persistedPrior({ prior: auditPrior }) } : {}),
+      ...(result !== undefined ? { result: persistedForm({ value: result }) } : {}),
       ...(error !== undefined ? { error } : {}),
       ...(devMode !== undefined ? { devMode } : {}),
     };
@@ -397,16 +433,62 @@ export const createEngine = ({
   };
 
   /**
-   * The audited execution wrapper shared by the approval path and auto actions.
-   * `execution_started` is appended BEFORE `execute` and a failed append aborts
-   * without executing ("no record, no start"). A post-execute append failure is
-   * swallowed so the side effect is not hidden — it survives as an
-   * `execution_started` with no terminal record for `verifyAudit` to flag.
+   * Append the terminal record of an execution that ALREADY HAPPENED, in the
+   * only order that keeps the side effect describable (§3.5 / ONT-069).
    *
-   * It is also where the prior state of the target is captured (§3.11): read
-   * BEFORE the `execution_started` append so the value is durable before the
-   * side effect can happen, and stamped on that record rather than the terminal
-   * one for the same reason.
+   * The full record is tried first. If the store refuses it, the fallback is a
+   * `terminal_unrecorded` marker carrying no input, no prior and no result —
+   * the smallest record that still names the execution — because a store can
+   * refuse a payload and accept a marker, and a chain that says "this ran and
+   * the outcome is missing" is the difference between an operator reconciling
+   * one row and an operator not knowing there is a row.
+   *
+   * This is where a `.catch(() => undefined)` used to be. Swallowing it was
+   * argued as "do not hide the side effect"; measured, it did the opposite —
+   * the row landed, the agent was told the call failed, and the chain held an
+   * `execution_started` with nothing after it.
+   */
+  const appendTerminal = async ({
+    record,
+    marker,
+  }: {
+    record: AuditInput;
+    marker: (args: { error: string }) => AuditInput;
+  }): Promise<
+    { outcome: 'recorded' } | { outcome: 'marked' } | { outcome: 'silent'; error: string }
+  > => {
+    try {
+      await store.appendAudit({ record });
+
+      return { outcome: 'recorded' };
+    } catch (err) {
+      const error = errorMessage({ err });
+
+      try {
+        await store.appendAudit({ record: marker({ error }) });
+
+        return { outcome: 'marked' };
+      } catch {
+        return { outcome: 'silent', error };
+      }
+    }
+  };
+
+  /**
+   * The audited execution wrapper shared by the approval path and auto actions.
+   *
+   * The order is: capture the prior state, append `execution_started`, CLAIM the
+   * approval, execute, append the terminal record. A failed `execution_started`
+   * append aborts without executing ("no record, no start") and — because the
+   * claim has not happened yet — without spending the approval, so the operator
+   * fixes the store and the same approval still runs (§3.4 / ONT-069). The
+   * claim stays a single-winner CAS immediately before `execute`, so two
+   * concurrent callers still cannot both execute; the loser says so with an
+   * `execution_aborted` record for the `execution_started` it already wrote.
+   *
+   * The prior state (§3.11) is read BEFORE the `execution_started` append so the
+   * value is durable before the side effect can happen, and stamped on that
+   * record rather than the terminal one for the same reason.
    */
   const runExecute = async ({
     action,
@@ -414,6 +496,7 @@ export const createEngine = ({
     identity,
     target,
     audit,
+    claim,
   }: {
     action: RuntimeAction;
     input: unknown;
@@ -428,6 +511,12 @@ export const createEngine = ({
       input?: unknown;
       devMode?: boolean | undefined;
     };
+    /**
+     * The single-winner claim on the approval, run after `execution_started` is
+     * durable and before `execute`. Absent for an auto action, which has no
+     * approval to claim.
+     */
+    claim?: (() => Promise<ConsumeApprovalResult>) | undefined;
   }): Promise<ExecuteResult> => {
     // Auto actions carry no approvalId, so the started->terminal cross-check has
     // nothing to key on. Mint a per-execute correlationId and thread it onto
@@ -454,24 +543,70 @@ export const createEngine = ({
     } catch (err) {
       // No audit record exists for this attempt (the append is what failed), so
       // the full text has no audit home — the transport's operator sink is the
-      // only place it survives.
+      // only place it survives. Nothing was claimed and nothing ran: the
+      // approval behind this attempt is still exactly as the human left it.
       return { status: 'audit_blocked', error: errorMessage({ err }), correlationId };
+    }
+
+    // The smallest record that still identifies this attempt — the shape both
+    // the abort and the unrecorded-terminal markers take, because the whole
+    // point of a marker is that it can land where a fuller record did not.
+    const bare = {
+      actionName: audit.actionName,
+      ...(audit.approvalId !== undefined ? { approvalId: audit.approvalId } : { correlationId }),
+      ...(audit.devMode !== undefined ? { devMode: audit.devMode } : {}),
+    };
+
+    if (claim) {
+      const claimed = await claim();
+
+      if (!claimed.ok) {
+        // Another attempt holds the approval. Say so against the
+        // `execution_started` this attempt already wrote, or the chain reads as
+        // two executions of a single-use approval — which is the tamper tell
+        // `verifyAudit` keys on and must keep meaning what it says. If even this
+        // append fails there is nothing further to write; the extra started
+        // record is then reported, loudly and wrongly, as a replay.
+        await store
+          .appendAudit({
+            record: mkAudit({
+              ...bare,
+              phase: 'execution_aborted',
+              error: `the approval was claimed by another attempt (${claimed.reason}); nothing was executed`,
+            }),
+          })
+          .catch(() => undefined);
+
+        return { status: 'consume_failed', reason: claimed.reason };
+      }
     }
 
     try {
       const result = await action.execute({ input, identity });
-      await store
-        .appendAudit({ record: mkAudit({ ...correlated, phase: 'succeeded', result }) })
-        .catch(() => undefined);
+      const terminal = await appendTerminal({
+        record: mkAudit({ ...correlated, phase: 'succeeded', result }),
+        marker: ({ error }) =>
+          mkAudit({
+            ...bare,
+            phase: 'terminal_unrecorded',
+            error: `the action succeeded and its terminal record could not be appended: ${error}`,
+          }),
+      });
 
-      return { status: 'executed', result };
+      return terminal.outcome === 'silent'
+        ? { status: 'audit_unrecorded', result, error: terminal.error, correlationId }
+        : { status: 'executed', result };
     } catch (err) {
       const failure = failureOf({ err });
-      await store
-        .appendAudit({
-          record: mkAudit({ ...correlated, phase: 'failed', error: failure.error }),
-        })
-        .catch(() => undefined);
+      await appendTerminal({
+        record: mkAudit({ ...correlated, phase: 'failed', error: failure.error }),
+        marker: ({ error }) =>
+          mkAudit({
+            ...bare,
+            phase: 'terminal_unrecorded',
+            error: `the action failed and its terminal record could not be appended: ${error}`,
+          }),
+      });
 
       return { status: 'failed', ...failure, correlationId };
     }
@@ -735,14 +870,29 @@ export const createEngine = ({
       return { status: 'dry_run' };
     }
 
-    // Step 1: consume CAS (approved -> consumed) — single-winner, closes the
-    // double-execute race. A consumed approval stays consumed on every outcome.
-    const consume = await store.consumeApproval({ id: approvalId });
-    if (!consume.ok) {
-      return { status: 'consume_failed', reason: consume.reason };
+    // Step 1: READ the approval — no claim yet (§3.4 / ONT-069). The consume CAS
+    // used to run here, which meant every step below it spent the approval
+    // before anything had been written down: when the `execution_started`
+    // append then failed, the approval was gone, `check_approval` answered
+    // "Already executed (consumed)." about an execution that never happened,
+    // `approvals approve` refused with `already_resolved`, and `audit verify`
+    // failed forever. An approval that could not be executed must remain
+    // executable, so the claim moved to the last moment before `execute` runs
+    // — after the record that describes it is durable.
+    //
+    // This is a read, not a claim, so it cannot decide a race. The steps below
+    // each end in their own CAS, and the happy path hands one to `runExecute`.
+    const record = await store.getApproval({ id: approvalId });
+    if (!record) {
+      return { status: 'consume_failed', reason: 'not_found' };
+    }
+    if (record.status !== 'approved') {
+      return {
+        status: 'consume_failed',
+        reason: record.status === 'consumed' ? 'already_consumed' : 'not_approved',
+      };
     }
 
-    const record = consume.record;
     const action = registry.getAction({ name: record.actionName });
 
     // Reconstruct the SAME identity that staged (§3.8): persisted roles, not
@@ -761,6 +911,31 @@ export const createEngine = ({
       approver: record.decidedBy,
       input: record.input,
       devMode: record.devMode,
+    };
+
+    /**
+     * A pre-execute refusal: record it, THEN spend the approval.
+     *
+     * Spending it is the ONT-040 rule — a tampered approval is spent, not
+     * retried — and this order keeps that rule while removing the window it
+     * used to carry. Consuming first and appending second is how a refusal
+     * ended up as a `consumed` approval with nothing on the chain to explain
+     * it; appending first means a store that cannot record the refusal leaves
+     * the approval exactly as the human left it. A CAS that loses here lost to
+     * another attempt that already spent it, which is the same outcome.
+     */
+    const abort = async ({
+      phase,
+      error,
+    }: {
+      phase: AuditPhase;
+      error?: string;
+    }): Promise<void> => {
+      await store.appendAudit({
+        record: mkAudit({ ...audit, phase, ...(error !== undefined ? { error } : {}) }),
+      });
+
+      await store.consumeApproval({ id: approvalId });
     };
 
     // Step 2: approve-what-you-execute (§3.4 / ONT-040). `signatureHash` covers
@@ -787,25 +962,25 @@ export const createEngine = ({
     // routine CLI upgrade reads as a break-in, and how a project whose every
     // governed write had stopped got diagnosed as a policy decision.
     if (record.inputHash === undefined) {
-      await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
+      await abort({ phase: 'invalidated' });
       return { status: 'invalidated', reason: 'stale_approval' };
     }
 
     if (record.inputHash !== hashApprovalInput({ input: record.input })) {
-      await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
+      await abort({ phase: 'invalidated' });
       return { status: 'invalidated', reason: 'input' };
     }
 
     // Step 3: signature check (mismatch / missing action -> invalidated).
     if (!action || action.signatureHash !== record.signatureHash) {
-      await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
+      await abort({ phase: 'invalidated' });
       return { status: 'invalidated', reason: 'signature' };
     }
 
     // Step 4: re-parse staged input against the CURRENT schema (deep drift).
     const reparsed = action.input.safeParse(record.input);
     if (!reparsed.success) {
-      await store.appendAudit({ record: mkAudit({ ...audit, phase: 'invalidated' }) });
+      await abort({ phase: 'invalidated' });
       return { status: 'invalidated', reason: 'schema' };
     }
 
@@ -814,9 +989,7 @@ export const createEngine = ({
     // Step 5: authoritative where re-evaluation (TOCTOU -> condition_changed).
     const where = await checkWhere({ action, input: freshInput, identity: executeIdentity });
     if (where.kind === 'resolve_error') {
-      await store.appendAudit({
-        record: mkAudit({ ...audit, phase: 'resolve_error', error: where.error }),
-      });
+      await abort({ phase: 'resolve_error', error: where.error });
       // On the approval path the approvalId IS the correlation key (§3.10).
       return {
         status: 'resolve_error',
@@ -826,17 +999,20 @@ export const createEngine = ({
       };
     }
     if (where.kind === 'fail') {
-      await store.appendAudit({ record: mkAudit({ ...audit, phase: 'condition_changed' }) });
+      await abort({ phase: 'condition_changed' });
       return { status: 'condition_changed' };
     }
 
-    // Steps 6-7: execution_started (fail-closed) -> execute -> terminal record.
+    // Steps 6-7: execution_started (fail-closed) -> claim -> execute -> terminal
+    // record. The claim is handed down rather than performed here so nothing can
+    // execute between the record and the CAS (§3.4 / ONT-069).
     return runExecute({
       action,
       input: freshInput,
       identity: executeIdentity,
       target: where.target,
       audit,
+      claim: async () => store.consumeApproval({ id: approvalId }),
     });
   };
 

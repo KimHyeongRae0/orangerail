@@ -45,6 +45,7 @@ that is Prisma's signed `BigInt` scalar, and it is written down in
 
 ### Fixed
 
+
 - **One `BigInt` column took the whole model out of service.** Measured against
   MySQL 9.7.1 with prisma / `@prisma/adapter-mariadb` 7.9.1: every `_get` and
   `_list` threw `Do not know how to serialize a BigInt` and reached the agent as
@@ -129,6 +130,52 @@ full against a reference captured on `main`.
   nothing else, and Node runs it natively only from 22.18 — is a third case with
   its own sentence, instead of being read as "generated from a different schema"
   because Node raises it as a `TypeError`.
+
+
+- **A governed write could land with nothing in the audit chain, and the
+  approval behind it could be orphaned for good.** Any value `JSON.stringify`
+  throws on — a row that points back at itself, a driver id returned as a
+  `BigInt`, an object whose `toJSON` explodes — threw from inside `appendAudit`.
+  Two failures followed from that one gap.
+
+  The terminal append was wrapped in `.catch(() => undefined)`, argued as "do not
+  hide the side effect". Measured, it did the opposite: the row was written, the
+  agent was told `an unexpected internal error`, and `audit.jsonl` held an
+  `execution_started` with no terminal record at all. `audit verify` called it an
+  incomplete execution, and the agent — told the call had failed — would retry a
+  write that had already happened.
+
+  The other failure was worse, because there was no way back from it. The
+  `execution_started` append ran AFTER the consume CAS, so a refused append left
+  the approval spent with nothing recorded against it: `check_approval` then
+  answered `"Already executed (consumed)."` about an execution that never
+  happened, `orangerail approvals approve` refused the same id as
+  `already_resolved`, `audit verify` failed permanently, and every boot printed
+  `serving, but AUDIT CHAIN FAILED`.
+
+  Rendering for the chain is now total and states what it replaced
+  (`"self": "[unserializable: circular reference]"`), so no value can make an
+  append fail. The `execution_started` record is now written BEFORE the approval
+  is claimed, so an append that fails leaves the approval executable — fix the
+  store and the same approval id completes. The claim is still a single-winner
+  CAS immediately before the action runs, so two concurrent `check_approval`
+  calls still cannot both execute; the loser records an `execution_aborted`
+  against the started record it wrote, and a race no longer reads as a replayed
+  approval. See `docs/audit-log.md`.
+
+- **`orangerail audit verify` now tells a refused terminal record from a process
+  that died.** If an action ran and the store refuses its `succeeded`/`failed`
+  record, the engine appends a minimal `terminal_unrecorded` marker and
+  verification reports `terminal record could not be written for <id>` — a
+  landed write you have to reconcile — separately from
+  `incomplete execution for <id>: started but never finished`, which says you do
+  not know whether it landed. If even the marker cannot be appended, `execute`
+  returns the new `audit_unrecorded` outcome, carrying the result and refusing to
+  report a success nothing recorded.
+
+  An approval that was ALREADY orphaned still fails verification. This prevents
+  new ones; it does not launder the ones on your chain, and nothing rewrites
+  history to make them go away.
 
 ### Documentation
 

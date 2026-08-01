@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { hashAuditRecord } from '../src/audit/chain';
+import { hashAuditRecord, persistedForm } from '../src/audit/chain';
 import {
   DECIMAL_INTEGER_SOURCE,
   isDecimalInteger,
@@ -137,7 +137,21 @@ describe('renderBigInts (ONT-068 section 4)', () => {
     expect(renderBigInts({ value: 3 })).toBe(3);
   });
 
-  it('makes a row with a BigInt hashable, which is the whole point', () => {
+  /**
+   * The division of labour between this module and the chain (ONT-069).
+   *
+   * `hashPersisted` is total: a raw `BigInt` no longer throws, it is recorded as
+   * the stated fallback marker. That is what keeps a write from costing its
+   * terminal audit record. It is NOT what keeps the value — the marker says a
+   * field could not be described, and the digits are gone.
+   *
+   * Rendering first is what preserves them, so an operator reading the chain
+   * sees `9007199254740993` rather than a note that something was there. Both
+   * halves are asserted here because dropping either one degrades silently:
+   * without the chain's totality the record is lost, and without the rendering
+   * the record is present and uninformative.
+   */
+  it('keeps the digits the chain alone would only mark as unserializable', () => {
     const record = {
       seq: 1,
       prevHash: '0'.repeat(64),
@@ -147,10 +161,16 @@ describe('renderBigInts (ONT-068 section 4)', () => {
       result: { id: 9007199254740993n },
     };
 
-    expect(() => hashAuditRecord({ record: record as never })).toThrow(/BigInt/);
-    expect(() =>
-      hashAuditRecord({ record: renderBigInts({ value: record }) as never }),
-    ).not.toThrow();
+    expect(() => hashAuditRecord({ record: record as never })).not.toThrow();
+    expect(persistedForm({ value: record.result })).toEqual({
+      id: '[unserializable: bigint 9007199254740993]',
+    });
+
+    const rendered = renderBigInts({ value: record }) as { result: unknown };
+    expect(() => hashAuditRecord({ record: rendered as never })).not.toThrow();
+    expect(persistedForm({ value: rendered.result })).toEqual({
+      id: '9007199254740993',
+    });
   });
 });
 
