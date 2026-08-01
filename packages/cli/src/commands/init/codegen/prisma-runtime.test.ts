@@ -4,12 +4,15 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import type { IrGenerator } from '../ir';
 import {
   adapterForProvider,
   adapterRefusal,
+  CLIENT_PACKAGE,
   detectInstalledAdapter,
   detectPrismaMajor,
   majorOf,
+  resolveClientModule,
   resolvePrismaConstruction,
   SUPPORTED_ADAPTERS,
 } from './prisma-runtime';
@@ -254,5 +257,147 @@ describe('adapterRefusal', () => {
 
     expect(refusal).toContain('@prisma/adapter-better-sqlite3');
     expect(refusal).toContain('prisma@6');
+  });
+});
+
+/**
+ * ONT-067 — `prisma init` on Prisma 7 writes
+ * `generator client { provider = "prisma-client"  output = "../generated/prisma" }`,
+ * which generates the client into that directory and leaves `@prisma/client`
+ * carrying nothing. These pin WHICH module the emitted import names.
+ */
+describe('resolveClientModule (ONT-067)', () => {
+  const resolveClient = ({ cwd, generator }: { cwd: string; generator?: IrGenerator }) =>
+    resolveClientModule({
+      cwd,
+      generator,
+      docPath: DOC,
+      command: 'orangerail init',
+    });
+
+  it('names the generated client, relative to the ontology directory', () => {
+    const result = resolveClient({
+      cwd: '/repo',
+      generator: { provider: 'prisma-client', outputDir: '/repo/generated/prisma' },
+    });
+
+    // `ontology/Customer.mjs` is one level below the project root, so the
+    // specifier climbs out of `ontology/` before descending into `generated/`.
+    expect(result).toEqual({ ok: true, clientModule: '../generated/prisma/client.ts' });
+  });
+
+  it('leaves the legacy generator on `@prisma/client`, which is where it generates', () => {
+    expect(resolveClient({ cwd: '/repo', generator: { provider: 'prisma-client-js' } })).toEqual({
+      ok: true,
+      clientModule: CLIENT_PACKAGE,
+    });
+  });
+
+  it('leaves a schema with no generator block on `@prisma/client`', () => {
+    expect(resolveClient({ cwd: '/repo' })).toEqual({ ok: true, clientModule: CLIENT_PACKAGE });
+  });
+
+  it('does not redirect the import for a generator that emits no client', () => {
+    expect(
+      resolveClient({
+        cwd: '/repo',
+        generator: { provider: 'prisma-erd-generator', outputDir: '/repo/docs' },
+      }),
+    ).toEqual({ ok: true, clientModule: CLIENT_PACKAGE });
+  });
+
+  it('refuses a `prisma-client` generator that declares no output', () => {
+    const result = resolveClient({ cwd: '/repo', generator: { provider: 'prisma-client' } });
+
+    expect(result.ok).toBe(false);
+    const refusal = result.ok ? '' : result.refusal;
+    // Prisma's own default differs by generator and version, so the refusal names
+    // the field to add rather than guessing a path that would fail elsewhere.
+    expect(refusal).toContain('`output`');
+    expect(refusal).toContain('output   = "../generated/prisma"');
+    expect(refusal).toContain('prisma-client-js');
+    expect(refusal).toContain(DOC);
+  });
+
+  it('refuses an output it cannot resolve at scan time', () => {
+    const result = resolveClient({
+      cwd: '/repo',
+      generator: { provider: 'prisma-client', outputExpression: 'env("GEN_OUT")' },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? '' : result.refusal).toContain('env("GEN_OUT")');
+  });
+
+  it('refuses an output that leaves the project instead of emitting a climbing import', () => {
+    const result = resolveClient({
+      cwd: '/repo',
+      generator: { provider: 'prisma-client', outputDir: '/elsewhere/generated/prisma' },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? '' : result.refusal).toContain('/elsewhere/generated/prisma');
+  });
+});
+
+describe('resolvePrismaConstruction carries the client module (ONT-067)', () => {
+  const withGenerator = ({ cwd, generator }: { cwd: string; generator?: IrGenerator }) =>
+    resolvePrismaConstruction({
+      cwd,
+      provider: 'mysql',
+      urlEnv: undefined,
+      ...(generator === undefined ? {} : { generator }),
+      hasPrismaCallSites: true,
+      docPath: DOC,
+    });
+
+  it('redirects the import on a Prisma 6 repo too — the generator predates 7', () => {
+    const cwd = makeRepo({ installed: { '@prisma/client': '6.19.3' } });
+
+    const result = withGenerator({
+      cwd,
+      generator: { provider: 'prisma-client', outputDir: join(cwd, 'generated', 'prisma') },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      construction: { kind: 'bare', clientModule: '../generated/prisma/client.ts' },
+    });
+  });
+
+  it('leaves the construction untouched when the client is the package', () => {
+    const cwd = makeRepo({ installed: { '@prisma/client': '6.19.3' } });
+
+    expect(withGenerator({ cwd, generator: { provider: 'prisma-client-js' } })).toEqual({
+      ok: true,
+      construction: { kind: 'bare' },
+    });
+  });
+
+  it('refuses before the Prisma-major question is even asked', () => {
+    // No adapter is installed here either, so both refusals are available. The
+    // import is the one that decides whether ANY module loads, so it is asked
+    // first — and its remedy is the one the reader can act on.
+    const cwd = makeRepo({ installed: { '@prisma/client': '7.9.1' } });
+
+    const result = withGenerator({ cwd, generator: { provider: 'prisma-client' } });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? '' : result.refusal).toContain('`output`');
+  });
+
+  it('emits no Prisma call site, and so asks nothing, for an OpenAPI-only scan', () => {
+    const cwd = makeRepo({ installed: { '@prisma/client': '7.9.1' } });
+
+    const result = resolvePrismaConstruction({
+      cwd,
+      provider: undefined,
+      urlEnv: undefined,
+      generator: { provider: 'prisma-client' },
+      hasPrismaCallSites: false,
+      docPath: DOC,
+    });
+
+    expect(result).toEqual({ ok: true, construction: { kind: 'bare' } });
   });
 });

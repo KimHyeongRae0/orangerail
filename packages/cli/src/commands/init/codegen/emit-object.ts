@@ -79,6 +79,7 @@ const renderSchema = ({ object }: { object: IrObject }): string => {
 export const buildResolveDiagnostic = ({
   objectName,
   adapterModule,
+  clientModule,
 }: {
   objectName: string;
   /**
@@ -88,12 +89,54 @@ export const buildResolveDiagnostic = ({
    * cannot work — so when there is an adapter, the fix names both.
    */
   adapterModule?: string;
-}): string =>
-  adapterModule === undefined
+  /**
+   * The GENERATED client this file imports instead of `@prisma/client`, when the
+   * schema's generator writes one (ONT-067). It changes the remedy, not just the
+   * wording: `npm install @prisma/client` can never populate a directory the
+   * user's own `generator` block names, so prescribing it here was advice the
+   * reader had already followed and could follow forever.
+   */
+  clientModule?: string;
+}): string => {
+  if (clientModule !== undefined) {
+    const also = adapterModule === undefined ? '' : ` or ${adapterModule}`;
+    const install =
+      adapterModule === undefined ? '' : ` If ${adapterModule} is the one missing, install it too.`;
+
+    return (
+      `Cannot resolve the generated Prisma client at "${clientModule}"${also} for object "${objectName}": your schema's \`generator client\` writes the client there, so installing @prisma/client cannot put it there. ` +
+      `Fix: run \`npx prisma generate\`.${install}`
+    );
+  }
+
+  return adapterModule === undefined
     ? `Cannot resolve @prisma/client for object "${objectName}": the Prisma client is not generated or installed. ` +
-      'Fix: run `npm install @prisma/client && npx prisma generate`, and make sure DATABASE_URL is set.'
+        'Fix: run `npm install @prisma/client && npx prisma generate`, and make sure DATABASE_URL is set.'
     : `Cannot resolve @prisma/client or ${adapterModule} for object "${objectName}": the Prisma client or its driver adapter is not generated or installed. ` +
-      `Fix: run \`npm install @prisma/client ${adapterModule} && npx prisma generate\`.`;
+        `Fix: run \`npm install @prisma/client ${adapterModule} && npx prisma generate\`.`;
+};
+
+/**
+ * The diagnostic for a generated client that EXISTS but this Node build will not
+ * load (ONT-067). The `prisma-client` generator emits TypeScript and nothing
+ * else — `generatedFileExtension` accepts only `ts`, `mts` and `cts` — so the
+ * emitted `.mjs` reaches a `.ts` module, which Node runs natively from 22.18 and
+ * rejects before that with `ERR_UNKNOWN_FILE_EXTENSION`.
+ *
+ * It is a THIRD cause, not a spelling of the other two. Node raises that error as
+ * a `TypeError`, so without this branch it landed on the schema-mismatch
+ * diagnostic and told the reader to re-run `prisma generate` over a client that
+ * was already generated correctly — the same circle ONT-067 exists to close.
+ */
+export const buildUnloadableClientDiagnostic = ({
+  objectName,
+  clientModule,
+}: {
+  objectName: string;
+  clientModule: string;
+}): string =>
+  `Cannot load the generated Prisma client at "${clientModule}" for object "${objectName}": the \`prisma-client\` generator emits TypeScript, and this Node build does not run a .ts module. ` +
+  'Fix: run orangerail on Node 22.18 or newer, which loads TypeScript with no flag; or set `provider = "prisma-client-js"` in your schema, which generates JavaScript into @prisma/client.';
 
 /**
  * The diagnostic for a client that resolved but exposes no such model — the
@@ -125,6 +168,15 @@ const isClientMissing = ({ error }: { error: unknown }): boolean => {
 
   return code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';
 };
+
+/**
+ * True when the module was FOUND and the loader refused its extension — a
+ * TypeScript client reached from a Node build that does not strip types
+ * (ONT-067). Disjoint from `isClientMissing`: the path is right, the file is
+ * there, and no amount of generating changes the outcome.
+ */
+const isClientUnloadable = ({ error }: { error: unknown }): boolean =>
+  (error as { code?: unknown } | null | undefined)?.code === 'ERR_UNKNOWN_FILE_EXTENSION';
 
 /**
  * True when the Prisma client could not initialize its datasource — an unset or
@@ -204,12 +256,27 @@ export const wrapResolveError = ({
   objectName,
   accessor,
   error,
+  clientModule,
 }: {
   objectName: string;
   accessor: string;
   error: unknown;
+  /** The generated client this file imports, when it imports one (ONT-067). */
+  clientModule?: string;
 }): unknown => {
   const missing = isClientMissing({ error });
+
+  // Checked FIRST, and only where a generated client is what is imported: Node
+  // raises `ERR_UNKNOWN_FILE_EXTENSION` as a `TypeError`, so the schema-mismatch
+  // branch below would otherwise swallow it. Left UNCLASSIFIED on purpose — the
+  // closed diagnostic enum has no member for "the client is there and this
+  // runtime will not load it", and reusing `datasource_client_missing` would make
+  // the transport tell an agent to run `npm install @prisma/client && npx prisma
+  // generate`, which is precisely the remedy that cannot apply. The operator sink
+  // still carries the full sentence.
+  if (clientModule !== undefined && isClientUnloadable({ error })) {
+    return new Error(buildUnloadableClientDiagnostic({ objectName, clientModule }));
+  }
 
   if (!missing && !(error instanceof TypeError)) {
     return isDatasourceUnconfigured({ error })
@@ -222,7 +289,10 @@ export const wrapResolveError = ({
     typeof original === 'string' && original !== '' ? ` Original error: ${original}` : '';
 
   const diagnostic = missing
-    ? buildResolveDiagnostic({ objectName })
+    ? buildResolveDiagnostic({
+        objectName,
+        ...(clientModule === undefined ? {} : { clientModule }),
+      })
     : buildAccessorDiagnostic({ objectName, accessor });
   const code: PublicDiagnosticCode = missing
     ? 'datasource_client_missing'
@@ -440,6 +510,21 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
  * trusted payload.
  */
 /**
+ * The line that imports `PrismaClient` (ONT-067).
+ *
+ * The no-`clientModule` form is a LITERAL rather than an escaped render of
+ * `'@prisma/client'`, so the specifier every generated file has always carried
+ * comes out byte-for-byte unchanged — the escape layer quotes with `"`, and a
+ * schema that never asked for a redirect must not have its bytes move. A
+ * generated client's path is user-controlled text and goes through the escape
+ * layer for the same reason `prismaMember` escapes a model name (D10).
+ */
+const clientImport = ({ clientModule }: { clientModule: string | undefined }): string =>
+  clientModule === undefined
+    ? "      const { PrismaClient } = await import('@prisma/client');"
+    : `      const { PrismaClient } = await import(${escapeStringLiteral({ value: clientModule })});`;
+
+/**
  * The lazy client constructor lines, per Prisma major (ONT-049).
  *
  * `bare` is the pre-7 form and is emitted byte-for-byte as it always was — a
@@ -458,7 +543,7 @@ const renderResolve = ({ object }: { object: IrObject }): string => {
 const clientConstruction = ({ construction }: { construction: PrismaConstruction }): string[] => {
   if (construction.kind === 'bare') {
     return [
-      "      const { PrismaClient } = await import('@prisma/client');",
+      clientImport({ clientModule: construction.clientModule }),
       '      client = new PrismaClient();',
     ];
   }
@@ -485,7 +570,7 @@ const clientConstruction = ({ construction }: { construction: PrismaConstruction
     "      if (url === undefined || url === '') {",
     `        throw new Error(${missingUrl});`,
     '      }',
-    "      const { PrismaClient } = await import('@prisma/client');",
+    clientImport({ clientModule: construction.clientModule }),
     `      const { ${adapter.className} } = await import(${escapeStringLiteral({ value: adapter.module })});`,
     `      client = new PrismaClient({ adapter: new ${adapter.className}(${argument}) });`,
   ];
@@ -500,10 +585,13 @@ export const prismaClientBlock = ({
   sourceModel: string;
   construction?: PrismaConstruction;
 }): string => {
+  const { clientModule } = construction;
+
   const missingClient = escapeStringLiteral({
     value: buildResolveDiagnostic({
       objectName: diagnosticName,
       ...(construction.kind === 'adapter' ? { adapterModule: construction.adapter.module } : {}),
+      ...(clientModule === undefined ? {} : { clientModule }),
     }),
   });
   const missingAccessor = escapeStringLiteral({
@@ -513,6 +601,25 @@ export const prismaClientBlock = ({
     }),
   });
   const subject = escapeStringLiteral({ value: diagnosticName });
+
+  // Only a file that imports a GENERATED client can hit the unloadable case, so
+  // the branch appears only there — a `@prisma/client` file emits the wrapper it
+  // always emitted, to the byte (ONT-067). It returns an UNTAGGED error: see
+  // `wrapResolveError`, whose logic this mirrors.
+  const unloadableLines =
+    clientModule === undefined
+      ? []
+      : [
+          "  if (error && error.code === 'ERR_UNKNOWN_FILE_EXTENSION') {",
+          `    return new Error(${escapeStringLiteral({
+            value: buildUnloadableClientDiagnostic({
+              objectName: diagnosticName,
+              clientModule,
+            }),
+          })});`,
+          '  }',
+          '',
+        ];
 
   return [
     'const getPrisma = (() => {',
@@ -540,6 +647,7 @@ export const prismaClientBlock = ({
     '};',
     '',
     'const wrapPrismaError = (error) => {',
+    ...unloadableLines,
     '  const code = error === null || error === undefined ? undefined : error.code;',
     "  const missing = code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND';",
     '  if (!missing && !(error instanceof TypeError)) {',

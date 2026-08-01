@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+
+import type { IrGenerator } from '../ir';
 
 /**
  * Which Prisma the generated ontology will run against, and therefore how it
@@ -57,9 +59,12 @@ export interface PrismaAdapter {
  * additionally run end to end against a live PostgreSQL 16.14 — both
  * `new PrismaPg(url)` and `new PrismaPg({ connectionString: url })` return rows
  * — and `@prisma/adapter-better-sqlite3` was constructed live.
- * `@prisma/adapter-mariadb` and `@prisma/adapter-mssql` are signature-verified
- * only (`constructor(config: … | string)`); no MySQL or SQL Server was reachable
- * here to run a query through.
+ * `@prisma/adapter-mariadb` was run end to end against a live MySQL 9.7.1 in
+ * ONT-067: read, create, update and an approved gated delete through the shipped
+ * MCP server, with `orangerail audit verify` reporting `audit chain OK`.
+ * `@prisma/adapter-mssql` is signature-verified only
+ * (`constructor(config: … | string)`); no SQL Server was reachable here to run a
+ * query through.
  *
  * Deliberately absent: `@prisma/adapter-neon`, `-planetscale`, `-libsql`, `-d1`.
  * Their constructors take driver-specific handles or HTTP configuration this
@@ -93,12 +98,192 @@ export const SUPPORTED_ADAPTERS: PrismaAdapter[] = [
   },
 ];
 
-/** How the generated code constructs its Prisma client. */
+/**
+ * How the generated code constructs its Prisma client.
+ *
+ * `clientModule` is the module the emitted `await import(…)` names, and it is
+ * OPTIONAL for one reason: absent means `@prisma/client`, which is the specifier
+ * every generated file has always carried. A schema whose client generator is
+ * the legacy `prisma-client-js`, or that declares no generator at all, leaves it
+ * absent and emits the bytes it always emitted (ONT-067).
+ */
 export type PrismaConstruction =
-  { kind: 'bare' } | { kind: 'adapter'; adapter: PrismaAdapter; urlEnv: string };
+  | { kind: 'bare'; clientModule?: string }
+  | { kind: 'adapter'; adapter: PrismaAdapter; urlEnv: string; clientModule?: string };
 
 /** The pre-7 construction — the default everywhere, so untouched repos emit untouched bytes. */
 export const BARE_CONSTRUCTION: PrismaConstruction = { kind: 'bare' };
+
+/** The package the emitted client import names when the generator writes into it. */
+export const CLIENT_PACKAGE = '@prisma/client';
+
+/**
+ * The generator provider that writes its client into its OWN `output` directory
+ * instead of into `@prisma/client` — Prisma 7's `prisma init` default.
+ */
+export const TS_CLIENT_GENERATOR = 'prisma-client';
+
+/** The entry file that generator writes at the root of its output directory. */
+export const GENERATED_CLIENT_ENTRY = 'client.ts';
+
+/**
+ * The directory generated ontology files are written to, relative to the project
+ * root. `buildFileSet` renders every path through it and the client specifier is
+ * computed relative to it, so the two cannot drift into an import that resolves
+ * from a directory the files are no longer in.
+ */
+export const ONTOLOGY_DIR = 'ontology';
+
+/**
+ * The module specifier a generated `ontology/<Object>.mjs` uses to reach an
+ * absolute path — POSIX-separated and explicitly relative, which is what an ESM
+ * specifier must be.
+ */
+const ontologySpecifier = ({ cwd, target }: { cwd: string; target: string }): string => {
+  const rel = relative(join(cwd, ONTOLOGY_DIR), target).split(sep).join('/');
+
+  return rel.startsWith('.') ? rel : `./${rel}`;
+};
+
+/** Whether an absolute path lies inside the project root (the root itself counts). */
+const insideProject = ({ cwd, target }: { cwd: string; target: string }): boolean => {
+  const rel = relative(cwd, target);
+
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+};
+
+/**
+ * The header every generator refusal shares: what was found, and the commitment
+ * it is enforcing. Kept identical in shape to `adapterRefusal` — this is the same
+ * promise ("orangerail will not write an ontology that cannot construct a
+ * client") applied one step earlier, to the import rather than the constructor.
+ */
+const generatorRefusal = ({
+  problem,
+  remedy,
+  docPath,
+  command,
+}: {
+  problem: string;
+  remedy: string;
+  docPath: string;
+  command: string;
+}): string =>
+  `${command}: ${problem}\n` +
+  `The \`${TS_CLIENT_GENERATOR}\` generator writes the client into the directory its \`output\` names\n` +
+  'and puts nothing into `@prisma/client`, so orangerail cannot name a module the generated\n' +
+  'ontology could import — and it will not write an ontology whose client import cannot resolve.\n\n' +
+  remedy +
+  `\nThen re-run \`${command}\`.\n` +
+  `See ${docPath} for the full existing-database walkthrough.\n`;
+
+/**
+ * The `prisma-client-js` escape hatch, offered by every generator refusal. It is
+ * the legacy generator that still generates into `@prisma/client`, so it needs no
+ * `output` at all — and it is what `docs/existing-database.md` prescribed before
+ * the `output` was read.
+ */
+const LEGACY_GENERATOR_REMEDY =
+  'Or switch to the legacy generator, which generates into `@prisma/client`:\n\n' +
+  '  generator client {\n' +
+  '    provider = "prisma-client-js"\n' +
+  '  }\n';
+
+/** The `output` line `prisma init` itself writes, quoted back as the first remedy. */
+const OUTPUT_REMEDY =
+  "Add the `output` field — this is what Prisma's own `prisma init` writes:\n\n" +
+  '  generator client {\n' +
+  `    provider = "${TS_CLIENT_GENERATOR}"\n` +
+  '    output   = "../generated/prisma"\n' +
+  '  }\n\n';
+
+/**
+ * The module the generated ontology imports `PrismaClient` from, or a refusal.
+ *
+ * Three schemas resolve to today's `@prisma/client` and therefore to today's
+ * bytes: no client generator at all, `provider = "prisma-client-js"`, and a
+ * provider this table does not know (a third-party generator does not move where
+ * the Prisma client lands). Only `prisma-client` redirects the import, because it
+ * is the only one that generates somewhere else.
+ *
+ * It refuses in exactly the three cases where the schema states an `output` that
+ * cannot be turned into an import, and never merely because the provider is
+ * `prisma-client` — that is the Prisma 7 default, and the schema that declares it
+ * normally carries everything needed to emit a working import.
+ */
+export const resolveClientModule = ({
+  cwd,
+  generator,
+  docPath,
+  command,
+}: {
+  cwd: string;
+  generator: IrGenerator | undefined;
+  docPath: string;
+  command: string;
+}): { ok: true; clientModule: string } | { ok: false; refusal: string } => {
+  if (generator?.provider !== TS_CLIENT_GENERATOR) {
+    return { ok: true, clientModule: CLIENT_PACKAGE };
+  }
+
+  if (generator.outputExpression !== undefined) {
+    return {
+      ok: false,
+      refusal: generatorRefusal({
+        problem: `your Prisma schema declares \`output = ${generator.outputExpression}\`, which names a value this scan cannot resolve.`,
+        remedy:
+          'Write the path as a plain string literal:\n\n' +
+          '  generator client {\n' +
+          `    provider = "${TS_CLIENT_GENERATOR}"\n` +
+          '    output   = "../generated/prisma"\n' +
+          '  }\n\n' +
+          LEGACY_GENERATOR_REMEDY,
+        docPath,
+        command,
+      }),
+    };
+  }
+
+  const outputDir = generator.outputDir;
+
+  if (outputDir === undefined) {
+    return {
+      ok: false,
+      refusal: generatorRefusal({
+        problem: `your Prisma schema declares \`generator client { provider = "${TS_CLIENT_GENERATOR}" }\` with no \`output\` field.`,
+        remedy: OUTPUT_REMEDY + LEGACY_GENERATOR_REMEDY,
+        docPath,
+        command,
+      }),
+    };
+  }
+
+  if (!insideProject({ cwd, target: outputDir })) {
+    // Emitting the `../../..` specifier this would produce is worse than
+    // refusing: it would be an import reaching outside the repo, resolved
+    // against wherever the ontology happens to be checked out.
+    return {
+      ok: false,
+      refusal: generatorRefusal({
+        problem: `your Prisma schema generates its client to \`${outputDir}\`, which is outside this project.`,
+        remedy:
+          'Point `output` at a directory inside the project:\n\n' +
+          '  generator client {\n' +
+          `    provider = "${TS_CLIENT_GENERATOR}"\n` +
+          '    output   = "../generated/prisma"\n' +
+          '  }\n\n' +
+          LEGACY_GENERATOR_REMEDY,
+        docPath,
+        command,
+      }),
+    };
+  }
+
+  return {
+    ok: true,
+    clientModule: ontologySpecifier({ cwd, target: join(outputDir, GENERATED_CLIENT_ENTRY) }),
+  };
+};
 
 /**
  * The major of a semver-ish string or range. Reads the first number sequence,
@@ -322,13 +507,16 @@ export const resolvePrismaConstruction = ({
   cwd,
   provider,
   urlEnv,
+  generator,
   hasPrismaCallSites,
   docPath,
-  command,
+  command = 'orangerail init',
 }: {
   cwd: string;
   provider: string | undefined;
   urlEnv: string | undefined;
+  /** The scanned client generator, which decides WHICH module the client comes from (ONT-067). */
+  generator?: IrGenerator;
   hasPrismaCallSites: boolean;
   docPath: string;
   /** The command shown in the refusal; defaults to `orangerail init`. */
@@ -338,10 +526,25 @@ export const resolvePrismaConstruction = ({
     return { ok: true, construction: BARE_CONSTRUCTION };
   }
 
+  // WHERE the client comes from is asked before WHICH constructor it takes, and
+  // independently of the Prisma major: the `prisma-client` generator predates
+  // Prisma 7, so a Prisma 6 repo on it needs the redirected import even though
+  // it keeps the pre-7 bare constructor (ONT-067).
+  const client = resolveClientModule({ cwd, generator, docPath, command });
+
+  if (!client.ok) {
+    return { ok: false, refusal: client.refusal };
+  }
+
+  // Absent for `@prisma/client`, so every schema that resolved to the package
+  // renders the specifier it always rendered.
+  const clientModule =
+    client.clientModule === CLIENT_PACKAGE ? {} : { clientModule: client.clientModule };
+
   const { major, evidence } = detectPrismaMajor({ cwd });
 
   if (major === undefined || major < ADAPTER_REQUIRED_MAJOR) {
-    return { ok: true, construction: BARE_CONSTRUCTION };
+    return { ok: true, construction: { kind: 'bare', ...clientModule } };
   }
 
   const adapter = detectInstalledAdapter({ cwd });
@@ -349,17 +552,12 @@ export const resolvePrismaConstruction = ({
   if (adapter === undefined) {
     return {
       ok: false,
-      refusal: adapterRefusal({
-        evidence,
-        provider,
-        docPath,
-        ...(command === undefined ? {} : { command }),
-      }),
+      refusal: adapterRefusal({ evidence, provider, docPath, command }),
     };
   }
 
   return {
     ok: true,
-    construction: { kind: 'adapter', adapter, urlEnv: urlEnv ?? DEFAULT_URL_ENV },
+    construction: { kind: 'adapter', adapter, urlEnv: urlEnv ?? DEFAULT_URL_ENV, ...clientModule },
   };
 };

@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { mapPrismaToIr } from './map';
 import { parsePrismaSchema } from './parse';
 
-const scan = ({ source }: { source: string }) =>
-  mapPrismaToIr({ parsed: parsePrismaSchema({ source }) });
+/** A stand-in for the directory a schema was read from — what `output` resolves against. */
+const SCHEMA_DIR = '/repo/prisma';
+
+const scan = ({ source, schemaDir = SCHEMA_DIR }: { source: string; schemaDir?: string }) =>
+  mapPrismaToIr({ parsed: parsePrismaSchema({ source }), schemaDir });
 
 describe('mapPrismaToIr', () => {
   it('classifies scalars, enums, relations, and id fields', () => {
@@ -146,5 +149,46 @@ describe('mapPrismaToIr unrepresentable field names (ONT-042 E)', () => {
     const warning = withBadNames.warnings.find((w) => /not a valid Prisma identifier/.test(w));
     expect(warning).toContain('model Über');
     expect(warning).toContain('model 2Fast');
+  });
+});
+
+describe('client generator facts reach the IR (ONT-067)', () => {
+  it("resolves a relative output against the SCHEMA's directory, not the cwd", () => {
+    const source = scan({
+      source: `
+        generator client {
+          provider = "prisma-client"
+          output   = "../generated/prisma"
+        }
+        model A { id Int @id }
+      `,
+      schemaDir: '/repo/packages/db/prisma',
+    });
+
+    expect(source.generator).toEqual({
+      provider: 'prisma-client',
+      outputDir: '/repo/packages/db/generated/prisma',
+    });
+  });
+
+  it('carries the legacy generator through with no output at all', () => {
+    const source = scan({ source: `generator client {\n  provider = "prisma-client-js"\n}` });
+
+    expect(source.generator).toEqual({ provider: 'prisma-client-js' });
+  });
+
+  it('carries an unresolvable output verbatim rather than resolving it to nonsense', () => {
+    const source = scan({
+      source: `generator client {\n  provider = "prisma-client"\n  output = env("GEN_OUT")\n}`,
+    });
+
+    expect(source.generator).toEqual({
+      provider: 'prisma-client',
+      outputExpression: 'env("GEN_OUT")',
+    });
+  });
+
+  it('is absent for a schema with no generator block', () => {
+    expect(scan({ source: `model A { id Int @id }` }).generator).toBeUndefined();
   });
 });

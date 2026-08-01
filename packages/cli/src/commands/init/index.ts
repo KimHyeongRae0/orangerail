@@ -208,6 +208,10 @@ export const runInit = async ({
     cwd,
     provider: source.datasource?.provider,
     urlEnv: source.datasource?.urlEnv,
+    // And WHERE that client comes from (ONT-067): Prisma 7's default generator
+    // writes it into its own `output` directory, so an ontology importing
+    // `@prisma/client` resolves a package carrying no client at all.
+    ...(source.generator === undefined ? {} : { generator: source.generator }),
     hasPrismaCallSites: hasPrismaOutput({ source }),
     docPath: EXISTING_DB_DOC,
   });
