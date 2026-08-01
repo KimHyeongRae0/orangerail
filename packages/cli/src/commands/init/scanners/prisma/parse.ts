@@ -54,12 +54,50 @@ export interface RawDatasource {
   urlEnv?: string;
 }
 
+/**
+ * The schema's CLIENT `generator` block, reduced to the two facts codegen needs
+ * (ONT-067): which generator writes the client, and where it writes it.
+ *
+ * `prisma init` on Prisma 7 declares `provider = "prisma-client"`, and that
+ * generator puts NOTHING into `@prisma/client` — it writes the client into the
+ * directory `output` names. A generated ontology that imports `@prisma/client`
+ * on such a schema resolves a package with no client in it, so the block that
+ * says where the client actually lands is the difference between an ontology
+ * that reads rows and one whose every tool call fails.
+ */
+export interface RawGenerator {
+  provider?: string;
+  /** The `output` value, when the block states one as a plain string literal. */
+  output?: string;
+  /**
+   * The right-hand side of an `output` this parser will NOT resolve — an
+   * `env("…")` call, or a literal carrying a `${…}` interpolation. Kept verbatim
+   * so the refusal can quote back what the schema said rather than describing it.
+   */
+  outputExpression?: string;
+}
+
+/**
+ * The generator providers that produce a Prisma CLIENT. Every other generator
+ * (an ERD renderer, a docs generator, a third-party language client) writes
+ * something the emitted ontology never imports, so its `output` is none of
+ * codegen's business — Prisma allows several generator blocks and only the
+ * client one decides what `import` the ontology needs.
+ */
+const CLIENT_GENERATOR_PROVIDERS = ['prisma-client', 'prisma-client-js'];
+
+/** Whether a generator block's provider is one that emits a Prisma client. */
+const isClientGenerator = ({ provider }: { provider: string | undefined }): boolean =>
+  provider !== undefined && CLIENT_GENERATOR_PROVIDERS.includes(provider);
+
 /** The full raw parse result. */
 export interface ParsedSchema {
   models: RawModel[];
   enums: RawEnum[];
   /** The first `datasource` block, when the schema declares one. */
   datasource?: RawDatasource;
+  /** The first CLIENT `generator` block, when the schema declares one. */
+  generator?: RawGenerator;
   /** Names of declared `view` blocks, in source order (bodies never parsed). */
   views: string[];
   /**
@@ -302,6 +340,43 @@ const parseDatasourceBody = ({ body }: { body: string }): RawDatasource => {
   return datasource;
 };
 
+/**
+ * Parse the body of a `generator` block. Only `provider` and `output` are read;
+ * every other key (`previewFeatures`, `binaryTargets`, `runtime`,
+ * `moduleFormat`) is left alone.
+ *
+ * An `output` that is not a plain string literal is recorded as an EXPRESSION
+ * rather than dropped. `env("GEN_OUT")` and `"${ROOT}/client"` name a value this
+ * parser cannot know at scan time, and a scanner that silently ignored them
+ * would fall back to the `@prisma/client` import — reproducing the very defect
+ * this reading exists to remove, with a path nobody wrote down.
+ */
+const parseGeneratorBody = ({ body }: { body: string }): RawGenerator => {
+  const generator: RawGenerator = {};
+
+  const provider = /(^|\n)\s*provider\s*=\s*"([^"]*)"/.exec(body);
+  if (provider !== null && provider[2] !== undefined && provider[2] !== '') {
+    generator.provider = provider[2];
+  }
+
+  const output = /(^|\n)\s*output\s*=\s*(\S.*)/.exec(body);
+  if (output === null || output[2] === undefined) {
+    return generator;
+  }
+
+  const expression = output[2].trim();
+  const literal = /^"([^"]*)"$/.exec(expression);
+  const value = literal?.[1];
+
+  if (value === undefined || value === '' || value.includes('${')) {
+    generator.outputExpression = expression;
+  } else {
+    generator.output = value;
+  }
+
+  return generator;
+};
+
 /** Parse a Prisma schema string into raw models and enums (plan D3). */
 export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema => {
   const cleaned = stripComments({ source });
@@ -311,12 +386,25 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
   const enums: RawEnum[] = [];
   const views: string[] = [];
   let datasource: RawDatasource | undefined;
+  let generator: RawGenerator | undefined;
 
   for (const block of blocks) {
     if (block.keyword === 'datasource') {
       // First one wins: Prisma allows exactly one datasource, so a second is a
       // schema the CLI would reject anyway — no reason to model a merge here.
       datasource ??= parseDatasourceBody({ body: block.body });
+    } else if (block.keyword === 'generator') {
+      // First CLIENT generator wins, the way the datasource above does. Prisma
+      // allows several generator blocks, so this is a real merge question rather
+      // than a rejected schema: an ERD or docs generator sitting above the client
+      // one must not decide what the ontology imports, and a second client
+      // generator (a browser build alongside a node build) is a target the
+      // emitted ontology does not run in.
+      const candidate = parseGeneratorBody({ body: block.body });
+
+      if (generator === undefined && isClientGenerator({ provider: candidate.provider })) {
+        generator = candidate;
+      }
     } else if (block.keyword === 'model') {
       models.push({ name: block.name, fields: parseModelBody({ body: block.body }) });
     } else if (block.keyword === 'enum') {
@@ -335,5 +423,6 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
     views,
     invalidBlocks,
     ...(datasource === undefined ? {} : { datasource }),
+    ...(generator === undefined ? {} : { generator }),
   };
 };

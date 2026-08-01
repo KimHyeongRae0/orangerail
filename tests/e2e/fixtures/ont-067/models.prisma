@@ -1,0 +1,28 @@
+// ONT-067 e2e fixture — the half of the schema every phase shares. The scenario
+// prepends one `generators/*.prisma` block to this file, so the ONLY difference
+// between an AC-1 run and an AC-2 run is the generator block under test.
+//
+// Prisma 7 rejects `url` in the datasource block (P1012); it lives in
+// prisma.config.ts, which is why this declares a provider and nothing else.
+
+datasource db {
+  provider = "mysql"
+}
+
+model Customer {
+  id      Int       @id @default(autoincrement())
+  email   String    @unique(map: "email")
+  name    String?
+  tier    String    @default("free") @db.VarChar(32)
+  Payment Payment[]
+}
+
+model Payment {
+  id          Int      @id @default(autoincrement())
+  customerId  Int
+  amountCents Int
+  status      String   @default("pending") @db.VarChar(32)
+  Customer    Customer @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pay_cust")
+
+  @@index([customerId], map: "fk_pay_cust")
+}

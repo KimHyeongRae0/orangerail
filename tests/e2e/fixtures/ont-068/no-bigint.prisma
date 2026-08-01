@@ -1,0 +1,32 @@
+// ONT-068 e2e fixture — the control (AC-6). Not one BigInt column anywhere, so
+// every byte this emits must be the byte `main` emitted, compared in full
+// against `reference/` rather than by inspection.
+//
+// Deliberately not a minimal schema: it carries a relation, a nullable column, a
+// unique index and a full CRUD action set, so the comparison covers the object
+// files, the action files, the links file, the registry and the config — every
+// artifact the BigInt branches could have reached into.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Customer {
+  id      Int       @id @default(autoincrement())
+  email   String    @unique(map: "email")
+  name    String?
+  Payment Payment[]
+}
+
+model Payment {
+  id          Int      @id @default(autoincrement())
+  customerId  Int
+  amountCents Int
+  Customer    Customer @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pay_cust")
+
+  @@index([customerId], map: "fk_pay_cust")
+}

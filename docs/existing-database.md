@@ -123,7 +123,7 @@ The adapter package depends on which database you are on:
 | --- | --- | --- |
 | `postgresql` | `@prisma/adapter-pg` | run end to end against PostgreSQL 16.14 |
 | `sqlite` | `@prisma/adapter-better-sqlite3` | constructed against 7.9.1 |
-| `mysql` | `@prisma/adapter-mariadb` | constructor signature only |
+| `mysql` | `@prisma/adapter-mariadb` | run end to end against MySQL 9.7.1 |
 | `sqlserver` | `@prisma/adapter-mssql` | constructor signature only |
 
 orangerail emits a client construction only for the adapters in that table.
@@ -160,6 +160,25 @@ datasource db {
   provider = "postgresql"
 }
 ```
+
+Either client generator works, and they generate to different places — which is
+why orangerail reads the block rather than assuming:
+
+| `generator client` | generates to | the ontology imports |
+| --- | --- | --- |
+| `provider = "prisma-client-js"` | `node_modules/@prisma/client` | `@prisma/client` |
+| `provider = "prisma-client"` + `output` | the `output` directory | that directory's `client.ts` |
+
+`prisma-client` is what `npx prisma init` writes on Prisma 7, and it puts
+**nothing** into `@prisma/client` — so an ontology that imported the package
+would resolve a package with no client in it. It also needs an `output`: Prisma's
+default differs by generator and version, and orangerail refuses rather than
+guess a path whose only symptom would be the same failure somewhere else.
+
+That generator emits TypeScript and nothing else (`generatedFileExtension`
+accepts `ts`, `mts` and `cts`), so whatever runs `orangerail mcp` has to run a
+`.ts` module. Node 22.18 and newer do that with no flag. On `prisma-client-js`
+the generated client is JavaScript and no Node version matters.
 
 **3. Put the URL in `prisma.config.ts`.** Prisma 7 no longer loads `.env` for
 you, so load it yourself — otherwise *every* `prisma` command, `generate`
@@ -298,6 +317,19 @@ and re-run `init`.
 connection URL in its environment. That is the message from the generated file
 itself, before any driver is touched; set the variable in whatever starts the
 server.
+
+**`your Prisma schema declares generator client { provider = "prisma-client" }
+with no output`** — that generator writes the client into the directory `output`
+names, so there is no directory for the ontology to import. Add the `output` the
+refusal quotes (it is the one `prisma init` writes), or switch to
+`prisma-client-js`. Nothing is written on that path.
+
+**`Cannot load the generated Prisma client … this Node build does not run a .ts
+module`** — the client is generated, at the right path, and this Node will not
+load TypeScript. Run the MCP server on Node 22.18 or newer, or set
+`provider = "prisma-client"` back to `provider = "prisma-client-js"` and re-run
+`prisma generate`. Re-running `generate` on its own cannot fix this, which is why
+the message does not ask you to.
 
 **`Cannot resolve @prisma/client for object "X"`** — the client is not
 generated. Run `npx prisma generate`. On Prisma 7 the same diagnostic reads

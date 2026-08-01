@@ -11,6 +11,7 @@ import {
 import {
   createEngine,
   readPublicDiagnostic,
+  renderBigInts,
   resolveCaller,
   type ExecuteResult,
   type Identity,
@@ -182,6 +183,24 @@ const ok = ({
   message: string;
   structured: Record<string, unknown>;
 }): ToolResult => ({ content: text({ value: message }), structuredContent: structured });
+
+/**
+ * A payload on its way out of a tool, with every `BigInt` in it rendered as a
+ * decimal string (ONT-068) — returned once and used for BOTH halves of the
+ * result, so `content` and `structuredContent` cannot describe different values.
+ *
+ * `JSON.stringify` throws on a `BigInt`, and so does the SDK's own serialization
+ * of `structuredContent`, so one unrendered value turns a SUCCESSFUL read or
+ * write into `internal_error` — the one status that carries no actionable text.
+ * Generated resolvers and every action already render before the value gets
+ * here; this is the transport's own boundary, and it holds for a hand-written
+ * resolver that has not been touched.
+ */
+const outbound = ({ value }: { value: unknown }): { value: unknown; json: string } => {
+  const rendered = renderBigInts({ value });
+
+  return { value: rendered, json: JSON.stringify(rendered) };
+};
 
 const err = ({
   status,
@@ -386,11 +405,14 @@ const mapStage = ({
         message: `Action staged for human approval. Poll check_approval with approvalId "${result.approvalId}" once a human decides.`,
         structured: { status: 'approval_pending', approvalId: result.approvalId },
       });
-    case 'executed':
+    case 'executed': {
+      const executed = outbound({ value: result.result });
+
       return ok({
-        message: JSON.stringify(result.result),
-        structured: { status: 'executed', result: result.result },
+        message: executed.json,
+        structured: { status: 'executed', result: executed.value },
       });
+    }
     case 'dry_run':
       return ok({
         message: 'Dry-run recorded (sandbox preset) — no execution occurred.',
@@ -450,11 +472,14 @@ const mapExecute = ({
   failure: FailureMapper;
 }): ToolResult => {
   switch (result.status) {
-    case 'executed':
+    case 'executed': {
+      const executed = outbound({ value: result.result });
+
       return ok({
-        message: JSON.stringify(result.result),
-        structured: { status: 'executed', result: result.result },
+        message: executed.json,
+        structured: { status: 'executed', result: executed.value },
       });
+    }
     case 'dry_run':
       // Sandbox preset (§3.6 / ONT-040): the approval is left untouched — not
       // consumed, not executed — so a live server sharing the store can still
@@ -629,7 +654,9 @@ export const createMcpServer = ({
       return err({ status: 'not_found', message: `No ${object.name} with id "${id}".` });
     }
 
-    return ok({ message: JSON.stringify(result), structured: { status: 'ok', object: result } });
+    const row = outbound({ value: result });
+
+    return ok({ message: row.json, structured: { status: 'ok', object: row.value } });
   };
 
   const handleList = async ({
@@ -688,9 +715,11 @@ export const createMcpServer = ({
       });
     }
 
+    const page = outbound({ value: result ?? { items: [] } });
+
     return ok({
-      message: JSON.stringify(result ?? { items: [] }),
-      structured: { status: 'ok', ...(result ?? { items: [] }) },
+      message: page.json,
+      structured: { status: 'ok', ...(page.value as Record<string, unknown>) },
     });
   };
 

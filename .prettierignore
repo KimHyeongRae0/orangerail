@@ -13,3 +13,13 @@ examples/
 # Captured codegen golden — must stay byte-identical to the shipped emitter
 # output (ONT-018 AC-6), so it is never reformatted.
 tests/e2e/fixtures/**/openapi-reference/
+
+# Captured codegen golden — the bytes `main` emitted for a schema with no
+# `BigInt` column (ONT-068 AC-6). Reformatting them would make the comparison
+# assert repo style rather than emitter output.
+tests/e2e/fixtures/ont-068/reference/
+
+# Captured codegen golden — the bytes `main` emitted for a `prisma-client-js`
+# schema (ONT-067 AC-2). Reformatting them would make the comparison assert repo
+# style rather than emitter output.
+tests/e2e/fixtures/ont-067/reference/

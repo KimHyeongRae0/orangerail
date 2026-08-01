@@ -1,4 +1,13 @@
-import { baseNode, enumValues, getShape, isOptionalField, typeNameOf } from 'orangerail-core';
+import {
+  baseNode,
+  DECIMAL_INTEGER_SOURCE,
+  enumValues,
+  getShape,
+  isDecimalInteger,
+  isDecimalIntegerField,
+  isOptionalField,
+  typeNameOf,
+} from 'orangerail-core';
 import type { z } from 'zod';
 
 import type { JsonSchemaProperty } from './schema';
@@ -34,7 +43,7 @@ import type { JsonSchemaProperty } from './schema';
  */
 
 /** How a declared field may be compared. */
-type FilterKind = 'string' | 'number' | 'boolean' | 'enum';
+type FilterKind = 'string' | 'number' | 'bigint' | 'boolean' | 'enum';
 
 /** One filterable field, as both the checker and the schema renderer see it. */
 export interface FilterField {
@@ -58,10 +67,19 @@ export type FilterSpec = Record<string, FilterField>;
  * Ordering comparisons are given to `string` on purpose: a scanned `DateTime`
  * column is emitted as `z.string()`, so without them a date range is
  * inexpressible — and an ISO-8601 string orders correctly either way.
+ *
+ * `bigint` gets the NUMBER operator set over string operands, and the omission
+ * of `contains` / `startsWith` / `endsWith` is the point (ONT-068). Prisma's
+ * `BigIntFilter` does not have them, so publishing them would be the `Bytes`
+ * defect again: the gate accepts a filter the datasource then refuses, and the
+ * refusal reaches the agent as an opaque `resolve_error` it cannot act on. The
+ * operands are strings because that is how a 64-bit key crosses JSON at all; the
+ * datasource still compares them numerically, since the column is numeric.
  */
 const OPERATORS: Record<FilterKind, readonly string[]> = {
   string: ['contains', 'endsWith', 'equals', 'gt', 'gte', 'in', 'lt', 'lte', 'not', 'startsWith'],
   number: ['equals', 'gt', 'gte', 'in', 'lt', 'lte', 'not'],
+  bigint: ['equals', 'gt', 'gte', 'in', 'lt', 'lte', 'not'],
   boolean: ['equals', 'not'],
   enum: ['equals', 'in', 'not'],
 };
@@ -72,11 +90,13 @@ const LIST_OPERATOR = 'in';
 /**
  * Zod type names that map to a leaf JSON type we are willing to state.
  *
- * `bigint` is absent on purpose: JSON has no integer type wide enough for one,
- * and the emitted `z.bigint()` rejects a JSON number, so a `BigInt` column could
- * not be filtered over this transport whatever we advertised. Leaving it out
- * refuses the call with a clear message instead of promising a filter that
- * cannot work.
+ * The zod type name `bigint` is absent, and now means something different from
+ * what it meant before ONT-068. A scanned `BigInt` COLUMN no longer arrives as
+ * `z.bigint()` — it is a decimal-string node, which {@link deriveFilterSpec}
+ * recognizes below and gives its own operator set. What is left under the name
+ * is a hand-written `z.bigint()` action-style field, which `JSON.parse` can
+ * never satisfy, so it stays out: a filter key nothing could ever match is worse
+ * published than absent.
  *
  * `z.number().int()` collapses to `number` here — `.int()` is a check, not a
  * distinct zod type. The schema is therefore one step wider than the column for
@@ -105,6 +125,11 @@ const LEAF_TYPES: Record<string, FilterField['type']> = {
  * list column, a nested object — is left OUT, and being left out now means it is
  * not filterable at all. That is the intended direction: this module can only
  * vouch for what it can describe, and it refuses everything it cannot.
+ *
+ * A `BigInt` column is checked for BEFORE the leaf table, because by type name
+ * it is a string and would otherwise be handed the substring operators its
+ * column cannot answer. See {@link isDecimalIntegerField} for how the two are
+ * told apart, and for the one column that is deliberately misread as this.
  */
 export const deriveFilterSpec = ({ schema }: { schema: z.ZodType }): FilterSpec => {
   const shape = getShape({ schema });
@@ -121,6 +146,11 @@ export const deriveFilterSpec = ({ schema }: { schema: z.ZodType }): FilterSpec 
       continue;
     }
 
+    if (isDecimalIntegerField({ node })) {
+      spec[key] = { kind: 'bigint', type: 'string', nullable };
+      continue;
+    }
+
     const type = LEAF_TYPES[typeNameOf({ node })];
 
     if (type !== undefined) {
@@ -131,8 +161,24 @@ export const deriveFilterSpec = ({ schema }: { schema: z.ZodType }): FilterSpec 
   return spec;
 };
 
+/**
+ * The type facts of one leaf value, nullability aside — the form both the bare
+ * value and every operand share.
+ *
+ * A `bigint` leaf publishes its `pattern`, and that is not decoration: this
+ * module's whole claim is that the published schema and the checker agree in
+ * BOTH directions, and `validateFilter` refuses `{ id: { gt: "abc" } }`. Stating
+ * only `"string"` would leave a caller obeying the schema and being refused
+ * anyway, which is the property `filter.ts` exists to keep.
+ */
+const leafType = ({ field }: { field: FilterField }): JsonSchemaProperty =>
+  field.kind === 'bigint'
+    ? { type: 'string', pattern: DECIMAL_INTEGER_SOURCE }
+    : { type: field.type };
+
 /** The JSON Schema for one leaf value of a field (the bare-equality form). */
 const leafSchema = ({ field }: { field: FilterField }): JsonSchemaProperty => ({
+  ...leafType({ field }),
   type: field.nullable ? [field.type, 'null'] : field.type,
   ...(field.values === undefined
     ? {}
@@ -204,7 +250,7 @@ export const deriveFilterSchema = ({
     // column of the same kind share one definition.
     const name = defNameFor({ kind: field.kind });
 
-    defs[name] ??= operatorSchema({ kind: field.kind, leaf: { type: field.type } });
+    defs[name] ??= operatorSchema({ kind: field.kind, leaf: leafType({ field }) });
     properties[key] = { anyOf: [leaf, { $ref: `#/$defs/${name}` }] };
   }
 
@@ -249,6 +295,13 @@ const leafFits = ({
     return typeof value === 'string' && field.values.includes(value);
   }
 
+  // A `BigInt` operand is a string, but not any string. `{ id: { gt: "abc" } }`
+  // is a driver error waiting to happen, and a driver error on a READ is redacted
+  // to an opaque `resolve_error` — the gate says what is wrong while it still can.
+  if (field.kind === 'bigint') {
+    return isDecimalInteger({ value });
+  }
+
   switch (field.type) {
     case 'string':
       return typeof value === 'string';
@@ -259,11 +312,17 @@ const leafFits = ({
   }
 };
 
+/** What a leaf of this field has to look like, in one phrase. */
+const shapeOf = ({ field }: { field: FilterField }): string =>
+  field.values !== undefined
+    ? `one of ${field.values.join(', ')}`
+    : field.kind === 'bigint'
+      ? 'a decimal integer as a string'
+      : field.type;
+
 /** How a rejected value is described — the expected shape, never the value sent. */
 const expected = ({ field, operand = false }: { field: FilterField; operand?: boolean }): string =>
-  `${field.values === undefined ? field.type : `one of ${field.values.join(', ')}`}${
-    field.nullable && !operand ? ' or null' : ''
-  }`;
+  `${shapeOf({ field })}${field.nullable && !operand ? ' or null' : ''}`;
 
 /** Check one field's value: a bare leaf, or an object of bounded operators. */
 const checkValue = ({
