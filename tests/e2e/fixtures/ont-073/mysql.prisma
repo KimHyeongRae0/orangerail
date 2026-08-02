@@ -1,0 +1,39 @@
+// ONT-073 e2e fixture — a MySQL schema (AC-1, AC-2, AC-5).
+//
+// `@prisma/adapter-pg` heads `SUPPORTED_ADAPTERS`, so a repo carrying it as well
+// as `@prisma/adapter-mariadb` used to be handed `new PrismaPg(url)` over a
+// MySQL connection string. The provider below is the only fact that says
+// otherwise, and it is what the selection now reads.
+//
+// `prisma-client-js` rather than Prisma 7's default `prisma-client`: that
+// generator emits TypeScript needing Node >= 22.18, which is ONT-067's subject
+// and not this one.
+//
+// The datasource carries no `url` — Prisma 7 removed it from schema files, so it
+// lives in `prisma.config.ts` next to it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Shop {
+  id    Int    @id @default(autoincrement())
+  slug  String @unique(map: "slug")
+  name  String
+  Sale  Sale[]
+}
+
+model Sale {
+  id         Int     @id @default(autoincrement())
+  shopId     Int
+  reference  String
+  totalCents Int
+  note       String?
+  Shop       Shop    @relation(fields: [shopId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sale_shop")
+
+  @@index([shopId], map: "fk_sale_shop")
+}

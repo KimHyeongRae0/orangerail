@@ -19,7 +19,8 @@ import type { IrGenerator } from '../ir';
  * from a guess:
  *
  *   1. Which Prisma major is installed (or, failing that, declared)?
- *   2. Which driver adapter package is installed, if any?
+ *   2. Which driver adapter the schema's own `datasource` provider needs, and
+ *      whether the repo carries it (ONT-073)?
  *
  * The answers drive one of three outcomes in `init`: emit today's bare
  * construction (major < 7, or nothing resolvable — that is the pre-7 world and
@@ -426,13 +427,19 @@ export const detectPrismaMajor = ({ cwd }: { cwd: string }): PrismaMajor => {
   return { major: undefined, evidence: 'no Prisma resolvable from this directory' };
 };
 
+/**
+ * Whether the target repo carries an adapter package at all — installed, or
+ * merely declared in its `package.json`. Declared counts because the emitted
+ * `await import(…)` runs later than `init` does: a repo mid-`npm install` names
+ * the adapter it is about to have, and generating against it is right.
+ */
+const adapterPresent = ({ cwd, adapter }: { cwd: string; adapter: PrismaAdapter }): boolean =>
+  installedVersion({ cwd, pkg: adapter.module }) !== undefined ||
+  declaredRange({ cwd, pkg: adapter.module }) !== undefined;
+
 /** The first supported adapter package installed in the target repo, in table order. */
 export const detectInstalledAdapter = ({ cwd }: { cwd: string }): PrismaAdapter | undefined =>
-  SUPPORTED_ADAPTERS.find(
-    (adapter) =>
-      installedVersion({ cwd, pkg: adapter.module }) !== undefined ||
-      declaredRange({ cwd, pkg: adapter.module }) !== undefined,
-  );
+  SUPPORTED_ADAPTERS.find((adapter) => adapterPresent({ cwd, adapter }));
 
 /** The adapter that serves a Prisma `datasource` provider, when the table knows one. */
 export const adapterForProvider = ({
@@ -445,12 +452,57 @@ export const adapterForProvider = ({
     : SUPPORTED_ADAPTERS.find((adapter) => adapter.providers.includes(provider.toLowerCase()));
 
 /**
- * The refusal shown when the repo is on Prisma 7+ and no supported driver
- * adapter is installed. It states the finding, the reason, the exact install
- * command (narrowed to the scanned provider when the schema declared one), and
- * the pin-to-6 escape hatch — and it is printed INSTEAD of generating, because
- * emitting a client construction that cannot construct is the failure this
- * ticket exists to remove.
+ * The adapter the generated code will construct, or `undefined` to refuse
+ * (ONT-073).
+ *
+ * The schema's `datasource` provider decides it whenever the schema states one.
+ * Install order decided it before, and `@prisma/adapter-pg` is first in the
+ * table — so a `provider = "mysql"` repo that also carried the PostgreSQL
+ * adapter, which a monorepo serving two databases or a migration that never
+ * uninstalled the old package both produce, got `new PrismaPg(url)` emitted
+ * against a MySQL connection string.
+ *
+ * There is deliberately NO fallback to install order once the provider is known.
+ * A declared provider whose adapter is absent is the refusal `adapterRefusal`
+ * already writes — it narrows to that provider and names the one `npm install`
+ * — and a provider the table does not serve (`mongodb`, `cockroachdb`) is the
+ * same refusal listing every option. Reaching past either to a different
+ * adapter is how the defect existed.
+ *
+ * A schema stating no provider keeps install order, unchanged: there is nothing
+ * better to choose from, and its bytes must not move.
+ */
+export const selectAdapter = ({
+  cwd,
+  provider,
+}: {
+  cwd: string;
+  provider: string | undefined;
+}): PrismaAdapter | undefined => {
+  if (provider === undefined) {
+    return detectInstalledAdapter({ cwd });
+  }
+
+  const match = adapterForProvider({ provider });
+
+  return match !== undefined && adapterPresent({ cwd, adapter: match }) ? match : undefined;
+};
+
+/**
+ * The refusal shown when the repo is on Prisma 7+ and the driver adapter the
+ * generated code needs is not there. It states the finding, the reason, the exact
+ * install command (narrowed to the scanned provider when the schema declared
+ * one), and the pin-to-6 escape hatch — and it is printed INSTEAD of generating,
+ * because emitting a client construction that cannot construct is the failure
+ * ONT-049 exists to remove.
+ *
+ * The finding names the PROVIDER whenever the schema declared one (ONT-073).
+ * "No supported driver adapter is installed" was true while install order chose,
+ * because reaching that line meant the repo carried none of them. It is false now
+ * in the case this ticket adds: a `provider = "mysql"` repo carrying
+ * `@prisma/adapter-pg` refuses with a supported adapter sitting in its
+ * `node_modules`, and telling that reader nothing is installed would send them
+ * looking for an install that already happened.
  */
 export const adapterRefusal = ({
   evidence,
@@ -478,8 +530,13 @@ export const adapterRefusal = ({
       ? 'Your schema declares no datasource provider, so pick the adapter for your database:\n'
       : `Your datasource provider is \`${provider}\`, so install:\n`;
 
+  const finding =
+    provider === undefined
+      ? 'no supported driver adapter is installed'
+      : `no driver adapter for \`${provider}\` is installed`;
+
   return (
-    `${command}: this repo is on Prisma ${ADAPTER_REQUIRED_MAJOR}+ (${evidence}) and no supported driver adapter is installed.\n` +
+    `${command}: this repo is on Prisma ${ADAPTER_REQUIRED_MAJOR}+ (${evidence}) and ${finding}.\n` +
     'Prisma 7 removed the no-argument client constructor — generated code must pass a driver\n' +
     'adapter, and orangerail will not write an ontology that cannot construct a client.\n\n' +
     providerLine +
@@ -547,7 +604,10 @@ export const resolvePrismaConstruction = ({
     return { ok: true, construction: { kind: 'bare', ...clientModule } };
   }
 
-  const adapter = detectInstalledAdapter({ cwd });
+  // The schema's provider decides this, not what happens to be on disk first
+  // (ONT-073). `provider` was already in scope here and used only by the refusal
+  // below, which is exactly how a MySQL schema got the PostgreSQL adapter.
+  const adapter = selectAdapter({ cwd, provider });
 
   if (adapter === undefined) {
     return {

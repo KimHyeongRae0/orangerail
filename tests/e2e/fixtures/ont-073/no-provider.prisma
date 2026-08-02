@@ -1,0 +1,32 @@
+// ONT-073 e2e fixture — the control (AC-4). The same models as `mysql.prisma`
+// with the one line this ticket turns on removed: the datasource declares no
+// `provider`.
+//
+// There is nothing better than install order to choose from here, so this path
+// is left exactly as it was and every byte it emits is compared in full against
+// `reference/no-provider/`, captured on the merge base.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+}
+
+model Shop {
+  id    Int    @id @default(autoincrement())
+  slug  String @unique(map: "slug")
+  name  String
+  Sale  Sale[]
+}
+
+model Sale {
+  id         Int     @id @default(autoincrement())
+  shopId     Int
+  reference  String
+  totalCents Int
+  note       String?
+  Shop       Shop    @relation(fields: [shopId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sale_shop")
+
+  @@index([shopId], map: "fk_sale_shop")
+}

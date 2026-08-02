@@ -14,6 +14,7 @@ import {
   majorOf,
   resolveClientModule,
   resolvePrismaConstruction,
+  selectAdapter,
   SUPPORTED_ADAPTERS,
 } from './prisma-runtime';
 
@@ -226,6 +227,153 @@ describe('detectInstalledAdapter', () => {
   });
 });
 
+/**
+ * ONT-073 — the adapter is the one the schema's `datasource` provider names,
+ * never the first one that happens to be installed. `@prisma/adapter-pg` heads
+ * `SUPPORTED_ADAPTERS`, so a `provider = "mysql"` repo carrying it as well used
+ * to emit `new PrismaPg(url)` against a MySQL connection string.
+ */
+describe('selectAdapter (ONT-073)', () => {
+  const ALL = Object.fromEntries(SUPPORTED_ADAPTERS.map((adapter) => [adapter.module, '7.9.1']));
+
+  it('picks the adapter the provider names over the one earlier in the table', () => {
+    const cwd = makeRepo({
+      installed: { '@prisma/adapter-pg': '7.9.1', '@prisma/adapter-mariadb': '7.9.1' },
+    });
+
+    expect(selectAdapter({ cwd, provider: 'mysql' })?.className).toBe('PrismaMariaDb');
+  });
+
+  it('picks by provider with every adapter installed', () => {
+    const cwd = makeRepo({ installed: ALL });
+
+    expect(selectAdapter({ cwd, provider: 'sqlserver' })?.className).toBe('PrismaMssql');
+    expect(selectAdapter({ cwd, provider: 'sqlite' })?.className).toBe('PrismaBetterSqlite3');
+    expect(selectAdapter({ cwd, provider: 'postgres' })?.className).toBe('PrismaPg');
+  });
+
+  it('matches a provider whatever case the schema wrote it in', () => {
+    // The selection now depends on `adapterForProvider` lowercasing, so the
+    // casing is asserted where the choice is made rather than only where the
+    // table is read.
+    const cwd = makeRepo({ installed: ALL });
+
+    expect(selectAdapter({ cwd, provider: 'MySQL' })?.className).toBe('PrismaMariaDb');
+    expect(selectAdapter({ cwd, provider: 'PostgreSQL' })?.className).toBe('PrismaPg');
+  });
+
+  it('accepts the matching adapter DECLARED but not yet installed', () => {
+    const cwd = makeRepo({
+      installed: { '@prisma/adapter-pg': '7.9.1' },
+      declared: { '@prisma/adapter-mariadb': '^7.9.1' },
+    });
+
+    expect(selectAdapter({ cwd, provider: 'mysql' })?.className).toBe('PrismaMariaDb');
+  });
+
+  it('never falls back to install order when the matching adapter is absent', () => {
+    // The whole defect: `@prisma/adapter-pg` is present and heads the table, and
+    // reaching for it here would emit `new PrismaPg(url)` over MySQL.
+    const cwd = makeRepo({ installed: { '@prisma/adapter-pg': '7.9.1' } });
+
+    expect(selectAdapter({ cwd, provider: 'mysql' })).toBeUndefined();
+  });
+
+  it('chooses nothing for a provider the table does not serve', () => {
+    const cwd = makeRepo({ installed: ALL });
+
+    expect(selectAdapter({ cwd, provider: 'mongodb' })).toBeUndefined();
+    expect(selectAdapter({ cwd, provider: 'cockroachdb' })).toBeUndefined();
+  });
+
+  it('keeps install order when the schema declares no provider', () => {
+    // Nothing better to use, so the pre-ONT-073 answer stands untouched.
+    const cwd = makeRepo({
+      installed: { '@prisma/adapter-mariadb': '7.9.1', '@prisma/adapter-pg': '7.9.1' },
+    });
+
+    expect(selectAdapter({ cwd, provider: undefined })).toEqual(SUPPORTED_ADAPTERS[0]);
+  });
+});
+
+describe('resolvePrismaConstruction picks by provider (ONT-073)', () => {
+  it('emits the MySQL adapter for a MySQL schema that also carries the PostgreSQL one', () => {
+    const cwd = makeRepo({
+      installed: {
+        '@prisma/client': '7.9.1',
+        '@prisma/adapter-pg': '7.9.1',
+        '@prisma/adapter-mariadb': '7.9.1',
+      },
+    });
+
+    const outcome = resolve({ cwd, provider: 'mysql' });
+
+    expect(outcome.ok && outcome.construction).toMatchObject({
+      kind: 'adapter',
+      adapter: { className: 'PrismaMariaDb' },
+    });
+  });
+
+  it('REFUSES a MySQL schema carrying only the PostgreSQL adapter, naming the right one', () => {
+    const cwd = makeRepo({
+      installed: { '@prisma/client': '7.9.1', '@prisma/adapter-pg': '7.9.1' },
+    });
+
+    const outcome = resolve({ cwd, provider: 'mysql' });
+    const refusal = outcome.ok ? '' : outcome.refusal;
+
+    expect(outcome.ok).toBe(false);
+    expect(refusal).toContain('Your datasource provider is `mysql`');
+    expect(refusal).toContain('npm install @prisma/adapter-mariadb');
+    expect(refusal).not.toContain('npm install @prisma/adapter-pg');
+  });
+
+  it('REFUSES a provider the table does not serve, however many adapters are installed', () => {
+    const cwd = makeRepo({
+      installed: {
+        '@prisma/client': '7.9.1',
+        ...Object.fromEntries(SUPPORTED_ADAPTERS.map((adapter) => [adapter.module, '7.9.1'])),
+      },
+    });
+
+    const outcome = resolve({ cwd, provider: 'mongodb' });
+
+    expect(outcome.ok).toBe(false);
+    // No adapter serves it, so the refusal is the one that lists every option.
+    for (const adapter of SUPPORTED_ADAPTERS) {
+      expect(outcome.ok ? '' : outcome.refusal).toContain(adapter.module);
+    }
+  });
+
+  it('leaves Prisma 6 on the bare construction, adapters or not', () => {
+    // Adapters are irrelevant below the major that requires one, so a mismatched
+    // table on a Prisma 6 repo must not become a refusal.
+    const cwd = makeRepo({
+      installed: { '@prisma/client': '6.19.3', '@prisma/adapter-pg': '7.9.1' },
+    });
+
+    expect(resolve({ cwd, provider: 'mysql' })).toEqual({
+      ok: true,
+      construction: { kind: 'bare' },
+    });
+  });
+
+  it('keeps install order for a schema that declares no provider', () => {
+    const cwd = makeRepo({
+      installed: {
+        '@prisma/client': '7.9.1',
+        '@prisma/adapter-mariadb': '7.9.1',
+        '@prisma/adapter-pg': '7.9.1',
+      },
+    });
+
+    expect(resolve({ cwd })).toEqual({
+      ok: true,
+      construction: { kind: 'adapter', adapter: SUPPORTED_ADAPTERS[0], urlEnv: 'DATABASE_URL' },
+    });
+  });
+});
+
 describe('adapterForProvider', () => {
   it('maps every provider the table claims', () => {
     expect(adapterForProvider({ provider: 'postgresql' })?.className).toBe('PrismaPg');
@@ -250,6 +398,23 @@ describe('adapterRefusal', () => {
     for (const adapter of SUPPORTED_ADAPTERS) {
       expect(refusal).toContain(adapter.module);
     }
+  });
+
+  it('states a finding that stays true when another adapter IS installed (ONT-073)', () => {
+    // Selection follows the provider now, so this refusal reaches a repo that has
+    // a supported adapter sitting in node_modules — just not this provider's.
+    // "No supported driver adapter is installed" would send that reader looking
+    // for an install they already ran.
+    const refusal = adapterRefusal({ evidence: 'prisma 7.9.1', provider: 'mysql', docPath: DOC });
+
+    expect(refusal).toContain('no driver adapter for `mysql` is installed');
+    expect(refusal).not.toContain('no supported driver adapter is installed');
+  });
+
+  it('keeps the blanket finding when the schema named no provider', () => {
+    const refusal = adapterRefusal({ evidence: 'prisma 7.9.1', provider: undefined, docPath: DOC });
+
+    expect(refusal).toContain('no supported driver adapter is installed');
   });
 
   it('offers the pin-to-6 escape hatch', () => {

@@ -329,6 +329,24 @@ export const runInit = async ({
               '  `orangerail sync --accept-governance` to vouch for it as reviewed.\n',
           };
 
+  // Which driver adapter the generated client is built from, and what chose it
+  // (ONT-073). Before this the summary named no adapter at all, so a repo
+  // carrying two of them could be handed the wrong one — a MySQL schema
+  // constructed through `PrismaPg` — and the first sign of it was a tool call
+  // failing at the datasource. Naming the provider alongside the class is what
+  // makes a wrong choice readable here rather than in generated code.
+  //
+  // Silent on the pre-7 `bare` construction, which passes no adapter: a line
+  // saying nothing was chosen is noise on every Prisma 6 repo.
+  const adapterBeat =
+    prisma.construction.kind !== 'adapter'
+      ? ''
+      : `  ✓  driver adapter ${prisma.construction.adapter.className} from ${prisma.construction.adapter.module} —\n` +
+        (source.datasource?.provider === undefined
+          ? '     your schema declares no datasource provider, so this is the first supported\n' +
+            '     adapter this repo carries\n'
+          : `     chosen for the \`${source.datasource.provider}\` provider your schema declares\n`);
+
   // The refusal beat exists so the recorded deny-list is never something the
   // operator finds later in a JSON file: what `sync` will stay quiet about from
   // now on is stated in the same breath as what was generated (ONT-059).
@@ -374,6 +392,7 @@ export const runInit = async ({
     `  ✓  scanned your sources — ${objectCount} object(s), ${actionCount} action(s)\n` +
       '  ✓  generated a governed MCP server under ontology/\n' +
       `  ✓  ${gateLine}\n` +
+      adapterBeat +
       excludedBeat +
       governanceBeat.tick +
       storeBeat.tick +

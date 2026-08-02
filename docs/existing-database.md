@@ -126,13 +126,21 @@ The adapter package depends on which database you are on:
 | `mysql` | `@prisma/adapter-mariadb` | run end to end against MySQL 9.7.1 |
 | `sqlserver` | `@prisma/adapter-mssql` | constructor signature only |
 
-orangerail emits a client construction only for the adapters in that table.
-With Prisma 7 and none of them installed, `init` refuses rather than generating
-an ontology that cannot construct a client:
+orangerail emits a client construction only for the adapters in that table, and
+it picks the row your schema's `provider` names — never whichever adapter it
+finds first. A repo serving two databases, or one that migrated to MySQL without
+uninstalling `@prisma/adapter-pg`, gets `PrismaMariaDb` because the schema says
+`mysql`. `init` prints the class it chose and the provider it chose it for, so a
+wrong choice is readable without opening generated code.
+
+With Prisma 7 and the adapter for your provider missing, `init` refuses rather
+than generating an ontology that cannot construct a client. Another database's
+adapter being installed does not change that — orangerail will not connect to
+MySQL through a PostgreSQL driver:
 
 ```console
 $ npx orangerail init --yes
-orangerail init: this repo is on Prisma 7+ (@prisma/client 7.9.1 (installed)) and no supported driver adapter is installed.
+orangerail init: this repo is on Prisma 7+ (@prisma/client 7.9.1 (installed)) and no driver adapter for `postgresql` is installed.
 Prisma 7 removed the no-argument client constructor — generated code must pass a driver
 adapter, and orangerail will not write an ontology that cannot construct a client.
 

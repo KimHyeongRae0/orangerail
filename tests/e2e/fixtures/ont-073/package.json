@@ -1,0 +1,7 @@
+{
+  "name": "ont-073-fixture-storefront",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture repo for ONT-073: a MySQL schema in a repo that also carries the PostgreSQL driver adapter, which is the shape that used to emit `new PrismaPg(url)` against a MySQL connection string, plus a no-provider control whose emitted bytes must not move. Copied OUT OF REPO so the Prisma-major probe reads the node_modules the scenario plants rather than the monorepo's own."
+}
