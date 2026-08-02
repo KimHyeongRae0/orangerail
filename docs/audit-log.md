@@ -28,7 +28,7 @@ on the chain — and not a boundary against someone who owns the disk.
 
 A governed write can return a value JSON refuses to serialize: a row that points back at
 itself, a driver id that comes back as a `BigInt`, an object whose `toJSON` throws. Until
-`0.1.1` that value threw from inside the append, which meant the write had already landed in
+`0.1.2` that value threw from inside the append, which meant the write had already landed in
 your database and the chain said nothing about it — and the agent, told the call failed, would
 try again.
 
