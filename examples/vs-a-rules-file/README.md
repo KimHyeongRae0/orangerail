@@ -5,8 +5,8 @@ This one runs it *against the thing you would do instead* — a rules file you t
 to follow, and a precondition you write by hand — on the same task, the same database, the
 same credentials, and reports whatever comes out.
 
-On the run that matters most, the rules file **ties**. That result is in the root
-[README](../../README.md#what-a-rules-file-already-gets-you) and it is not re-litigated here:
+On the run that matters most, the rules file **ties**. That result is written up in
+[against the thing you would do instead](../../docs/vs-a-rules-file.md) and is not re-litigated here:
 a good model with a good rules file, in the directory the rules live in, does the right thing.
 So the three scenarios below hold that constant and move something else — the account and
 directory the process starts in, one line of the policy, and one column of the schema —
