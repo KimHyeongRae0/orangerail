@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "recordedBy": "sync",
+  "note": "Governance baseline recorded by `orangerail sync --accept-governance`: a human reviewed this posture. `orangerail sync` reports and fails when the posture of an action weakens against these rows, and `orangerail mcp` refuses to serve an action that weakened. Commit this file; re-record it after an intentional policy change.",
+  "excluded": [],
+  "actions": [
+    {
+      "name": "applyDiscount",
+      "approval": null,
+      "roles": [],
+      "where": "status neq \"soldout\"",
+      "target": "Product#productId"
+    },
+    {
+      "name": "createCustomer",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "createOrder",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "createProduct",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": null
+    },
+    {
+      "name": "deleteCustomer",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Customer#id"
+    },
+    {
+      "name": "deleteOrder",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Order#id"
+    },
+    {
+      "name": "deleteProduct",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Product#id"
+    },
+    {
+      "name": "updateCustomer",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": "Customer#id"
+    },
+    {
+      "name": "updateOrder",
+      "approval": null,
+      "roles": [],
+      "where": null,
+      "target": "Order#id"
+    },
+    {
+      "name": "updateProduct",
+      "approval": "required",
+      "roles": [],
+      "where": null,
+      "target": "Product#id"
+    }
+  ]
+}

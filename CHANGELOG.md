@@ -519,6 +519,21 @@ full against a reference captured on `main`.
   step earlier now. `docs/existing-database.md#prisma-7` still holds the full
   walkthrough and nothing moved out of it.
 
+- **A third example runs orangerail against the thing you would do instead, and
+  scores it off the rows.** `examples/vs-a-rules-file/` makes the README's rules-file
+  section reproducible: three scenarios, both arms executed on the same database with
+  the same credentials, every verdict read back off the table rather than off a
+  transcript. The baseline is a scripted client given every advantage — it reads a
+  project rules file by walking up from the working directory **and** a global one
+  under `os.homedir()`, obeys the union, and refuses forbidden operations by exact
+  name without run-to-run variance. Scenario 1 runs one task from four places and
+  **asserts the column where the rules file wins**, so the example goes red if the
+  baseline ever stops winning it. Scenario 2 removes one line from each arm's policy
+  in an uncommitted tree. Scenario 3 lands a migration the ontology did not follow,
+  and keeps a middle result row recording this project shipping the same defect on a
+  real `062e527` build. Each scenario resets its own state, restores every file it
+  edits, exits non-zero on any failed assertion, and is byte-identical on repeat runs.
+
 - **The README stated a rules file's reach narrower than it is, and the scope
   argument built on top of that is corrected to the width it was measured at.**
   It said "a `CLAUDE.md` governs the directory it sits in". Measured with a canary
