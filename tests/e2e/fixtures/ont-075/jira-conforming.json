@@ -1,0 +1,52 @@
+{
+  "project": { "key": "COM", "name": "Commerce" },
+  "issues": [
+    {
+      "key": "COM-1",
+      "fields": {
+        "assignee": { "accountId": "acc_ann", "displayName": "Ann Alvarez" },
+        "reporter": { "accountId": "acc_bea", "displayName": "Bea Brandt" },
+        "issuetype": { "name": "Story" },
+        "status": { "name": "Done" },
+        "summary": "checkout retries",
+        "customfield_10016": 5,
+        "components": [{ "name": "checkout" }],
+        "created": "2026-01-02T10:00:00.000Z",
+        "resolutiondate": "2026-01-05T10:00:00.000Z"
+      },
+      "changelog": { "histories": [{ "items": [{ "field": "status", "toString": "Done" }] }] }
+    },
+    {
+      "key": "COM-2",
+      "fields": {
+        "assignee": { "accountId": "acc_ann", "displayName": "Ann Alvarez" },
+        "reporter": { "accountId": "acc_ann", "displayName": "Ann Alvarez" },
+        "issuetype": { "name": "Bug" },
+        "status": { "name": "Done" },
+        "summary": "cart total off by one",
+        "customfield_10016": 3,
+        "components": [{ "name": "cart" }],
+        "created": "2026-01-06T09:00:00.000Z",
+        "resolutiondate": "2026-01-08T17:00:00.000Z"
+      },
+      "changelog": { "histories": [{ "items": [{ "field": "status", "toString": "Reopened" }] }] }
+    },
+    {
+      "key": "COM-3",
+      "fields": {
+        "assignee": { "accountId": "acc_bea", "displayName": "Bea Brandt" },
+        "reporter": { "accountId": "acc_ann", "displayName": "Ann Alvarez" },
+        "issuetype": { "name": "Task" },
+        "status": { "name": "In Progress" },
+        "summary": "ship the pricing job",
+        "customfield_10016": 2,
+        "components": [{ "name": "pricing" }],
+        "created": "2026-01-09T11:00:00.000Z",
+        "resolutiondate": "2026-01-09T21:00:00.000Z"
+      },
+      "changelog": {
+        "histories": [{ "items": [{ "field": "assignee", "from": "acc_ann", "to": "acc_bea" }] }]
+      }
+    }
+  ]
+}

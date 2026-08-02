@@ -1,0 +1,65 @@
+{
+  "project": { "key": "COM", "name": "Commerce" },
+  "issues": [
+    {
+      "key": "COM-1",
+      "fields": {
+        "assignee": { "accountId": "acc_a", "displayName": "Ann | 9 | 999 | yes" },
+        "issuetype": { "name": "Story" },
+        "status": { "name": "Done" },
+        "summary": "one issue, five points",
+        "customfield_10016": 5,
+        "created": "2026-01-02T10:00:00.000Z",
+        "resolutiondate": "2026-01-05T10:00:00.000Z"
+      }
+    },
+    {
+      "key": "COM-2",
+      "fields": {
+        "assignee": { "accountId": "acc_b", "displayName": "Bea B" },
+        "issuetype": { "name": "Story" },
+        "status": { "name": "Done" },
+        "summary": "half of an overflow",
+        "customfield_10016": 1e308,
+        "created": "2026-01-03T10:00:00.000Z",
+        "resolutiondate": "2026-01-06T10:00:00.000Z"
+      }
+    },
+    {
+      "key": "COM-3",
+      "fields": {
+        "assignee": { "accountId": "acc_b", "displayName": "Bea B" },
+        "issuetype": { "name": "Story" },
+        "status": { "name": "Done" },
+        "summary": "the other half",
+        "customfield_10016": 1e308,
+        "created": "2026-01-04T10:00:00.000Z",
+        "resolutiondate": "2026-01-07T10:00:00.000Z"
+      }
+    },
+    {
+      "key": "COM-4",
+      "fields": {
+        "assignee": { "accountId": "acc_c", "displayName": "Cy\r\nCollins" },
+        "issuetype": { "name": "Task" },
+        "status": { "name": "Done" },
+        "summary": "a name that ends a table row",
+        "customfield_10016": 2,
+        "created": "2026-01-05T10:00:00.000Z",
+        "resolutiondate": "2026-01-05T20:00:00.000Z"
+      }
+    },
+    {
+      "key": "COM-5",
+      "fields": {
+        "assignee": { "accountId": "acc_d", "displayName": "Dee Dawson" },
+        "issuetype": { "name": "Bug" },
+        "status": { "name": "Done" },
+        "summary": "an ordinary row, as a control",
+        "customfield_10016": 3,
+        "created": "2026-01-06T10:00:00.000Z",
+        "resolutiondate": "2026-01-07T10:00:00.000Z"
+      }
+    }
+  ]
+}
