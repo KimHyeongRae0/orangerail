@@ -9,10 +9,14 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import {
+  checkConformance,
   createEngine,
+  markNonconforming,
   readPublicDiagnostic,
   renderBigInts,
+  renderConformancePath,
   resolveCaller,
+  type ConformanceIssue,
   type ExecuteResult,
   type Identity,
   type ObjectDefinition,
@@ -212,6 +216,70 @@ const outbound = ({ value }: { value: unknown }): { value: unknown; json: string
 
   return { value: rendered, json: JSON.stringify(rendered) };
 };
+
+/**
+ * What a read tool serves for one value, checked against the schema its object
+ * declares (ONT-074 AC-5).
+ *
+ * The verdict is computed over the WIRE FORM — the value after `renderBigInts`
+ * and a JSON round trip — and not over the row the resolver handed back, because
+ * the wire form is what the agent holds. The difference is not academic: a
+ * generated Prisma ontology maps `DateTime` and `Decimal` to `z.string()`
+ * (`codegen/zod.ts:60,63`) and returns a `Date` and a `Decimal` OBJECT from the
+ * resolver, so a verdict taken off the row would mark `createdAt` on every real
+ * project while the agent was receiving a perfectly conforming ISO string. Each
+ * consumer asks about the value it holds; that is the same rule the gate follows
+ * when it asks about the raw row `evaluateWhere` reads.
+ *
+ * A conforming value takes the SAME two returns it took before this ticket —
+ * `page.json` and `page.value`, not a re-serialization of the round trip — so an
+ * ordinary read is byte-identical.
+ */
+const servedValue = ({
+  object,
+  value,
+  json,
+  wire,
+}: {
+  object: ObjectDefinition;
+  /** The rendered value, returned as-is when nothing is wrong with it. */
+  value: unknown;
+  /** Its JSON, likewise. */
+  json: string;
+  /** The JSON round trip — what the agent ends up holding. */
+  wire: unknown;
+}): { value: unknown; json: string; issues: ConformanceIssue[] } => {
+  const conformance = checkConformance({ schema: object.schema, value: wire });
+
+  if (conformance.state === 'conforming') {
+    return { value, json, issues: [] };
+  }
+
+  const marked = markNonconforming({ value: wire, conformance, objectName: object.name });
+
+  return { value: marked.value, json: JSON.stringify(marked.value), issues: marked.issues };
+};
+
+/**
+ * The list a marked read carries beside the value it marked.
+ *
+ * zod's message can quote the value it refused, and here that is fine and
+ * deliberate: this is a READ, the caller is authorized for this object, and the
+ * value is in the payload above it. The same sentence is withheld from the agent
+ * at the `where` gate (`nonconformingTarget`), where the caller may have no read
+ * access to the target at all.
+ */
+const nonconformingList = ({
+  issues,
+  prefix = [],
+}: {
+  issues: ConformanceIssue[];
+  prefix?: (string | number)[];
+}): { path: string; reason: string }[] =>
+  issues.map((issue) => ({
+    path: renderConformancePath({ path: [...prefix, ...issue.path] }),
+    reason: issue.message,
+  }));
 
 const err = ({
   status,
@@ -458,6 +526,34 @@ const carriedResult = ({ value }: { value: unknown }): Record<string, unknown> =
   }
 };
 
+/**
+ * The refusal for a target row that does not match the shape its object declares
+ * (ONT-074 AC-4).
+ *
+ * The FIELD is named and the reason is not. The field is already published — it
+ * is in the tool description that renders the `where` clause — so naming it
+ * costs nothing and is the whole difference between an agent that reports
+ * something an operator can act on and one that reports "it did not work".
+ * `reason` carries zod's own sentence, which quotes the value it refused, and
+ * that is a STORED value on an object the caller may have no read access to at
+ * all; it stays on the audit record, where §3.10 keeps every other
+ * operator-facing text.
+ *
+ * Distinct from `rejected_where` on the wire for the same reason it is distinct
+ * in the engine: retrying is pointless here, and an agent that cannot tell the
+ * two apart will retry.
+ */
+const nonconformingTarget = ({
+  result,
+}: {
+  result: { field: string; reason: string };
+}): ToolResult =>
+  err({
+    status: 'target_nonconforming',
+    message: `The target row does not match what this ontology declares for "${result.field}", so the precondition could not be evaluated. Nothing was staged and nothing ran. This is not a retry: an operator has to reconcile the object definition with the datasource. Quote the field name.`,
+    extra: { field: result.field },
+  });
+
 const invalidatedMessage = ({ reason }: { reason: InvalidatedReason }): string =>
   reason === 'stale_approval'
     ? 'Invalidated (stale_approval): this approval was recorded by an older orangerail-core than the one running, so the payload cannot be verified against it. Nothing executed and the approval is spent — stage the action again. If a fresh staging invalidates the same way, stop retrying and have the operator run `orangerail status`.'
@@ -516,6 +612,8 @@ const mapStage = ({
     }
     case 'rejected_where':
       return err({ status: 'rejected_where', message: 'Precondition (where) not satisfied.' });
+    case 'target_nonconforming':
+      return nonconformingTarget({ result });
     case 'resolve_error':
       return failure({ ...result, status: 'resolve_error' });
     case 'condition_changed':
@@ -583,6 +681,8 @@ const mapExecute = ({
       });
     case 'condition_changed':
       return err({ status: 'condition_changed', message: 'Target changed since approval.' });
+    case 'target_nonconforming':
+      return nonconformingTarget({ result });
     case 'resolve_error':
       return failure({ ...result, status: 'resolve_error' });
     case 'audit_blocked':
@@ -762,8 +862,25 @@ export const createMcpServer = ({
     }
 
     const row = outbound({ value: result });
+    const served = servedValue({
+      object,
+      value: row.value,
+      json: row.json,
+      wire: JSON.parse(row.json),
+    });
 
-    return ok({ message: row.json, structured: { status: 'ok', object: row.value } });
+    return ok({
+      message: served.json,
+      structured: {
+        status: 'ok',
+        object: served.value,
+        // Spread only when there is something to say, so a conforming read's
+        // structured content is exactly the two keys it has always had.
+        ...(served.issues.length > 0
+          ? { nonconforming: nonconformingList({ issues: served.issues }) }
+          : {}),
+      },
+    });
   };
 
   const handleList = async ({
@@ -824,9 +941,32 @@ export const createMcpServer = ({
 
     const page = outbound({ value: result ?? { items: [] } });
 
+    // The declared schema describes ONE row, so the page is checked row by row
+    // rather than as a whole — `items` and `nextCursor` are this transport's own
+    // envelope and no ontology declares them.
+    const wire = JSON.parse(page.json) as Record<string, unknown>;
+    const rows: unknown[] = Array.isArray(wire['items']) ? wire['items'] : [];
+    const checked = rows.map((row) => {
+      const conformance = checkConformance({ schema: object.schema, value: row });
+
+      return markNonconforming({ value: row, conformance, objectName: object.name });
+    });
+    const nonconforming = checked.flatMap((row, index) =>
+      nonconformingList({ issues: row.issues, prefix: ['items', index] }),
+    );
+
+    if (nonconforming.length === 0) {
+      return ok({
+        message: page.json,
+        structured: { status: 'ok', ...(page.value as Record<string, unknown>) },
+      });
+    }
+
+    const marked = { ...wire, items: checked.map((row) => row.value) };
+
     return ok({
-      message: page.json,
-      structured: { status: 'ok', ...(page.value as Record<string, unknown>) },
+      message: JSON.stringify(marked),
+      structured: { status: 'ok', ...marked, nonconforming },
     });
   };
 

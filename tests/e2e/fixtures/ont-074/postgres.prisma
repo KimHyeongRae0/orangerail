@@ -1,0 +1,34 @@
+// ONT-074 e2e fixture (PostgreSQL) — one model whose row is worth checking.
+//
+// `status` is the column the gated action's `where` clause reads. The other
+// three carry the scalars whose JS value is NOT the type the generated schema
+// declares for them: `createdAt` is a `Date` against `z.string()`, `price` is a
+// Prisma `Decimal` against `z.string()`, and `serial` is a JS `BigInt` against a
+// decimal-string regex (`codegen/zod.ts:53-64`). They are the whole risk of this
+// ticket — a conformance check that refuses them would break every real project.
+//
+// `note` exists to be dropped on its own, so the run can show that a row failing
+// its schema in a field the clause never reads still passes the gate (AC-3).
+//
+// `prisma-client-js` on purpose: the Prisma 7 default `prisma-client` generator
+// emits TypeScript needing Node >= 22.18, which is ONT-067's subject and would
+// gate this scenario on something it is not measuring. Prisma 7 rejects `url` in
+// the datasource block (P1012) — it lives in prisma.config.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Product {
+  id        Int      @id @default(autoincrement())
+  title     String
+  status    String
+  note      String
+  price     Decimal  @db.Decimal(10, 2)
+  serial    BigInt
+  createdAt DateTime
+}

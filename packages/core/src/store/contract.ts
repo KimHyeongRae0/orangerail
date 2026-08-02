@@ -1,3 +1,4 @@
+import type { ConformanceIssue } from '../conformance';
 import type { Identity } from '../types';
 
 /** Approval record lifecycle status (§3.4 state machine). */
@@ -81,7 +82,20 @@ export type AuditPhase =
   /** Sandbox dry-run terminal record (§3.6) — the would-be input, never executed. */
   | 'dry_run'
   /** A `notImplemented` stub rejected at staging before any approval (§3.7). */
-  | 'not_implemented';
+  | 'not_implemented'
+  /**
+   * The `where` gate refused because the row it had to read did not match the
+   * shape its object declares (§3.3 / ONT-074). Distinct from `rejected_where`
+   * on purpose: that one says the condition did not hold, this one says the
+   * condition could not be evaluated on the value it was handed, and the two
+   * are different repairs — one is a data state, the other is a declaration
+   * that stopped describing the datasource.
+   *
+   * Its `error` carries the field and zod's own sentence and is OPERATOR-facing
+   * (§3.10): a transport answering an untrusted agent tells it WHICH field, and
+   * not what the stored value was.
+   */
+  | 'target_nonconforming';
 
 /**
  * The state of an action's target object as it stood immediately BEFORE the
@@ -103,8 +117,23 @@ export type AuditPhase =
  * same value the `where` gate evaluated when the action declares one.
  */
 export type AuditPrior =
-  /** The target existed and was read. `value` is the row as of just before the write. */
-  | { state: 'value'; value: unknown }
+  /**
+   * The target existed and was read. `value` is the row as of just before the
+   * write.
+   *
+   * `nonconforming` is present only when the row did NOT match the shape its
+   * object declares and the engine already knew that — i.e. the action carried a
+   * `where` gate, which is the one case that computes a conformance verdict at
+   * all (ONT-074 AC-6 keeps an ungated action paying nothing for this). It is
+   * carried so the record an operator reconciles from says the field was absent
+   * or wrong, rather than showing a row with a field silently missing from it
+   * and leaving the reader to notice.
+   *
+   * Dropped by {@link maskAuditPrior} whenever redaction touches the row: zod's
+   * message can quote the value it refused, so a project that withheld the row
+   * must not get it back one sentence at a time.
+   */
+  | { state: 'value'; value: unknown; nonconforming?: ConformanceIssue[] }
   /** The read succeeded and there was no such object — a create, or a stale id. */
   | { state: 'none' }
   /**

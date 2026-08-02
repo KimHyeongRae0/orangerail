@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
 import { hashApprovalInput, persistedForm } from '../audit/chain';
+import {
+  checkConformance,
+  conformanceOfField,
+  conformanceReason,
+  type Conformance,
+} from '../conformance';
 import { isNotImplemented } from '../define/action';
 import { readPublicDiagnostic, type PublicDiagnostic } from '../diagnostic';
 import { authorizeApprover } from '../identity/contract';
@@ -98,6 +104,30 @@ export type ExecuteResult =
    */
   | { status: 'invalidated'; reason: 'signature' | 'schema' | 'input' | 'stale_approval' }
   | { status: 'condition_changed' }
+  /**
+   * The gate refused because the target row does not match the shape its object
+   * declares, so the clause could not be evaluated on it (§3.3 / ONT-074).
+   *
+   * Deliberately NOT `rejected_where`. That status means the condition was read
+   * and did not hold — an operator answers it by changing the data. This one
+   * means the field the clause names is absent, or is not the type the object
+   * declares, so no answer was available; the repair is the resolver or the
+   * declaration, not the row. Reporting the second as the first is how a gate
+   * that could not evaluate reads as a gate that decided.
+   *
+   * ONE status on BOTH the staging and the re-evaluation path, unlike
+   * `rejected_where`/`condition_changed`. That pair distinguishes "never held"
+   * from "stopped holding", which is a real difference about the DATA. A
+   * declaration that does not describe the datasource is the same finding and
+   * the same repair whenever it is noticed.
+   *
+   * `field` is agent-safe — it is already published in the tool description that
+   * renders the `where` clause. `reason` carries zod's own sentence, which can
+   * quote the stored value it refused, and is OPERATOR-facing exactly like
+   * {@link FailureDetail.error} (§3.10): a transport answering an untrusted
+   * agent forwards the field and not the reason.
+   */
+  | { status: 'target_nonconforming'; field: string; reason: string }
   /** A `dry_run` engine (sandbox preset) refuses to complete an approval (§3.6). */
   | { status: 'dry_run' }
   | ({ status: 'resolve_error' } & FailureDetail)
@@ -225,10 +255,18 @@ export const readActionPrior = async ({
   action,
   input,
   fetched,
+  conformance,
 }: {
   action: RuntimeAction;
   input: unknown;
   fetched?: TargetFetch | undefined;
+  /**
+   * A conformance verdict the caller already computed over this same row
+   * (ONT-074). Supplied only by the `where` gate, which is the one place that
+   * computes one — an action with no gate parses nothing, so its prior is
+   * recorded exactly as before.
+   */
+  conformance?: Conformance | undefined;
 }): Promise<AuditPrior> => {
   const target = fetched ?? (await fetchTarget({ action, input }));
 
@@ -244,8 +282,17 @@ export const readActionPrior = async ({
     return { state: 'unreadable', error: target.error };
   }
 
-  return target.object === null || target.object === undefined
-    ? { state: 'none' }
+  if (target.object === null || target.object === undefined) {
+    return { state: 'none' };
+  }
+
+  // The row is recorded verbatim either way — marking it here would put a
+  // sentence where a value was and cost the recovery its only copy of the row.
+  // What is added is the FINDING beside it, so the record states that the value
+  // above is not the shape the object declares instead of leaving the reader to
+  // spot a missing key.
+  return conformance !== undefined && conformance.state === 'nonconforming'
+    ? { state: 'value', value: target.object, nonconforming: conformance.issues }
     : { state: 'value', value: target.object };
 };
 
@@ -278,6 +325,10 @@ export const maskAuditPrior = ({
     return prior;
   }
 
+  // Both redaction arms drop `nonconforming` (ONT-074). zod's message quotes the
+  // value it refused — `Invalid enum value ... received 'x'` — so a project that
+  // masked the row would get the masked columns back one sentence at a time. The
+  // finding is only ever published beside a row that was published verbatim.
   if (redactPrior) {
     const masked = redactPrior({ actionName, prior: prior.value });
 
@@ -294,12 +345,24 @@ export const maskAuditPrior = ({
  */
 const persistedPrior = ({ prior }: { prior: AuditPrior }): AuditPrior =>
   prior.state === 'value'
-    ? { state: 'value', value: persistedForm({ value: prior.value }) }
+    ? {
+        state: 'value',
+        value: persistedForm({ value: prior.value }),
+        // Spread only when present, so a conforming row's record hashes exactly
+        // as it did before this ticket.
+        ...(prior.nonconforming !== undefined ? { nonconforming: prior.nonconforming } : {}),
+      }
     : prior;
 
 type WhereCheck =
-  | { kind: 'pass'; target?: TargetFetch | undefined }
+  | {
+      kind: 'pass';
+      target?: TargetFetch | undefined;
+      /** The verdict computed on the way through, so `runExecute` re-parses nothing. */
+      conformance?: Conformance | undefined;
+    }
   | { kind: 'fail' }
+  | { kind: 'nonconforming'; field: string; reason: string }
   | ({ kind: 'resolve_error' } & Omit<FailureDetail, 'correlationId'>);
 
 /**
@@ -414,6 +477,52 @@ export const createEngine = ({
 
     const object = fetched.kind === 'ok' ? fetched.object : null;
 
+    // Does the row match the shape its object declares (§3.1 / ONT-074)?
+    //
+    // `evaluateWhere` reads one property off this row and compares it. Nothing
+    // had ever checked that the property is there or is the declared type, and
+    // the read of an absent field yields `undefined`, which `neq` answers
+    // `true` to — so the clause written to STOP an action permitted it, under a
+    // gate whose own doc comment says it fails closed.
+    //
+    // Three deliberate narrowings, each of which is what keeps this a bugfix:
+    //   - a FUNCTIONAL predicate is not checked at all. It is delegated
+    //     verbatim (`where.ts:38`) and the engine cannot know which fields it
+    //     reads, so there is no field to be right or wrong about. Uncovered,
+    //     and said out loud rather than implied.
+    //   - a null/absent row is left to the existing fail-closed path
+    //     (`where.ts:42`), which already refuses it.
+    //   - only the ONE field the clause names is consulted. A row that fails
+    //     its schema somewhere this clause never reaches has nothing to do with
+    //     the decision being made (AC-3).
+    const declared = typeof where === 'function' ? undefined : where;
+    const schema = action.target?.schema;
+    let conformance: Conformance | undefined;
+
+    if (declared && schema && object !== null && object !== undefined) {
+      conformance = checkConformance({ schema, value: object });
+
+      const field = conformanceOfField({ conformance, field: declared.field });
+
+      // A parse over arbitrary user data can throw — a getter on the row is
+      // user code — and that is the existing `resolve_error` path, not a
+      // verdict about the row.
+      if (field.state === 'unreadable') {
+        return { kind: 'resolve_error', error: field.error };
+      }
+
+      if (field.state === 'nonconforming') {
+        return {
+          kind: 'nonconforming',
+          field: declared.field,
+          reason: conformanceReason({
+            issues: field.issues,
+            objectName: action.target?.name ?? 'the target object',
+          }),
+        };
+      }
+    }
+
     // A functional `where` runs the user predicate verbatim (`where.ts`). Wrap
     // it so a throw fails CLOSED to a `resolve_error` — the same audited path a
     // failing `fetchTarget` already takes — instead of escaping uncaught after
@@ -425,7 +534,7 @@ export const createEngine = ({
       // gate just approved, rather than re-reading and recording a possibly
       // different one. Zero extra round-trips for a gated action (§3.11 cost).
       return evaluateWhere({ where, object, input, identity })
-        ? { kind: 'pass', target: fetched }
+        ? { kind: 'pass', target: fetched, conformance }
         : { kind: 'fail' };
     } catch (err) {
       return { kind: 'resolve_error', ...failureOf({ err }) };
@@ -495,6 +604,7 @@ export const createEngine = ({
     input,
     identity,
     target,
+    conformance,
     audit,
     claim,
   }: {
@@ -503,6 +613,8 @@ export const createEngine = ({
     identity: Identity;
     /** A target read the `where` gate already performed, when there was one. */
     target?: TargetFetch | undefined;
+    /** The verdict the gate computed over that same read (ONT-074). */
+    conformance?: Conformance | undefined;
     audit: {
       actionName: string;
       approvalId?: string | undefined;
@@ -534,7 +646,7 @@ export const createEngine = ({
     // inside its transaction — `execute` is arbitrary user code and orangerail
     // has no transaction to enlist in. Free when a `where` gate already fetched
     // the row; skipped entirely when the action declares no readable target.
-    const prior = await readActionPrior({ action, input, fetched: target });
+    const prior = await readActionPrior({ action, input, fetched: target, conformance });
 
     try {
       await store.appendAudit({
@@ -666,6 +778,24 @@ export const createEngine = ({
         ...(where.diagnostic ? { diagnostic: where.diagnostic } : {}),
       };
     }
+    // Refused because the row is not the shape the object declares (ONT-074).
+    // Its own phase, and its own status: the audit record carries the full
+    // reason for the operator, and the agent is told the field and nothing
+    // about the stored value (§3.10).
+    if (where.kind === 'nonconforming') {
+      await store.appendAudit({
+        record: mkAudit({
+          phase: 'target_nonconforming',
+          actionName,
+          requestedBy: caller.subject,
+          input: parsedInput,
+          error: `the \`${where.field}\` the where clause reads is ${where.reason}`,
+          devMode: caller.devMode,
+        }),
+      });
+
+      return { status: 'target_nonconforming', field: where.field, reason: where.reason };
+    }
     if (where.kind === 'fail') {
       await store.appendAudit({
         record: mkAudit({
@@ -722,6 +852,7 @@ export const createEngine = ({
         input: parsedInput,
         identity: caller,
         target: where.target,
+        conformance: where.conformance,
         audit: {
           actionName,
           requestedBy: caller.subject,
@@ -998,6 +1129,19 @@ export const createEngine = ({
         ...(where.diagnostic ? { diagnostic: where.diagnostic } : {}),
       };
     }
+    // Same finding as at staging, same status (ONT-074). The approval is spent
+    // here exactly as `condition_changed` spends it: the payload was approved
+    // against a gate that can no longer be evaluated, so the repair is a fresh
+    // staging once the resolver or the declaration is fixed, not a retry of this
+    // record.
+    if (where.kind === 'nonconforming') {
+      await abort({
+        phase: 'target_nonconforming',
+        error: `the \`${where.field}\` the where clause reads is ${where.reason}`,
+      });
+
+      return { status: 'target_nonconforming', field: where.field, reason: where.reason };
+    }
     if (where.kind === 'fail') {
       await abort({ phase: 'condition_changed' });
       return { status: 'condition_changed' };
@@ -1011,6 +1155,7 @@ export const createEngine = ({
       input: freshInput,
       identity: executeIdentity,
       target: where.target,
+      conformance: where.conformance,
       audit,
       claim: async () => store.consumeApproval({ id: approvalId }),
     });

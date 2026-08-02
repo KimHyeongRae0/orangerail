@@ -41,6 +41,11 @@ const POST_CONSUME_PHASES: AuditPhase[] = [
   'invalidated',
   'condition_changed',
   'resolve_error',
+  // ONT-074's pre-execute abort. It takes the same append-then-consume route as
+  // `condition_changed`, so leaving it out here would report every drifted-row
+  // refusal as an orphaned consumed approval — a chain integrity failure raised
+  // about the engine doing exactly what it was told to.
+  'target_nonconforming',
 ];
 
 /** The phases that state an execution reached its end, however it ended. */

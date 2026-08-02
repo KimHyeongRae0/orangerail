@@ -139,6 +139,34 @@ existing project with no re-run of `init`. But it makes the honest sentence a tw
 `ontology/` is what you **review**, and `orangerail mcp` is what **enforces**. The ontology
 files are the declaration, not the boundary.
 
+## A `where` clause checks the field it reads, and a functional one checks nothing
+
+A **declarative** `where` — `{ field, op, value }` — now parses the target row against the
+object's declared schema and refuses when the field it is about to read is not what the object
+says it is. That is a real gate: before it, a row missing the field yielded `undefined`, and
+`undefined !== 'soldout'` is `true`, so a clause written to stop an action permitted it. The
+refusal is its own outcome, `target_nonconforming`, distinct from `rejected_where`.
+
+Three things it deliberately does not do, each of which you should know before relying on it.
+
+**It checks one field.** The clause consults one field, so one field is checked. A row that
+fails its schema in a column no policy reads passes exactly as it did before — that is what
+keeps this a bugfix rather than a rule that rejects working projects — and it means the gate is
+not a row validator and must not be read as one.
+
+**It cannot check a functional predicate at all.** A `where` written as a function receives the
+row verbatim ([`packages/core/src/policy/where.ts`](../packages/core/src/policy/where.ts)) and
+the engine has no way to know which fields it reads. Nothing about it is checked, and a
+predicate that derefs a field the row does not carry behaves exactly as it always has. If you
+want the check, write the clause declaratively.
+
+**It is only as precise as your declaration.** The verdict comes from the zod schema in
+`ontology/*.mjs`. A field declared `.optional()` is conforming when absent, and a field
+declared `z.unknown()` admits everything — which is what the scanner emits for a `Json` column
+([`packages/cli/src/commands/init/codegen/zod.ts`](../packages/cli/src/commands/init/codegen/zod.ts)).
+A generated ontology's declaration is a scan of your schema at one moment; `orangerail sync` is
+what tells you the two have parted company.
+
 ## What the governance baseline defends against
 
 `orangerail.governance.json` catches *unnoticed* change — a bad merge, a careless refactor, or
