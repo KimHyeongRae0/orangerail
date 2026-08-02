@@ -20,6 +20,7 @@ import {
 } from '../init/codegen/prisma-runtime';
 import type { IrAction } from '../init/ir';
 import { scanRepo } from '../init/scan';
+import { ambiguityDetail, type Candidate, candidatesOf, resolveNames } from '../init/select';
 import { diffSync, type SyncDiff } from './diff';
 
 /**
@@ -446,61 +447,95 @@ export const isDrift = ({ findings }: { findings: SyncFindings }): boolean =>
   findings.governance > 0 ||
   findings.exposedExclusions > 0;
 
+/** A usable `--exclude`, resolved to scanned spelling, or why the run refuses it. */
+type ExclusionOutcome = { ok: true; names: string[] } | { ok: false; message: string };
+
 /**
- * Refuse an `--exclude` value the run cannot honestly record, before a line of
- * report is printed. Returns the message, or `null` when the names are usable.
+ * Resolve an `--exclude` value to the names this run can honestly record, or
+ * refuse it, before a line of report is printed.
  *
- * All three refusals are about the same thing: a recorded refusal outlives the
+ * All four refusals are about the same thing: a recorded refusal outlives the
  * run that wrote it, so it must be true when it is written. A typo would sit in
  * a committed file matching nothing while the operator believed a table was
- * refused; a name the ontology already serves would manufacture the very
- * contradiction the check reports; and with no baseline at all there is no
+ * refused; a name that could mean either of two models differing only in case
+ * has no answer at all; a name the ontology already serves would manufacture the
+ * very contradiction the check reports; and with no baseline at all there is no
  * honest `recordedBy` to stamp — `init` did not write the file and nobody
  * reviewed the postures in it.
+ *
+ * What comes back is the SCANNED spelling of each name (ONT-063). This is the
+ * command whose own report tells an operator to run
+ * `orangerail sync --exclude <name>`, and the name they retype is as likely to
+ * come from their database as from the schema file — but what gets written has
+ * to be the name every later run compares against exactly.
  */
-const refuseExclusions = ({
+const resolveExclusions = ({
   names,
+  candidates,
   scannedNames,
   registryNames,
   review,
   acceptGovernance,
 }: {
   names: string[];
+  /** What may be resolved to: the scanned objects, then registry-only names. */
+  candidates: Candidate[];
   scannedNames: ReadonlySet<string>;
   registryNames: ReadonlySet<string>;
   review: GovernanceReview;
   acceptGovernance: boolean;
-}): string | null => {
-  const unknown = names.filter((name) => !scannedNames.has(name) && !registryNames.has(name));
+}): ExclusionOutcome => {
+  const resolution = resolveNames({ typed: names, known: candidates });
 
-  if (unknown.length > 0) {
+  if (resolution.unknown.length > 0) {
     const known = [...scannedNames].sort();
 
-    return (
-      `--exclude names ${unknown.map((name) => `"${name}"`).join(', ')}, which your sources do not have — ` +
-      (known.length === 0 ? 'this repo scanned no models.' : `expected one of ${known.join(', ')}.`)
-    );
+    return {
+      ok: false,
+      message:
+        `--exclude names ${resolution.unknown.map((name) => `"${name}"`).join(', ')}, which your sources do not have — ` +
+        (known.length === 0
+          ? 'this repo scanned no models.'
+          : `expected one of ${known.join(', ')}.`),
+    };
   }
 
-  const exposed = names.filter((name) => registryNames.has(name));
+  if (resolution.ambiguous.length > 0) {
+    return {
+      ok: false,
+      message:
+        `--exclude names ${resolution.ambiguous.map((entry) => `"${entry.typed}"`).join(', ')}, which could mean ` +
+        `${ambiguityDetail({ ambiguous: resolution.ambiguous })} — those source names differ only in case. ` +
+        'Name the one you mean exactly as this scan reports it; a refusal recorded for the wrong one of ' +
+        'a pair leaves the other one reachable.',
+    };
+  }
+
+  const exposed = resolution.names.filter((name) => registryNames.has(name));
 
   if (exposed.length > 0) {
-    return (
-      `--exclude names ${exposed.map((name) => `"${name}"`).join(', ')}, which your ontology already exposes. ` +
-      'Delete the ontology file(s) and the actions targeting them first, then record the refusal — ' +
-      'otherwise the file would say refused while the agent could still reach it.'
-    );
+    return {
+      ok: false,
+      message:
+        `--exclude names ${exposed.map((name) => `"${name}"`).join(', ')}, which your ontology already exposes. ` +
+        'Delete the ontology file(s) and the actions targeting them first, then record the refusal — ' +
+        'otherwise the file would say refused while the agent could still reach it.',
+    };
   }
 
   if (review.state === 'unrecorded' && !acceptGovernance) {
-    return (
-      `there is no ${GOVERNANCE_FILE} to record the exclusion in, and writing one here would have to ` +
-      'claim who vouched for the action postures inside it. Run ' +
-      `\`orangerail sync --exclude ${names.join(',')} --accept-governance\` to record both at once.`
-    );
+    return {
+      ok: false,
+      // The command handed back carries the RESOLVED names, so the operator who
+      // copies it does not have to have typed the casing correctly twice.
+      message:
+        `there is no ${GOVERNANCE_FILE} to record the exclusion in, and writing one here would have to ` +
+        'claim who vouched for the action postures inside it. Run ' +
+        `\`orangerail sync --exclude ${resolution.names.join(',')} --accept-governance\` to record both at once.`,
+    };
   }
 
-  return null;
+  return { ok: true, names: resolution.names };
 };
 
 /** Run `orangerail sync`. */
@@ -548,25 +583,38 @@ export const runSync = async ({
   // The refusal is checked before anything is printed, so a rejected `--exclude`
   // never leaves a half-run behind: no report, no file, and an exit code that
   // cannot be mistaken for "drift found".
+  let excludeNames: string[] | undefined;
+
   if (exclude !== undefined) {
-    const refusal = refuseExclusions({
+    // The scanned objects first, so a name resolves to the spelling the scan
+    // reports; then the models only the ontology carries, which is what the
+    // `already exposes` refusal is reached by.
+    const outcome = resolveExclusions({
       names: exclude,
+      candidates: [
+        ...candidatesOf({ source: scanned }),
+        ...[...registryNames].filter((name) => !scannedNames.has(name)).map((name) => ({ name })),
+      ],
       scannedNames,
       registryNames,
       review,
       acceptGovernance,
     });
 
-    if (refusal !== null) {
-      process.stderr.write(`orangerail sync: ${refusal}\n`);
+    if (!outcome.ok) {
+      process.stderr.write(`orangerail sync: ${outcome.message}\n`);
       return 2;
     }
+
+    excludeNames = outcome.names;
   }
 
-  // What this run honours: the recorded list plus whatever `--exclude` adds. The
-  // new names take effect in the same run that records them, so the report the
-  // operator reads is the one the next run will print.
-  const excluded = normalizeExclusions({ names: [...review.excluded, ...(exclude ?? [])] });
+  // What this run honours: the recorded list plus whatever `--exclude` adds — by
+  // its scanned spelling, never the typed one, because this list is compared
+  // exactly here and in every run after it (ONT-063). The new names take effect
+  // in the same run that records them, so the report the operator reads is the
+  // one the next run will print.
+  const excluded = normalizeExclusions({ names: [...review.excluded, ...(excludeNames ?? [])] });
   const excludedSet = new Set(excluded);
 
   const diff = diffSync({ scanned, registry });
@@ -596,7 +644,7 @@ export const runSync = async ({
   // postures, so it carries `recordedBy` across untouched: recording a refusal
   // must never turn an init-generated posture nobody has read into a reviewed
   // one.
-  if (acceptGovernance || exclude !== undefined) {
+  if (acceptGovernance || excludeNames !== undefined) {
     const recordedBy = acceptGovernance ? 'sync' : (review.recordedBy ?? 'sync');
 
     try {
@@ -614,9 +662,11 @@ export const runSync = async ({
       );
     }
 
-    if (exclude !== undefined) {
+    // Counted in models rather than in typed strings: `--exclude PAYMENT,payment`
+    // is one refusal, and the resolved list is what was recorded.
+    if (excludeNames !== undefined) {
       process.stdout.write(
-        `sync: recorded ${exclude.length} refused model(s) in ${GOVERNANCE_FILE} — ${excluded.join(', ')} — commit it.\n`,
+        `sync: recorded ${excludeNames.length} refused model(s) in ${GOVERNANCE_FILE} — ${excluded.join(', ')} — commit it.\n`,
       );
     }
   }
