@@ -497,6 +497,22 @@ full against a reference captured on `main`.
 
 ### Documentation
 
+- **The README stated a rules file's reach narrower than it is, and the scope
+  argument built on top of that is corrected to the width it was measured at.**
+  It said "a `CLAUDE.md` governs the directory it sits in". Measured with a canary
+  codename on Claude Code 2.1.220: discovery walks **up** from the working
+  directory, so a project file governs its own directory and every subdirectory
+  beneath it, and a global `~/.claude/CLAUDE.md` is read from every directory that
+  account works in — including an unrelated one and `$HOME`. The section's framing
+  moves with it. It no longer says grants travel and rules do not; it says a grant
+  travels with the **session** it was registered for and a rules file travels with
+  the **machine account** it was written under, and it names the gap as the place
+  those two do not overlap — a CI runner, a container, a scheduler under a service
+  account. The closing concession was wrong in the other direction for the same
+  reason and now concedes a machine account rather than one directory: a global
+  rules file plus a good model may be the whole answer for one developer on one
+  machine, and the README says so outright.
+
 - `docs/existing-database.md` no longer steers around this defect by prescribing
   `prisma-client-js`. Both client generators are documented, with where each
   generates to and what the ontology imports for each, plus the Node version the
