@@ -112,22 +112,34 @@ directory the process starts in**:
 The model was reasonable both times. It followed the rules where it found them, and did the job
 where there were none. The policy simply did not come along.
 
+**Read the second column at the width it was measured.** That machine carries no global rules
+file. Put one at `~/.claude/CLAUDE.md` and it is read from every directory that account works in
+— canary codename, Claude Code 2.1.220, read from the project root, from a directory two levels
+below it, from an unrelated directory and from `$HOME` — and the second column closes. A global
+rules file is a real answer here, it needs nothing installed, and this project is not going to
+pretend otherwise. So the claim is not that grants travel and rules do not — it is narrower, and
+it is the one that was measured: **a grant travels with the session it was registered for; a
+rules file travels with the machine account it was written under.** Most of the time those two
+scopes overlap and nothing separates. The gap is where they do not.
+
 **That is not a contrived setup, it is a scope mismatch.** A tool grant and a rules file are
 declared in different places and reach different distances. An MCP server registered at user
 scope — `~/.claude.json`, Claude Desktop's config — is mounted in *every* directory you work in,
-for as long as it is there. A `CLAUDE.md` governs the directory it sits in. Nothing keeps the two
-in step, and nothing reports when they drift apart. On the machine this was written on, one
-user-scope server is mounted across 15 recorded projects; 10 `CLAUDE.md` files exist across
-those projects and **none of them mentions it**, and there is no user-scope rules file at all.
-That is one developer's laptop rather than a survey, and a single analytics server is a mild
-example — but it is the shape, and the shape does not improve when the server is your database
-and the directories belong to a team.
+for as long as it is there. A project `CLAUDE.md` governs the directory it sits in and everything
+beneath it; a global one at `~/.claude/CLAUDE.md` governs every directory that account works in,
+and there is no such file on the machine these numbers come from. Nothing keeps the two in step,
+and nothing reports when they drift apart. On that machine, one user-scope server is mounted
+across 15 recorded projects; 10 `CLAUDE.md` files exist across those projects and **none of them
+mentions it**. That is one developer's laptop rather than a survey, and a single analytics server
+is a mild example — but it is the shape, and the shape does not improve when the server is your
+database and the directories belong to a team.
 
-The everyday versions: a second service's repo that talks to the same database, a scheduled run
-whose working directory is not the repo root, a fresh clone where the rules file was never
-committed (one of the six checked on that machine is untracked), a container that mounts `src/`
-but not the root, or an agent invoked from `~`. None of them requires anyone to do anything
-wrong.
+The everyday versions, all of them on the far side of the account boundary the global file stops
+at: a CI runner, a container that mounts `src/` and carries nobody's home directory, a scheduler
+running under a service account, or a teammate's laptop where the rules file was never committed
+(one of the six checked on that machine is untracked). None of them requires anyone to do
+anything wrong, and every one of them gets the database credentials, because credentials are put
+in the environment on purpose.
 
 The same thing happens when the policy is edited rather than left behind. Remove the deletion
 prohibition from `CLAUDE.md` and **nothing anywhere reports it** — there is no scanner, no exit
@@ -149,10 +161,10 @@ by name returns `{"status":"unknown_tool"}` rather than executing.
 
 **None of that needs a bad actor.** A rules file is a document sitting in a working directory,
 and the agent it governs usually has file tools over that directory. It takes a refactor, a
-moved folder, a second checkout, a cron job started from `/`, or a teammate who cloned the repo
-without it. Asked outright to edit its own rules and then use the capability they blocked, the
-agent refused — in **both** arms, every run. That is not the argument. The argument is that the
-policy has to be somewhere the work cannot leave behind.
+moved folder, a second checkout, a job running under a service account, or a teammate who cloned
+the repo without it. Asked outright to edit its own rules and then use the capability they
+blocked, the agent refused — in **both** arms, every run. That is not the argument. The argument
+is that the policy has to be somewhere the work cannot leave behind.
 
 That difference is also the only one here that gets **stronger** as agents improve: more
 capability means broader file access, more autonomy and more instances, and a rules file's
@@ -175,10 +187,12 @@ at all and were measured directly. What is **not** claimed anywhere: that advers
 a weaker model, repetition, or an agent's own intent will break a rules file. Each was tested
 and none of them did.
 
-**So: if you are one developer with a good model and a good rules file, in one directory, you
-may not need this.** Install it when the policy has to outlive the directory it was written in —
-when the approver is not the operator, when the agent belongs to a team, when it runs from a
-scheduler, or when the request must survive the conversation ending.
+**So: if you are one developer with a good model and a good rules file, working as yourself on
+your own machine, you may not need this.** A global `~/.claude/CLAUDE.md` covers every directory
+you work in, and on this evidence the model obeys it. Install it when the policy has to outlive
+the machine account it was written under — when the approver is not the operator, when the agent
+belongs to a team, when it runs from a scheduler or a CI runner or a container, or when the
+request must survive the conversation ending.
 
 ## What the agent gets instead of `execute_sql`
 
