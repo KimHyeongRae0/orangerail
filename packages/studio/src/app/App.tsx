@@ -27,6 +27,7 @@ import { ParticleOverlay } from './edges/ParticleOverlay';
 import { WorksOnEdge } from './edges/WorksOnEdge';
 import { DetailPanel, PersonScorecard } from './DetailPanel';
 import { EmptyState, isEmptySnapshot } from './EmptyState';
+import { ViewBoundary } from './ErrorBoundary';
 import { AGENT_VIEW_ENABLED } from './featureFlags';
 import { fitAll } from './fit';
 import { actionEdgeId, buildGraph } from './graph';
@@ -604,66 +605,91 @@ const Studio = () => {
     <div className={styles.root} data-testid="studio-root">
       <CardinalityMarkers />
 
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={NODE_TYPES}
-        edgeTypes={EDGE_TYPES}
-        colorMode="dark"
-        nodesConnectable={false}
-        edgesFocusable={false}
-        edgesReconnectable={false}
-        deleteKeyCode={null}
-        minZoom={0.1}
-        maxZoom={2}
-        panOnScroll
-        panOnDrag={[1, 2]}
-        onNodeClick={onNodeClick}
-        onNodeMouseEnter={onNodeMouseEnter}
-        onNodeMouseLeave={onNodeMouseLeave}
-        onPaneClick={() => {
-          setActive(null);
-          setActivePerson(null);
-          setActiveService(null);
-          setHoverAccountId(null);
-          setHoverServiceId(null);
-        }}
-        attributionPosition="bottom-left"
-      >
-        <Background variant={BackgroundVariant.Dots} color="#393b3c" gap={16} size={1} />
-        <ParticleOverlay activeEdgeIds={activeEdgeIds} />
-      </ReactFlow>
+      {/*
+        One boundary per view, not one around the app. A view is the largest
+        region whose failure a reader can be told about while still using the
+        rest, so the map failing must not cost them the toolbar, and a panel
+        about one person must not cost them the map or every other person.
+      */}
+      <ViewBoundary view="The ontology map">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
+          colorMode="dark"
+          nodesConnectable={false}
+          edgesFocusable={false}
+          edgesReconnectable={false}
+          deleteKeyCode={null}
+          minZoom={0.1}
+          maxZoom={2}
+          panOnScroll
+          panOnDrag={[1, 2]}
+          onNodeClick={onNodeClick}
+          onNodeMouseEnter={onNodeMouseEnter}
+          onNodeMouseLeave={onNodeMouseLeave}
+          onPaneClick={() => {
+            setActive(null);
+            setActivePerson(null);
+            setActiveService(null);
+            setHoverAccountId(null);
+            setHoverServiceId(null);
+          }}
+          attributionPosition="bottom-left"
+        >
+          <Background variant={BackgroundVariant.Dots} color="#393b3c" gap={16} size={1} />
+          <ParticleOverlay activeEdgeIds={activeEdgeIds} />
+        </ReactFlow>
+      </ViewBoundary>
 
       {category === 'human' && viewMode === 'matrix' && helpMatrix ? (
-        <HelpMatrix model={helpMatrix} />
+        <ViewBoundary view="The help matrix">
+          <HelpMatrix model={helpMatrix} />
+        </ViewBoundary>
       ) : null}
 
-      {category === 'agent' && fleet ? <FleetView snapshot={fleet} /> : null}
+      {category === 'agent' && fleet ? (
+        <ViewBoundary view="The agent fleet">
+          <FleetView snapshot={fleet} />
+        </ViewBoundary>
+      ) : null}
 
-      <Toolbar
-        category={category}
-        availability={availability}
-        onCategory={handleCategory}
-        showMode={showMode}
-        onShowMode={handleShowMode}
-        onTidy={handleTidy}
-        viewMode={viewMode}
-        onViewMode={handleViewMode}
-        relationship={relationship}
-        onRelationship={handleRelationship}
-        weightThreshold={weightThreshold}
-        onWeightThresholdInc={handleWeightThresholdInc}
-        onWeightThresholdDec={handleWeightThresholdDec}
-      />
+      <ViewBoundary view="The toolbar">
+        <Toolbar
+          category={category}
+          availability={availability}
+          onCategory={handleCategory}
+          showMode={showMode}
+          onShowMode={handleShowMode}
+          onTidy={handleTidy}
+          viewMode={viewMode}
+          onViewMode={handleViewMode}
+          relationship={relationship}
+          onRelationship={handleRelationship}
+          weightThreshold={weightThreshold}
+          onWeightThresholdInc={handleWeightThresholdInc}
+          onWeightThresholdDec={handleWeightThresholdDec}
+        />
+      </ViewBoundary>
 
+      {/*
+        Keyed by the selection: a boundary holds its failure until it unmounts,
+        so without the key a second row selected after a first one failed would
+        inherit the first one's fallback and read as broken until a reload.
+      */}
       {category === 'db' && active && snapshot ? (
-        <DetailPanel snapshot={snapshot} focus={active} onClose={() => setActive(null)} />
+        <ViewBoundary key={`detail-${active.type}-${active.name}`} view="The detail panel">
+          <DetailPanel snapshot={snapshot} focus={active} onClose={() => setActive(null)} />
+        </ViewBoundary>
       ) : null}
 
       {category === 'human' && selectedPerson ? (
-        <PersonScorecard employee={selectedPerson} onClose={() => setActivePerson(null)} />
+        <ViewBoundary key={`scorecard-${activePerson ?? ''}`} view="The person scorecard">
+          <PersonScorecard employee={selectedPerson} onClose={() => setActivePerson(null)} />
+        </ViewBoundary>
       ) : null}
 
       {reloadError ? (
@@ -675,9 +701,18 @@ const Studio = () => {
   );
 };
 
-/** Root app: the studio surface wrapped in a React Flow provider. */
+/**
+ * Root app: the studio surface wrapped in a React Flow provider.
+ *
+ * The outermost boundary is the backstop for everything above the per-view ones
+ * — the data fetch, the layout, and a per-view boundary that fails while
+ * rendering its own message. Without it that last case would escape to React,
+ * which unmounts the root, which is the failure this ticket exists to end.
+ */
 export const App = () => (
   <ReactFlowProvider>
-    <Studio />
+    <ViewBoundary view="The studio">
+      <Studio />
+    </ViewBoundary>
   </ReactFlowProvider>
 );
