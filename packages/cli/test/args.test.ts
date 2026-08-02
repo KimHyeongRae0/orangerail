@@ -185,3 +185,29 @@ describe('--exclude', () => {
     expect(parseArgs({ argv: ['sync'] }).exclude).toBeUndefined();
   });
 });
+
+/**
+ * `--studio` / `--no-studio` (ONT-077). The wizard's flag-only default is now
+ * `false`, so what `parseArgs` resolves these two to decides whether a server
+ * comes up — pinned here rather than left implicit.
+ */
+describe('--studio / --no-studio', () => {
+  it('is undefined when neither flag is given, which is what the default keys off', () => {
+    expect(parseArgs({ argv: ['init', '--yes'] }).studio).toBeUndefined();
+  });
+
+  it('resolves each flag to its own value', () => {
+    expect(parseArgs({ argv: ['init', '--yes', '--studio'] }).studio).toBe(true);
+    expect(parseArgs({ argv: ['init', '--yes', '--no-studio'] }).studio).toBe(false);
+  });
+
+  it('lets the last flag win when both are passed', () => {
+    expect(parseArgs({ argv: ['init', '--no-studio', '--studio'] }).studio).toBe(true);
+    expect(parseArgs({ argv: ['init', '--studio', '--no-studio'] }).studio).toBe(false);
+  });
+
+  it('reads -y exactly as --yes, so the default reaches the alias too', () => {
+    expect(parseArgs({ argv: ['init', '-y'] }).yes).toBe(true);
+    expect(parseArgs({ argv: ['init', '-y'] }).studio).toBeUndefined();
+  });
+});

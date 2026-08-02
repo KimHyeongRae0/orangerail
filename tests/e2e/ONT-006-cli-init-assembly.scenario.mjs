@@ -6,9 +6,13 @@
  * strings included) and proves the whole flagship flow:
  *
  *   1. flag-driven `orangerail init` generates ontology/ + config +
- *      .orangerail/generated docs, auto-starts the studio (asserted via a real
+ *      .orangerail/generated docs, starts the studio (asserted via a real
  *      browser through agent-browser — direct Playwright is forbidden), and
- *      honors --no-open;
+ *      honors --no-open. ONT-077: the studio handoff is now requested with an
+ *      explicit `--studio`. This phase always meant to prove the handoff a human
+ *      gets by answering `[Y/n]` with Enter, and used `--yes` only because a
+ *      scenario script cannot answer a prompt — `--yes` no longer carries that
+ *      answer, so the flag that does is passed instead;
  *   2. re-running init refuses and modifies nothing (AC-6);
  *   3. `orangerail mcp` boots on the generated output unmodified and tools/list
  *      matches the fixture (AC-5) — read tools for every model, governed
@@ -269,7 +273,16 @@ mkdirSync(SHOT_DIR, { recursive: true });
 
 const init = spawn(
   'node',
-  [CLI, 'init', '--yes', '--preset=approval-for-writes', '--port', String(PORT), '--no-open'],
+  [
+    CLI,
+    'init',
+    '--yes',
+    '--studio',
+    '--preset=approval-for-writes',
+    '--port',
+    String(PORT),
+    '--no-open',
+  ],
   { cwd: RUN_A, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] },
 );
 

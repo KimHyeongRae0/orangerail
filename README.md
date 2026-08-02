@@ -270,6 +270,12 @@ The scanner reads your files, makes no LLM calls, and needs no API key. Have a l
 no schema file? `prisma db pull` writes one — the whole path is in
 [Adopting orangerail against an existing database](./docs/existing-database.md).
 
+**On Prisma 7, a Prisma-6-shaped schema stops you before orangerail is reached.** A `url` in the
+`datasource` block fails every `prisma` command with ``The datasource property `url` is no longer
+supported in schema files``, and `db push --skip-generate` is gone. The moves — the URL into
+`prisma.config.ts`, and the driver adapter the client now requires — are in
+[Adopting orangerail against an existing database](./docs/existing-database.md#prisma-7).
+
 ```console
 $ npx orangerail init --yes --preset approval-for-writes --no-studio
   ✓  scanned your sources — 2 object(s), 6 action(s)

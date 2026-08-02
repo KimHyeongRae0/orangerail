@@ -21,13 +21,15 @@ describe('runWizard flag parity (AC-3)', () => {
       isTTY: false,
     });
 
+    // `studio: false` is the ONT-077 default, not an omitted flag: under `--yes`
+    // there is nobody to close a server.
     expect(result).toEqual({
       ok: true,
       options: {
         preset: 'approval-for-writes',
         gate: 'delete',
         docs: true,
-        studio: true,
+        studio: false,
         open: false,
       },
     });
@@ -98,6 +100,63 @@ describe('runWizard flag parity (AC-3)', () => {
 
       expect(result.ok && result.options.gate).toBe(gate);
     }
+  });
+});
+
+describe('--yes implies --no-studio (ONT-077)', () => {
+  it('does not launch the studio when only --yes was given', async () => {
+    const { stdin, stdout } = streams();
+    const result = await runWizard({
+      flags: baseFlags({ yes: true }),
+      stdin,
+      stdout,
+      isTTY: false,
+    });
+
+    expect(result.ok && result.options.studio).toBe(false);
+  });
+
+  it('still launches the studio when --studio was passed alongside --yes', async () => {
+    const { stdin, stdout } = streams();
+    const result = await runWizard({
+      flags: baseFlags({ yes: true, studio: true }),
+      stdin,
+      stdout,
+      isTTY: false,
+    });
+
+    expect(result.ok && result.options.studio).toBe(true);
+  });
+
+  it('keeps --no-studio meaning exactly what it already meant', async () => {
+    const { stdin, stdout } = streams();
+    const result = await runWizard({
+      flags: baseFlags({ yes: true, studio: false }),
+      stdin,
+      stdout,
+      isTTY: false,
+    });
+
+    expect(result.ok && result.options.studio).toBe(false);
+  });
+
+  it('holds on a TTY too — --yes means the same thing whoever is watching', async () => {
+    const { stdin, stdout } = streams();
+    const result = await runWizard({ flags: baseFlags({ yes: true }), stdin, stdout, isTTY: true });
+
+    expect(result.ok && result.options.studio).toBe(false);
+  });
+
+  it('leaves --open alone, because only runStudio reads it', async () => {
+    const { stdin, stdout } = streams();
+    const result = await runWizard({
+      flags: baseFlags({ yes: true }),
+      stdin,
+      stdout,
+      isTTY: false,
+    });
+
+    expect(result.ok && result.options.open).toBe(true);
   });
 });
 
