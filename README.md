@@ -390,6 +390,15 @@ run can be green. It is a list of names, not a snapshot: a table that appears *a
 refusal is still reported loudly, and a recorded name that stops matching anything is reported
 as prunable, so it cannot quietly silence a future table that reuses it.
 
+Type the name in whatever casing you have in front of you. `--models` and `--exclude` match your
+sources ignoring case, so `payment` finds a Prisma `model Payment` — you should not have to
+remember whether you last read the table in `psql` or in the schema file. What gets **written**
+is always the name your sources declare, because that is the name every later run compares
+against. Case is the only difference accepted: a typo, a prefix or a plural is refused, naming
+the models you do have. And if two of your models differ only in case, nothing is chosen for
+you — the run refuses and names both, since the wrong half of that pair staying reachable is
+exactly what this flag exists to prevent.
+
 **orangerail will never guess which tables those are.** It does not scan your schema for
 `secret`, `password` or `credential` and pre-select the matches. A name is syntactic and the
 danger it stands for is not — the table that puts a customer's card number in a support
