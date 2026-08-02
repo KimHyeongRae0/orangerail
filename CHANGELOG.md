@@ -509,6 +509,16 @@ full against a reference captured on `main`.
 
 ### Documentation
 
+- **The Quickstart now lists the Prisma 7 driver adapter among its
+  prerequisites, so a reader on Prisma 7 installs it instead of discovering it
+  from an `exit 1`.** The requirements block named Node versions and then sent
+  the reader straight at `orangerail init`, which on Prisma 7 refuses until the
+  adapter the schema's `datasource` provider names is installed — reproduced
+  cold from packed tarballs on a Prisma 7 SQLite project. The refusal is
+  correct and unchanged; the four provider → package pairs simply arrive one
+  step earlier now. `docs/existing-database.md#prisma-7` still holds the full
+  walkthrough and nothing moved out of it.
+
 - **The README stated a rules file's reach narrower than it is, and the scope
   argument built on top of that is corrected to the width it was measured at.**
   It said "a `CLAUDE.md` governs the directory it sits in". Measured with a canary
