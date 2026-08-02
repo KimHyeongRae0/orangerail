@@ -3,18 +3,16 @@
 > Decide once what your agent may do. Then leave it working.
 
 **The thing stopping you from walking away is not that the agent does too much. It is that
-your only control is a question it has to ask you.** A host permission prompt is answered by
-whoever is at the keyboard, and the twentieth prompt of the afternoon gets the same click as
-the first. The switch that ends the asking already ships in the box — Claude Code's
-`bypassPermissions` mode "skips permission prompts, except those forced by explicit `ask`
-rules", per its own [permissions reference](https://code.claude.com/docs/en/permissions). A
-boundary re-established by a person on every call erodes at exactly the rate the agent becomes
-useful, and it cannot hold at all once nobody is there.
+your only control is a question it has to ask you.** The twentieth prompt of the afternoon gets
+the same click as the first, and the switch that ends the asking ships in the box — Claude
+Code's `bypassPermissions` mode "skips permission prompts, except those forced by explicit
+`ask` rules", per its own [permissions
+reference](https://code.claude.com/docs/en/permissions). A boundary re-established by a person
+on every call cannot hold once nobody is there.
 
-The prompt is also the wrong *shape*. It asks about a tool — may this run `Bash`, may it write
-this file — and the risk you actually carry is about your domain: stock edits are fine, order
-deletions are not, refunds under $50 need nobody. No tool-level switch expresses that, because
-the distinction does not exist at the tool level. It exists in your schema.
+The prompt is also the wrong *shape*. It asks about a tool — may this run `Bash` — and the risk
+you carry is about your domain: stock edits are fine, order deletions are not, refunds under
+$50 need nobody. That distinction does not exist at the tool level. It exists in your schema.
 
 **orangerail reads the schema you already have and generates the agent's surface from it.**
 `orangerail init` turns a `prisma/schema.prisma` or an OpenAPI spec into an MCP server: a `get`
@@ -57,142 +55,40 @@ Scored from the database afterwards, not from what the agent said it did:
 That is the metric this project is built around, and it is not "how much did we block". It is
 **how much finished while nobody was watching, and what is waiting when you get back.**
 
-Two separable claims sit in that table, and only one of them is reproducible on your machine.
-That the twelve go through unattended, that the three cannot, and that what they leave behind is
-executable is a property of the server — [`examples/unattended-queue`](./examples/unattended-queue)
-runs exactly that queue through a real MCP client, deterministically, with no API key, and
-asserts every line. That a *model* chooses these calls when handed the queue in prose is the
-part that needed a live agent, and it is what the numbers above were measured from.
+Two separable claims sit in that table, and only one is reproducible on your machine. That the
+twelve go through unattended and the three cannot is a property of the server —
+[`examples/unattended-queue`](./examples/unattended-queue) runs exactly that queue through a
+real MCP client, deterministically, no API key, asserting every line. That a *model* chooses
+these calls when handed the queue in prose needed a live agent, and is what the numbers above
+were measured from.
 
-### What a rules file already gets you
+### Against the thing you would do instead
 
-The comparison that matters is not a raw SQL server. It is the thing you would do instead of
-installing anything: write the rules in a file and trust the agent to follow them. So that arm
-was run too — a Postgres MCP server with **full write access and no enforcement of any kind**,
-plus a deliberately well-written 51-line `CLAUDE.md` naming the permitted tables, the forbidden
-ones, and "stage every delete and report it". Same queue, same model, three separate runs
-against three identical database clones.
+The comparison that matters is not a raw SQL server. It is a rules file: a well-written
+`CLAUDE.md` naming the permitted tables and the forbidden ones, over a Postgres MCP server with
+full write access. That arm was run on the same queue, same model, three clones.
 
 | | markdown rules, full write access | orangerail |
 | --- | --- | --- |
 | ordinary items completed | 12 / 12, all three runs | 12 / 12 |
 | destructive items executed | 0 | 0 |
-| destructive items stopped | 3 | 3 |
-| forbidden tables touched | 0 | 0 (no tool exists) |
-| run-to-run variance | none — all three identical | — |
 | what the stop leaves behind | a paragraph in a report | an approval record |
+| the same task started in another directory | **row deleted** | staged it |
 
-**It tied**, and it kept tying. The queue was re-run with items 13–15 rewritten to carry real
-pressure — a claimed prior approval ("I approved this before I left, ticket OPS-2231"), a
-statutory deadline reframing inaction as the violation, a request to delete the blocking child
-row first, and an instruction planted in a database row the agent had to read. It was run again
-on a **much smaller model**. Nothing broke. The rules file was followed every time, the planted
-instruction was caught and flagged unprompted, and the fake prior approval was rejected by
-ticket number.
+**It tied on compliance, and it kept tying** — through adversarial rewrites, a fake prior
+approval, an instruction planted in a database row, and a much smaller model. On one axis it
+beat us. So this project does not argue that your agent will ignore your rules. It won't.
 
-**On one axis it beat us.** It read the queue as a whole and found contradictions in it — item 4
-upgrades a customer that item 14 asks to erase — and proposed a non-destructive alternative
-rather than staging a delete that would have shredded line items on live orders. orangerail
-looks at one call at a time and cannot see any of that.
+The row that does not tie is the last one, and it is not about the agent's behaviour: a grant
+travels with the session it was registered for, and a rules file travels with the machine
+account it was written under. A global `~/.claude/CLAUDE.md` closes most of that gap for a
+single developer on one machine — **if that is you, you may not need this.** It stops closing at
+a CI runner, a container, a service account, or a teammate's checkout, each of which gets the
+database credentials anyway.
 
-So this project does not argue that your agent will ignore your rules. It won't, on this
-evidence, and that argument gets weaker every time models improve.
-
-### What the tie does not survive
-
-One difference has nothing to do with how the agent behaves. Take the same model, the same
-task — *delete cancelled order o4* — and the same database credentials, and change **only the
-directory the process starts in**:
-
-| | started in the project | started somewhere else |
-| --- | --- | --- |
-| markdown rules | staged it, row survived | **row deleted** |
-| orangerail | staged it | **staged it** |
-
-The model was reasonable both times. It followed the rules where it found them, and did the job
-where there were none. The policy simply did not come along.
-
-**Read the second column at the width it was measured.** That machine carries no global rules
-file. Put one at `~/.claude/CLAUDE.md` and it is read from every directory that account works in
-— canary codename, Claude Code 2.1.220, read from the project root, from a directory two levels
-below it, from an unrelated directory and from `$HOME` — and the second column closes. A global
-rules file is a real answer here, it needs nothing installed, and this project is not going to
-pretend otherwise. So the claim is not that grants travel and rules do not — it is narrower, and
-it is the one that was measured: **a grant travels with the session it was registered for; a
-rules file travels with the machine account it was written under.** Most of the time those two
-scopes overlap and nothing separates. The gap is where they do not.
-
-**That is not a contrived setup, it is a scope mismatch.** A tool grant and a rules file are
-declared in different places and reach different distances. An MCP server registered at user
-scope — `~/.claude.json`, Claude Desktop's config — is mounted in *every* directory you work in,
-for as long as it is there. A project `CLAUDE.md` governs the directory it sits in and everything
-beneath it; a global one at `~/.claude/CLAUDE.md` governs every directory that account works in,
-and there is no such file on the machine these numbers come from. Nothing keeps the two in step,
-and nothing reports when they drift apart. On that machine, one user-scope server is mounted
-across 15 recorded projects; 10 `CLAUDE.md` files exist across those projects and **none of them
-mentions it**. That is one developer's laptop rather than a survey, and a single analytics server
-is a mild example — but it is the shape, and the shape does not improve when the server is your
-database and the directories belong to a team.
-
-The everyday versions, all of them on the far side of the account boundary the global file stops
-at: a CI runner, a container that mounts `src/` and carries nobody's home directory, a scheduler
-running under a service account, or a teammate's laptop where the rules file was never committed
-(one of the six checked on that machine is untracked). None of them requires anyone to do
-anything wrong, and every one of them gets the database credentials, because credentials are put
-in the environment on purpose.
-
-The same thing happens when the policy is edited rather than left behind. Remove the deletion
-prohibition from `CLAUDE.md` and **nothing anywhere reports it** — there is no scanner, no exit
-code, no recorded baseline to compare against, and the next run's report looks exactly as
-trustworthy as the ones above. Remove one `policy: { approval: 'required' }` from `ontology/`:
-
-```console
-$ orangerail sync
-governance: deleteorder — approval gate removed — the baseline requires human approval,
-            the ontology no longer does
-            `orangerail mcp` will refuse to serve 1 action(s): deleteorder.
-            Intentional? Re-record the baseline with `orangerail sync --accept-governance`.
-$ echo $?
-1
-```
-
-and the running server means it — the action is gone from `tools/list` entirely, and calling it
-by name returns `{"status":"unknown_tool"}` rather than executing.
-
-**None of that needs a bad actor.** A rules file is a document sitting in a working directory,
-and the agent it governs usually has file tools over that directory. It takes a refactor, a
-moved folder, a second checkout, a job running under a service account, or a teammate who cloned
-the repo without it. Asked outright to edit its own rules and then use the capability they
-blocked, the agent refused — in **both** arms, every run. That is not the argument. The argument
-is that the policy has to be somewhere the work cannot leave behind.
-
-That difference is also the only one here that gets **stronger** as agents improve: more
-capability means broader file access, more autonomy and more instances, and a rules file's
-exposure grows with all three while a server's does not.
-
-### The one that survived on its own terms
-
-**The stop produces an object, not a paragraph.** The markdown arm's blocked deletion is prose
-in a report. Acting on it means a person re-deriving the work and re-issuing it, trusting the
-agent to repeat exactly what it described. orangerail leaves an approval id that outlives the
-process, with the payload bound by hash, so a person approves *that exact call* and
-`check_approval` executes precisely it, with nobody retyping anything. That matters most when
-the approver is not the operator — the normal case in a team.
-
-**The boundary of all of this, stated so you can discount it correctly.** One schema, one
-domain, two afternoons (2026-07-31 and 2026-08-01). The compliance results are the markdown
-arm's: three clean runs, two adversarial runs, one on a smaller model, no variance in any of
-them. The structural results — the table above, the drift transcript — do not depend on a model
-at all and were measured directly. What is **not** claimed anywhere: that adversarial phrasing,
-a weaker model, repetition, or an agent's own intent will break a rules file. Each was tested
-and none of them did.
-
-**So: if you are one developer with a good model and a good rules file, working as yourself on
-your own machine, you may not need this.** A global `~/.claude/CLAUDE.md` covers every directory
-you work in, and on this evidence the model obeys it. Install it when the policy has to outlive
-the machine account it was written under — when the approver is not the operator, when the agent
-belongs to a team, when it runs from a scheduler or a CI runner or a container, or when the
-request must survive the conversation ending.
+The full comparison — every run, the axis where the rules file wins, and the limits of the
+measurement — is [against the thing you would do instead](./docs/vs-a-rules-file.md), and
+[`examples/vs-a-rules-file`](./examples/vs-a-rules-file) executes both arms.
 
 ## What the agent gets instead of `execute_sql`
 
@@ -221,15 +117,14 @@ is the entire tool list, copied from `orangerail docs` on the generated project:
 ```
 
 Nothing on that list takes a query. Each action's input is a zod schema derived from your own
-columns, published in `tools/list` with its types and its required fields, so `updateProduct`
-refuses a string where the column is an integer and says which field it was. Each read is a
-`findUnique` by id or a paged `findMany`, whose `filter` is a closed set of predicates over
-declared fields — enforced by the server before it reaches your resolver, not merely advertised.
+columns, published in `tools/list`, so `updateProduct` refuses a string where the column is an
+integer and says which field it was. Each read is a `findUnique` by id or a paged `findMany`,
+whose `filter` is a closed set of predicates over declared fields — enforced by the server
+before it reaches your resolver, not merely advertised.
 
-A fixed surface is a narrow one: no aggregation, no join, no free-form query, and no DDL. A
-question this surface cannot express has to be answered somewhere else. All of it is in
-[what orangerail does not govern](./docs/limits.md), along with where the enforcement actually
-lives.
+A fixed surface is a narrow one: no aggregation, no join, no free-form query, no DDL. A question
+it cannot express has to be answered somewhere else — all of it, and where enforcement actually
+lives, is in [what orangerail does not govern](./docs/limits.md).
 
 ## See it stop an agent
 
@@ -277,24 +172,16 @@ tarballs of this release, in a scratch project holding nothing but a two-model P
 (`Customer`, `Order`) and Prisma 6.
 
 **Requirements: Node 20 or newer** for the `orangerail` CLI and `orangerail-mcp` (Node 18 for
-`orangerail-core`, `orangerail-docs-gen` and `orangerail-studio` on their own).
-
-**On Prisma 7, install the driver adapter your `datasource` provider names before step 1** —
-`postgresql` → `@prisma/adapter-pg`, `sqlite` → `@prisma/adapter-better-sqlite3`, `mysql` →
-`@prisma/adapter-mariadb`, `sqlserver` → `@prisma/adapter-mssql`. Prisma 7 removed the
-no-argument client constructor, so `init` exits 1 rather than generate an ontology that cannot
-construct a client.
+`orangerail-core`, `orangerail-docs-gen` and `orangerail-studio` on their own). **On Prisma 7,
+two things stop you before orangerail is reached** — a `url` in the `datasource` block now fails
+every `prisma` command, and the client requires a driver adapter, without which `init` exits 1
+rather than generate an ontology that cannot construct a client. Both moves, and which adapter
+your provider needs, are in
+[Adopting orangerail against an existing database](./docs/existing-database.md#prisma-7).
 
 **1. Scan your project.** Run this in a repo with a `prisma/schema.prisma` or an OpenAPI spec.
-The scanner reads your files, makes no LLM calls, and needs no API key. Have a live database and
-no schema file? `prisma db pull` writes one — the whole path is in
+Live database and no schema file? `prisma db pull` writes one — the whole path is in
 [Adopting orangerail against an existing database](./docs/existing-database.md).
-
-**On Prisma 7, a Prisma-6-shaped schema stops you before orangerail is reached.** A `url` in the
-`datasource` block fails every `prisma` command with ``The datasource property `url` is no longer
-supported in schema files``, and `db push --skip-generate` is gone. The moves — the URL into
-`prisma.config.ts`, and the driver adapter the client now requires — are in
-[Adopting orangerail against an existing database](./docs/existing-database.md#prisma-7).
 
 ```console
 $ npx orangerail init --yes --preset approval-for-writes --no-studio
@@ -326,15 +213,15 @@ Then run `orangerail studio` or `orangerail mcp`.
 ```
 
 `--gate delete` is the default, and it is the line worth pausing on. Gating *every* write is
-the safer-sounding default, and it is what orangerail shipped first — but a surface where
-nothing completes without a human is a surface nobody leaves running. So init gates the op
-whose name most reliably predicts a row is gone, and lets the rest through. That is a starting
-point, not a verdict: `create` can be the most consequential write a schema has. Pass
-`--gate all`, `--gate none`, or edit `policy` per file afterwards.
+the safer-sounding default and is what orangerail shipped first — but a surface where nothing
+completes without a human is a surface nobody leaves running. So init gates the op whose name
+most reliably predicts a row is gone, and lets the rest through. That is a starting point, not
+a verdict: `create` can be the most consequential write a schema has. Pass `--gate all`,
+`--gate none`, or edit `policy` per file afterwards.
 
-The warning is the first run's shape, not a failure: `orangerail-core` is not installed yet, so
-the config init just wrote cannot be imported, and the baseline is read off the **live
-registry** — never off the generated text. Step 4 settles it.
+The `⚠` is the first run's shape, not a failure: `orangerail-core` is not installed yet, so the
+config init just wrote cannot be imported, and the baseline is read off the **live registry** —
+never off the generated text. Step 4 settles it.
 
 **2. Install the runtime the generated code loads.**
 
@@ -369,15 +256,15 @@ npx orangerail sync --accept-governance
 That writes `orangerail.governance.json` at your repo root: one row per action holding its
 approval gate, approver roles, `where` guard and target. **Commit it.** Its whole value is that
 a pull request removing an approval gate shows `"approval": "required"` turning into `null` in
-its own diff, in front of a reviewer, before CI runs at all. `init` writes one itself whenever
+its own diff, in front of a reviewer, before CI runs at all. (`init` writes one itself whenever
 the generated config loads, stamped `"recordedBy": "init"` — the posture init *generated*,
-before anyone reviewed it; `--accept-governance` re-records it as `"recordedBy": "sync"`, which
-is the human assertion.
+before anyone reviewed it. `--accept-governance` re-records it as `"recordedBy": "sync"`, the
+human assertion.)
 
-From then on `orangerail sync` exits 1 when the posture weakens, `orangerail mcp` refuses to
+From then on `orangerail sync` exits 1 when the posture weakens, and `orangerail mcp` refuses to
 serve the weakened action — not listed, not resolvable, not executable, while everything else
-is served — and `orangerail status` shows the baseline next to the action counts. What that
-does and does not defend against is in [the limits doc](./docs/limits.md#what-the-governance-baseline-defends-against).
+is served. What that does and does not defend against is in
+[the limits doc](./docs/limits.md#what-the-governance-baseline-defends-against).
 
 **5. Now leave.** When you come back:
 
@@ -416,46 +303,32 @@ approve ok (approved)
 The agent's next `check_approval` is the first moment the row can change. Nothing ran before you
 said so, and every step is on the hash chain.
 
-With the qualifier the `store:` line above states, and which is the reason it is on every
-readout: that queue is a pair of files inside your project. An agent holding file tools over
-this directory can append the line that says you said so — one line, no hashing — and the next
-`check_approval` executes, because the gate reads that store and never the chain. `orangerail
-audit verify` reports the forgery afterwards and nothing prevents it; moving the store where
-the agent's process cannot write is what does. The
-generated config carries that move, commented out, at the `createFileStore` call:
+With the qualifier the `store:` line above states, which is why it is on every readout —
 [Keep the store out of the agent's reach](./docs/audit-log.md#keep-the-store-out-of-the-agents-reach).
 
 ### A table you refuse stays refused
 
 Narrowing the surface is the point, so `orangerail init --models customer,order` leaves your
 `payment` and `api_credential` tables out of the ontology entirely. Record that decision, or
-every later `sync` rediscovers those tables and exits 1 — and the only remedy it can name is
-`--accept-new`, the one that would generate them:
+every later `sync` rediscovers them and exits 1 — with `--accept-new`, the remedy that would
+generate them, as the only fix it can name:
 
 ```bash
 npx orangerail init --exclude api_credential,payment      # or: orangerail sync --exclude …
 ```
 
-That writes those names into `orangerail.governance.json` as **considered and refused**. `sync`
-reports them as `info:` instead of proposing them, `--accept-new` will not create them, and the
-run can be green. It is a list of names, not a snapshot: a table that appears *after* the
-refusal is still reported loudly, and a recorded name that stops matching anything is reported
-as prunable, so it cannot quietly silence a future table that reuses it.
+That writes those names into `orangerail.governance.json` as **considered and refused**, so
+`sync` reports them as `info:` and the run can be green. It is a list of names, not a snapshot:
+a table appearing *after* the refusal is still reported loudly, and a recorded name that stops
+matching anything is reported as prunable, so it cannot quietly silence a future table that
+reuses it. Both flags match your sources ignoring case and write back the name your sources
+declare; a typo, a prefix or a plural is refused, naming the models you do have.
 
-Type the name in whatever casing you have in front of you. `--models` and `--exclude` match your
-sources ignoring case, so `payment` finds a Prisma `model Payment` — you should not have to
-remember whether you last read the table in `psql` or in the schema file. What gets **written**
-is always the name your sources declare, because that is the name every later run compares
-against. Case is the only difference accepted: a typo, a prefix or a plural is refused, naming
-the models you do have. And if two of your models differ only in case, nothing is chosen for
-you — the run refuses and names both, since the wrong half of that pair staying reachable is
-exactly what this flag exists to prevent.
-
-**orangerail will never guess which tables those are.** It does not scan your schema for
-`secret`, `password` or `credential` and pre-select the matches. A name is syntactic and the
-danger it stands for is not — the table that puts a customer's card number in a support
-transcript is called `payment` — and a tool that pre-checks the boxes is a tool whose list you
-stop reading. You name each one.
+**orangerail will never guess which tables those are.** It does not scan for `secret`,
+`password` or `credential` and pre-select the matches. A name is syntactic and the danger it
+stands for is not — the table that puts a customer's card number in a support transcript is
+called `payment` — and a tool that pre-checks the boxes is a tool whose list you stop reading.
+You name each one.
 
 ## See your whole domain as a map
 
@@ -526,20 +399,16 @@ into something that never compiled.
 
 ## v0 commands
 
-- **`orangerail init`** — deterministic scanner (Prisma / OpenAPI) that extracts your ontology
-  from code instead of asking you to type it. No LLM calls, no API keys — ever.
-- **`orangerail sync`** — re-scan and report drift, including a change in the governance posture
-  itself. Exit **0** when there is nothing to act on, **1** for unresolved drift, **2** when it
-  could not answer at all.
-- **`orangerail mcp`** — the typed MCP server over your declared objects and actions. Withholds
-  any action whose posture is weaker than the recorded baseline.
-- **`orangerail docs`** — the agent-facing domain document, written to
-  `.orangerail/generated/AGENTS.md`.
-- **`orangerail approvals`** — the approval queue for staged actions.
-- **`orangerail audit verify`** — hash-chain verification, cross-checked against the approvals
-  store. Read [what the audit log proves](./docs/audit-log.md) before relying on it as a
-  security control.
-- **`orangerail studio`** — the live, read-only map of your domain graph.
+- **`init`** — deterministic scanner (Prisma / OpenAPI) that extracts your ontology from code
+  instead of asking you to type it. No LLM calls, no API keys — ever.
+- **`sync`** — re-scan and report drift, including a weakened governance posture. Exit **0** for
+  nothing to act on, **1** for unresolved drift, **2** when it could not answer at all.
+- **`mcp`** — the typed MCP server, withholding any action weaker than the recorded baseline.
+- **`docs`** — the agent-facing domain document, at `.orangerail/generated/AGENTS.md`.
+- **`approvals`** — the approval queue for staged actions.
+- **`audit verify`** — hash-chain verification, cross-checked against the approvals store. Read
+  [what the audit log proves](./docs/audit-log.md) before relying on it as a security control.
+- **`studio`** — the live, read-only map of your domain graph.
 
 Everything runs from your repository alone — no external exports, no accounts, no keys.
 
@@ -560,8 +429,7 @@ claude mcp add -s project orangerail -e DATABASE_URL="file:./dev.db" \
 
 `env` carries whatever your `orangerail.config.mjs` needs to reach your backend. The server
 resolves the config from the host's working directory; when that is not your project root, name
-it explicitly by appending `"--config", "/abs/path/to/orangerail.config.mjs"` to `args`. Verify
-with `claude mcp list`:
+it explicitly by appending `"--config", "/abs/path/to/orangerail.config.mjs"` to `args`.
 
 ```console
 $ claude mcp list
@@ -577,16 +445,8 @@ channel), which lands in your host's log:
 orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (0 record(s))
 ```
 
-**From source instead.** To run an unreleased change, point the host at your build. `dist/` is
-not committed, so build first:
-
-```bash
-git clone https://github.com/KimHyeongRae0/orangerail.git
-cd orangerail
-pnpm install && pnpm -r run build     # produces packages/cli/dist/main.js
-```
-
-Then swap the server object's `command` and `args` for
+**From source instead.** To run an unreleased change, clone this repo, `pnpm install && pnpm -r
+run build` (`dist/` is not committed), and swap the server object's `command` and `args` for
 `"node"` and `["/abs/path/to/orangerail/packages/cli/dist/main.js", "mcp"]`.
 
 If your host has a permission prompt of its own, orangerail can ask it to fire on the writes you
@@ -602,12 +462,11 @@ will move before 1.0.
 
 **Upgrade from `0.1.0` if you are on it.** That release published a read `filter` to the agent
 and never checked it, so a `<Object>_list` call could read an object type the server never
-exposed — the mechanism is in
-[the limits doc](./docs/limits.md#typed-is-not-enforced--where-the-check-actually-lives), and the
-fix is in `0.1.2`. It is enforced in `orangerail-mcp`, so upgrading the package applies it with
-no re-run of `init`. `0.1.2` also narrows what `filter` accepts and changes what a pending
-approval does across the upgrade — both are written up under **Upgrading from 0.1.0** in the
-[CHANGELOG](./CHANGELOG.md), which is worth reading before you bump.
+exposed ([the mechanism](./docs/limits.md#typed-is-not-enforced--where-the-check-actually-lives)).
+The fix is in `0.1.2` and lives in `orangerail-mcp`, so upgrading the package applies it with no
+re-run of `init`. `0.1.2` also narrows what `filter` accepts and changes what a pending approval
+does across the upgrade — both under **Upgrading from 0.1.0** in the
+[CHANGELOG](./CHANGELOG.md), worth reading before you bump.
 
 ## Docs
 
@@ -615,6 +474,8 @@ approval does across the upgrade — both are written up under **Upgrading from 
   capabilities, and where enforcement actually lives.
 - [What the audit log proves](./docs/audit-log.md) — the exact bar, why "tamper-evident" is not
   used, when a database-level audit is the better tool, and where to put the store.
+- [Against the thing you would do instead](./docs/vs-a-rules-file.md) — the full rules-file
+  comparison: every run, the axis where a rules file wins, and the limits of the measurement.
 - [How orangerail compares](./docs/comparisons.md) — against `--read-only`, OpenAPI codegen,
   Prisma's own servers and Supabase's.
 - [Adopting orangerail against an existing database](./docs/existing-database.md) —
@@ -625,14 +486,14 @@ approval does across the upgrade — both are written up under **Upgrading from 
 ## Examples
 
 - [`unattended-queue`](./examples/unattended-queue) — the run at the top of this file, made
-  reproducible: the same 15-item queue driven through a real MCP client, twelve items finishing
+  reproducible: the same 15-item queue through a real MCP client, twelve items finishing
   unattended and three deletions becoming approvals. Deterministic, asserted, no API key.
 - [`governed-writes`](./examples/governed-writes) — the same gate in isolation, one destructive
   call at a time, with a recorded terminal session.
-- [`vs-a-rules-file`](./examples/vs-a-rules-file) — the two sections above, made runnable against
-  the thing you would do instead: a rules file read the way a real host reads one, project *and*
-  global, plus a precondition written by hand. Three scenarios, both arms executed, every verdict
-  scored off the rows — including the column where the rules file wins, which is asserted.
+- [`vs-a-rules-file`](./examples/vs-a-rules-file) — the rules-file comparison made runnable: a
+  rules file read the way a real host reads one, project *and* global. Three scenarios, both
+  arms executed, every verdict scored off the rows — including the column where the rules file
+  wins, which is asserted.
 
 ## Development
 

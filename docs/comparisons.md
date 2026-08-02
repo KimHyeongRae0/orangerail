@@ -32,10 +32,10 @@ to "what can this agent see": every table, every column and every row is still o
 
 ## A markdown rules file
 
-The honest comparison, and the one most readers should run before installing anything. It is
-in the README under [What a rules file already gets
-you](../README.md#what-a-rules-file-already-gets-you), because it belongs on the first screen
-rather than in a comparisons appendix.
+The honest comparison, and the one most readers should run before installing anything. It has a
+page of its own: [against the thing you would do instead](./vs-a-rules-file.md) — three clean
+runs, two adversarial ones, one on a smaller model, the axis where the rules file beats
+orangerail, and the one row that does not tie.
 
 ## `openapi-mcp-generator`
 
