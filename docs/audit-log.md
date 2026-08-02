@@ -122,9 +122,36 @@ That is convenient for a local single-user run, and it is the worst available ch
 moment the governed agent also has file tools over that repo: the agent has write access to
 the very log that records what it did, which is precisely the attacker in the paragraph above.
 
+**The bar in that configuration is one appended line.** Not the re-chaining attack described
+above — that is the bar for making a tampered chain *verify*, and nobody has to make it verify
+to get a write executed. The approval gate reads the approvals store; the audit chain is
+consulted later, by `audit verify`, and by nothing on the execution path. So appending this
+single well-formed line to `approvals.jsonl`:
+
+```json
+{"type":"resolved","id":"<the staged approval's id>","decision":"approved","decidedBy":"local-dev","decidedAt":"2026-08-02T00:21:30.894Z"}
+```
+
+folds that approval to `approved`, and the agent's next `check_approval` returns
+`{"status":"executed"}` and consumes it. No hashing, no re-chaining, no edit to `audit.jsonl`
+at all. A human decided nothing.
+
+`orangerail audit verify` does catch it, because the chain is the second witness and it never
+saw a decision:
+
+```
+forged approval <id>: executed at seq 2 with no "approved" audit record — no human decision was ever recorded
+```
+
+That is a real check and it is the reason this is worth running. `orangerail status` and every
+`orangerail mcp` start run the same verification, so the finding does surface without anyone
+typing `audit verify`. What none of them do is stop the write: it has already landed by the
+time any of them look. Read the chain as the way you find out, never as the thing that refuses.
+
 There is no CLI flag for this, and no other mechanism: the store location is the `dir` argument
 of `createFileStore`, and `orangerail.config.mjs` is a user-owned file that `init` refuses to
-regenerate. Relocating the store is therefore a one-line edit you make once:
+regenerate. Relocating the store is therefore a one-line edit you make once, and the generated
+config carries it commented out at that exact call:
 
 ```js
 const store = createFileStore({ dir: '/var/lib/orangerail/store' });
@@ -137,3 +164,25 @@ the MCP tools, which stage, poll and read your domain, and never expose the stor
 the agent and the operator are the same OS user on the same machine, you have a human
 checkpoint and an audit trail and no boundary — which is exactly what the section above says
 you have.
+
+The default is still inside the project, deliberately: a tool that writes to `/var/lib` or
+`$HOME` on `init` is a tool people stop running, and deleting the store is always an available
+downgrade, so refusing to start over it would cost you the server and buy nothing. What
+changed is that it is no longer silent. `orangerail init` names the store's location and this
+reach in its closing summary, the generated config carries the argument and the commented
+alternative at the `createFileStore` call, and `orangerail status` reports the resolved
+directory and whether it is inside the project on every run:
+
+```console
+  store:    /srv/shop/.orangerail/store
+            Inside the project root, so an agent with file tools over this directory can
+            write it: one appended line in approvals.jsonl is a decision no human made,
+            and the next `check_approval` executes the staged action — the gate reads
+            this store, never the audit chain. `orangerail audit verify` reports the
+            forgery afterwards; it is a report, not a gate. Pointing the store `dir` at a
+            directory this agent's process cannot write is what removes the reach — see
+            docs/audit-log.md.
+```
+
+It is a fact on the readout, not an alarm: the exit code is unchanged, because a health check
+that failed on the configuration the tool itself ships is a health check nobody runs.

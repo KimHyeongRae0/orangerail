@@ -1,4 +1,7 @@
-import { verifyAudit } from 'orangerail-core';
+import { existsSync, realpathSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
+
+import { isFileStore, verifyAudit, type FileStore, type Store } from 'orangerail-core';
 
 import type { OrangerailConfig } from '../config';
 import { reviewCoreSkew, type CoreSkewReview } from '../core-skew';
@@ -21,6 +24,105 @@ import {
   readServerLiveness,
   type ServerLiveness,
 } from '../server-heartbeat';
+
+/**
+ * Where this config's store actually is, relative to the project it governs
+ * (ONT-066).
+ *
+ * A discriminated union rather than a boolean, because the three cases carry
+ * different amounts of knowledge: `inside` is a location AND a statement about
+ * who can write it, `outside` is a location and deliberately no such statement
+ * (a store the operator moved is usually one this process cannot even stat), and
+ * `undisclosed` is a store that exposes no directory at all — a memory store has
+ * no on-disk location to report, and inventing one would be worse than the gap.
+ */
+export type StoreLocation =
+  /**
+   * Resolved to a path at or under the project root — the scaffolded default.
+   * `written` is whether either append-only log exists yet, NOT whether the
+   * directory does: the first read of a file store takes its lock, and taking
+   * the lock creates the directory, so an empty `.orangerail/store/` is the
+   * ordinary state of a project nobody has staged anything in.
+   */
+  | { state: 'inside'; dir: string; written: boolean }
+  /** Resolved to a path outside the project root. Nothing is claimed about its permissions. */
+  | { state: 'outside'; dir: string }
+  /** The store exposes no `dir` (a memory store, or a store this CLI does not recognise). */
+  | { state: 'undisclosed' };
+
+/** The two append-only logs a file store writes; either one means it holds records. */
+const STORE_LOGS = ['approvals.jsonl', 'audit.jsonl'];
+
+/**
+ * The real path of `path`, resolving symlinks as far as the filesystem can and
+ * leaving the rest lexical.
+ *
+ * The walk up to the nearest existing ancestor is what makes the not-yet-created
+ * store answerable: `.orangerail/store` does not exist until the first staged
+ * approval, so `realpathSync` on it throws, and answering "outside" (or throwing)
+ * for the one state every fresh project is in would make this readout wrong on
+ * first run. Anything unreadable falls back to the lexical path rather than
+ * failing — a permission error on the operator-owned store is the CORRECT
+ * deployment, and it must not take `status` down.
+ */
+const realPath = ({ path }: { path: string }): string => {
+  let existing = path;
+  const trailing: string[] = [];
+
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+
+    if (parent === existing) {
+      return path;
+    }
+
+    trailing.unshift(existing.slice(parent.length));
+    existing = parent;
+  }
+
+  try {
+    return `${realpathSync(existing)}${trailing.join('')}`;
+  } catch {
+    return path;
+  }
+};
+
+/**
+ * Resolve the store's directory and decide whether it sits inside the project.
+ *
+ * Compared as REAL paths, not as strings: a `dir` written relative in a
+ * hand-edited config answers on the process's cwd exactly as `createFileStore`
+ * will read it, and a symlink that lands back inside the project is inside it —
+ * the agent reaches the bytes either way, and a check that answered on the
+ * spelling would report the safer of the two.
+ */
+export const locateStore = ({
+  store,
+  projectRoot,
+}: {
+  store: Store;
+  projectRoot: string;
+}): StoreLocation => {
+  if (!isFileStore({ store })) {
+    return { state: 'undisclosed' };
+  }
+
+  const dir = realPath({ path: resolve((store as FileStore).dir) });
+  const root = realPath({ path: resolve(projectRoot) });
+  const inside = dir === root || dir.startsWith(`${root}${sep}`);
+
+  // Emptiness is only reported for the inside case. `existsSync` answers
+  // `false` for a path it may not stat, so on an operator-owned store outside
+  // the project — the deployment this readout exists to encourage — it would
+  // report "nothing written yet" about a log full of records.
+  return inside
+    ? {
+        state: 'inside',
+        dir,
+        written: STORE_LOGS.some((name) => existsSync(join(dir, name))),
+      }
+    : { state: 'outside', dir };
+};
 
 /**
  * The runtime governance posture, gathered from the declared registry and the
@@ -53,6 +155,16 @@ export interface StatusReport {
    * another that is still enforcing.
    */
   server: ServerLiveness;
+  /**
+   * Where the approvals queue and the audit chain are written (ONT-066).
+   *
+   * It belongs on this report for the same reason the baseline does: every other
+   * field is read OUT of that store, so where it sits decides what the rest of
+   * the readout is worth. A gated count, a clean chain and an empty pending
+   * queue are all true sentences about a store the governed agent can append to,
+   * and none of them can say so.
+   */
+  store: StoreLocation;
   /**
    * How the live posture stands against `orangerail.governance.json`.
    *
@@ -150,6 +262,7 @@ export const computeStatus = async ({
     audit: { ok: audit.ok, count: audit.count, issues: audit.issues },
     pendingCount: pending.length,
     server,
+    store: locateStore({ store: config.store, projectRoot: root }),
     governance,
     withheld: governance.weakenedActions,
     skew: skewed ?? reviewCoreSkew({ config }),
@@ -323,6 +436,64 @@ const writeExclusionBlock = ({ report }: { report: StatusReport }): void => {
 };
 
 /**
+ * The `store:` block — where the approvals queue and the audit chain are, and
+ * who else can write there (ONT-066).
+ *
+ * On every run, in the register of `hosts:`: a fact about this deployment, never
+ * an alarm and never an exit code. The scaffolded default IS inside the project,
+ * and a readout that only spoke up for the unusual case would be silent for
+ * every project `orangerail init` has ever created.
+ *
+ * What it says about the inside case is deliberately narrow. It does not call
+ * the store unsafe, and it does not offer the chain as the answer: the chain is
+ * an after-the-fact report, `check_approval` reads the approvals store and never
+ * consults it, and the honest sentence is that one appended line decides a
+ * gated write. The remedy named is the only one that works — put the directory
+ * where the agent's process cannot write.
+ */
+const writeStoreBlock = ({ report }: { report: StatusReport }): void => {
+  const out = process.stdout;
+  const location = report.store;
+
+  if (location.state === 'undisclosed') {
+    out.write(
+      "  store:    this config's store exposes no directory, so where approvals and audit\n" +
+        '            records are kept cannot be reported here.\n',
+    );
+    return;
+  }
+
+  if (location.state === 'outside') {
+    // No claim about permissions. Whether the agent can write it is a question
+    // about the filesystem this command did not ask, and an "out of reach" line
+    // derived from the path alone would be the reassurance this ticket exists to
+    // remove.
+    out.write(
+      `  store:    ${location.dir}\n` +
+        '            Outside the project root. Whether the governed agent can write it is a\n' +
+        '            filesystem permission question this readout does not ask.\n',
+    );
+    return;
+  }
+
+  // Named as an empty log rather than an absent one: `status` itself opens the
+  // store, and opening it creates the directory. Saying "does not exist" about
+  // a directory this command just made would be a fact about the readout.
+  const empty = location.written ? '' : ' (no approvals or audit records in it yet)';
+
+  out.write(
+    `  store:    ${location.dir}${empty}\n` +
+      '            Inside the project root, so an agent with file tools over this directory can\n' +
+      '            write it: one appended line in approvals.jsonl is a decision no human made,\n' +
+      '            and the next `check_approval` executes the staged action — the gate reads\n' +
+      '            this store, never the audit chain. `orangerail audit verify` reports the\n' +
+      '            forgery afterwards; it is a report, not a gate. Pointing the store `dir` at a\n' +
+      "            directory this agent's process cannot write is what removes the reach — see\n" +
+      '            docs/audit-log.md.\n',
+  );
+};
+
+/**
  * The `runtime:` block — which `orangerail-core` is actually loaded (ONT-058).
  *
  * It is printed ABOVE the counts, unlike the baseline block, because it is the
@@ -398,6 +569,10 @@ export const runStatus = async ({
   writeExclusionBlock({ report });
   out.write(`  preset:   ${report.preset}${report.readOnly ? ' (writes not exposed)' : ''}\n`);
   out.write(`  pending:  ${report.pendingCount} approval(s) awaiting a decision\n`);
+
+  // Above `server:`, which already speaks of "this store": the location has to
+  // be on the page before the line that refers to it.
+  writeStoreBlock({ report });
   out.write(`  server:   ${formatServerLiveness({ server: report.server })}\n`);
 
   // Below the project's own lines and above the audit verdict, because it is the

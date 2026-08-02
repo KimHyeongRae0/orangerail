@@ -354,6 +354,14 @@ orangerail status
   baseline: 6 action(s) match orangerail.governance.json
   preset:   approval-for-writes
   pending:  1 approval(s) awaiting a decision
+  store:    /srv/shop/.orangerail/store
+            Inside the project root, so an agent with file tools over this directory can
+            write it: one appended line in approvals.jsonl is a decision no human made,
+            and the next `check_approval` executes the staged action — the gate reads
+            this store, never the audit chain. `orangerail audit verify` reports the
+            forgery afterwards; it is a report, not a gate. Pointing the store `dir` at a
+            directory this agent's process cannot write is what removes the reach — see
+            docs/audit-log.md.
   server:   not detected — no orangerail mcp is running against this store
   hosts:    no MCP client config next to this project, so orangerail cannot tell what
             else your agent has mounted.
@@ -372,6 +380,15 @@ approve ok (approved)
 
 The agent's next `check_approval` is the first moment the row can change. Nothing ran before you
 said so, and every step is on the hash chain.
+
+With the qualifier the `store:` line above states, and which is the reason it is on every
+readout: that queue is a pair of files inside your project. An agent holding file tools over
+this directory can append the line that says you said so — one line, no hashing — and the next
+`check_approval` executes, because the gate reads that store and never the chain. `orangerail
+audit verify` reports the forgery afterwards and nothing prevents it; moving the store where
+the agent's process cannot write is what does. The
+generated config carries that move, commented out, at the `createFileStore` call:
+[Keep the store out of the agent's reach](./docs/audit-log.md#keep-the-store-out-of-the-agents-reach).
 
 ### A table you refuse stays refused
 

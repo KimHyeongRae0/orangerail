@@ -33,6 +33,15 @@ export const emitRegistryFile = (): { filename: string; content: string } => {
   return { filename: '_registry.mjs', content };
 };
 
+/**
+ * Where the generated config puts the store, as a project-relative path.
+ *
+ * Exported so the emitted bytes and the `init` closing summary name the same
+ * directory: a summary that quoted a path the config does not build would be a
+ * fact the operator cannot act on.
+ */
+export const GENERATED_STORE_DIR = '.orangerail/store';
+
 /** `orangerail.config.mjs` — the self-discovering entry point (static, deterministic). */
 export const emitConfigFile = ({
   preset,
@@ -67,7 +76,25 @@ export const emitConfigFile = ({
     '  await import(pathToFileURL(join(ontologyDir, name)).href);',
     '}',
     '',
+    // The relocation lives HERE, one line under the call that decides it, and
+    // not only in a doc: `dir` is the whole mechanism, this file is the only
+    // place it is written down, and `init` never regenerates it — so a reader
+    // who never opens docs/audit-log.md still meets the choice at the moment
+    // they could act on it. What it claims is bounded on purpose: moving the
+    // directory removes the agent's reach, it does not make the log
+    // tamper-proof, and `audit verify` is named as an after-the-fact report
+    // rather than a defence.
+    '// The store below is INSIDE this project. An agent holding file tools over',
+    '// this directory can therefore write it, and one appended line in',
+    `// \`${GENERATED_STORE_DIR}/approvals.jsonl\` is a decision no human made: the`,
+    '// next `check_approval` executes the staged action, because the gate reads',
+    '// this store and never the audit chain. `orangerail audit verify` reports the',
+    '// forgery afterwards — it is a report, not a gate, and it cannot un-execute a',
+    "// write. To take the store out of the agent's reach, point `dir` at a",
+    "// directory the agent's process cannot write — the commented line below — and",
+    '// leave exactly one of the two live. See docs/audit-log.md.',
     "const store = createFileStore({ dir: join(here, '.orangerail', 'store') });",
+    "// const store = createFileStore({ dir: '/var/lib/orangerail/store' });",
     '',
     'export default {',
     '  registry,',

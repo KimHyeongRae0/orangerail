@@ -1,10 +1,20 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 
 import {
   createEngine,
+  createFileStore,
   createMemoryStore,
   createRegistry,
   DEV_SUBJECT,
@@ -18,6 +28,7 @@ import { actionPostures, writeBaseline } from '../src/governance';
 import {
   computeStatus,
   formatStatusLine,
+  locateStore,
   runStatus,
   type StatusReport,
 } from '../src/commands/status';
@@ -100,6 +111,7 @@ const base: StatusReport = {
   audit: { ok: true, count: 5, issues: [] },
   pendingCount: 0,
   server: { state: 'not_detected' },
+  store: { state: 'undisclosed' },
   governance: {
     state: 'verified',
     recordedBy: 'sync',
@@ -802,5 +814,158 @@ describe('orangerail status — refused models (ONT-059)', () => {
     });
 
     expect(line).toContain('SERVING 1 EXCLUDED model(s) (Widget)');
+  });
+});
+
+/**
+ * Where the store is (ONT-066). `orangerail init` scaffolds it inside the
+ * project it just scanned, which is the one configuration in which the governed
+ * agent — the same process holding file tools over that repo — can append to the
+ * log recording its own writes. Nothing here makes that safe; the readout's job
+ * is to stop `status` reporting a posture it cannot hold.
+ */
+describe('orangerail status — where the store is (ONT-066)', () => {
+  /** A project root holding a real file store under `.orangerail/store`. */
+  const projectWithStore = (): { root: string; dir: string } => {
+    const root = realpathSync(emptyRoot());
+
+    return { root, dir: join(root, '.orangerail', 'store') };
+  };
+
+  it('reports the scaffolded default as inside the project, and names the reach', async () => {
+    const { root, dir } = projectWithStore();
+    const config = { ...buildConfig(), store: createFileStore({ dir }) };
+
+    const streams = captureStreams();
+    let code: number;
+    try {
+      code = await runStatus({ config, projectRoot: root });
+    } finally {
+      streams.restore();
+    }
+
+    // A fact, not a finding: the exit code is the baseline's to own, not this
+    // block's, and a health check that failed on the shipped default would be a
+    // health check nobody runs.
+    expect(code).toBe(0);
+    expect(streams.out()).toContain(`store:    ${dir}`);
+    expect(streams.out()).toContain('Inside the project root');
+    expect(streams.out()).toContain('one appended line in approvals.jsonl');
+    // The chain is named as an after-the-fact report and never as prevention.
+    expect(streams.out()).toContain('it is a report, not a gate');
+  });
+
+  it('says nothing is in the store yet before the first staged approval', async () => {
+    const { root, dir } = projectWithStore();
+
+    expect(locateStore({ store: createFileStore({ dir }), projectRoot: root })).toEqual({
+      state: 'inside',
+      dir,
+      written: false,
+    });
+
+    const config = { ...buildConfig(), store: createFileStore({ dir }) };
+    const streams = captureStreams();
+    let code: number;
+    try {
+      code = await runStatus({ config, projectRoot: root });
+    } finally {
+      streams.restore();
+    }
+
+    // Not an error, and not "the directory does not exist" either: reading the
+    // store takes its lock, which creates the directory, so `status` would be
+    // reporting on a directory it had just made itself.
+    expect(code).toBe(0);
+    expect(existsSync(dir)).toBe(true);
+    expect(streams.out()).toContain('(no approvals or audit records in it yet)');
+  });
+
+  it('stops saying the store is empty once an approval is staged in it', async () => {
+    const { root, dir } = projectWithStore();
+    const config = { ...buildConfig(), store: createFileStore({ dir }) };
+    const engine = createEngine({ registry: config.registry, store: config.store });
+
+    await engine.stage({ actionName: 'deleteWidget', input: { id: 1 }, caller: devCaller });
+
+    expect(locateStore({ store: config.store, projectRoot: root })).toEqual({
+      state: 'inside',
+      dir,
+      written: true,
+    });
+  });
+
+  it('reports a store outside the project without claiming anything about its permissions', async () => {
+    const root = realpathSync(emptyRoot());
+    const dir = join(realpathSync(emptyRoot()), 'store');
+    const config = { ...buildConfig(), store: createFileStore({ dir }) };
+
+    expect(locateStore({ store: config.store, projectRoot: root })).toEqual({
+      state: 'outside',
+      dir,
+    });
+
+    const streams = captureStreams();
+    let code: number;
+    try {
+      code = await runStatus({ config, projectRoot: root });
+    } finally {
+      streams.restore();
+    }
+
+    expect(code).toBe(0);
+    expect(streams.out()).toContain('Outside the project root');
+    expect(streams.out()).toContain('permission question this readout does not ask');
+    expect(streams.out()).not.toContain('out of reach');
+  });
+
+  it('resolves a relative dir before comparing it to the project root', () => {
+    // The hand-edited config case. Answering on the string would call
+    // `.orangerail/store` outside the project it is literally inside, because
+    // no relative path starts with an absolute root.
+    const cwd = realpathSync(process.cwd());
+    const dir = join(cwd, '.orangerail', 'store');
+
+    expect(
+      locateStore({
+        store: createFileStore({ dir: relative(cwd, dir) }),
+        projectRoot: cwd,
+      }),
+    ).toMatchObject({ state: 'inside', dir });
+  });
+
+  it('follows a symlink that lands back inside the project', () => {
+    // The path is outside; the bytes are not. The agent reaches them through the
+    // link exactly as it would through the real path, so the resolved location
+    // is the one that answers.
+    const root = realpathSync(emptyRoot());
+    const real = join(root, 'store');
+    mkdirSync(real, { recursive: true });
+
+    const link = join(realpathSync(emptyRoot()), 'link-to-store');
+    symlinkSync(real, link);
+
+    expect(locateStore({ store: createFileStore({ dir: link }), projectRoot: root })).toEqual({
+      state: 'inside',
+      dir: real,
+      written: false,
+    });
+  });
+
+  it('says a store with no directory cannot be located, rather than guessing one', async () => {
+    const config = buildConfig();
+
+    expect(locateStore({ store: config.store, projectRoot: emptyRoot() })).toEqual({
+      state: 'undisclosed',
+    });
+
+    const streams = captureStreams();
+    try {
+      await runStatus({ config, projectRoot: emptyRoot() });
+    } finally {
+      streams.restore();
+    }
+
+    expect(streams.out()).toContain("store:    this config's store exposes no directory");
   });
 });

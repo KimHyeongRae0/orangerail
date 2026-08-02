@@ -93,7 +93,17 @@ describe('ONT-040 defect A — a forged approval event must not verify', () => {
 
     const verdict = await verifyAudit({ store });
     expect(verdict.ok).toBe(false);
-    expect(verdict.issues.some((issue) => issue.includes('no "approved" audit record'))).toBe(true);
+
+    // Pinned WHOLE (ONT-066), not by substring. In the configuration `orangerail
+    // init` ships — the store inside the scanned project — this sentence is the
+    // entire defence against the appended line above, and it is a defence that
+    // works by being READ. Its two halves each carry a fact the operator acts
+    // on: `seq 2` is where the execution entered the chain, and "no human
+    // decision was ever recorded" is what separates this from a decision made by
+    // someone else. A substring assertion would let either one be dropped.
+    expect(verdict.issues).toContain(
+      `forged approval ${approvalId}: executed at seq 2 with no "approved" audit record — no human decision was ever recorded`,
+    );
   });
 
   it('flags a forged approver name on a genuinely approved approval', async () => {

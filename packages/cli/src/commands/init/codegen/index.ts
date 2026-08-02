@@ -14,6 +14,7 @@ export interface GeneratedFile {
 }
 
 export { DEFAULT_GATE, GATE_POLICIES, isActionGated, type GatePolicy } from './emit-action';
+export { GENERATED_STORE_DIR } from './emit-config';
 export { deriveLinks } from './emit-links';
 export { emitObjectFile } from './emit-object';
 export * from './prisma-runtime';
