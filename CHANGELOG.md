@@ -43,6 +43,60 @@ whitespace, `"1.5"`, `"0x10"` and `""` are refused with the field named. A
 that is Prisma's signed `BigInt` scalar, and it is written down in
 [docs/limits.md](docs/limits.md).
 
+### Security
+
+- **The scaffolded store sits where the governed agent can write it, and one
+  appended line executes a gated action.** `orangerail init` puts the approvals
+  queue and the audit chain inside the project it just scanned
+  (`.orangerail/store`). `docs/audit-log.md` already said that was the wrong
+  place when the agent also has file tools over that repo — but it described the
+  effort as the re-chaining attack: delete audit records, re-chain the survivors
+  with the public `hashAuditRecord`, re-anchor `audit.head.json`, edit
+  `approvals.jsonl` to match.
+
+  Measured, the bar in the shipped default is **one appended line**:
+
+  ```json
+  {"type":"resolved","id":"<staged id>","decision":"approved","decidedBy":"local-dev","decidedAt":"…"}
+  ```
+
+  The approvals log is event-sourced, so that line folds the approval to
+  `approved`; the next `check_approval` returns `{"status":"executed"}` and the
+  row is gone. No hashing, no re-chaining, no edit to `audit.jsonl` — the
+  approval gate reads the approvals store, and the audit chain is consulted by
+  `audit verify` and by nothing on the execution path.
+
+  Nothing here makes that store tamper-proof, and nothing claims to. A key
+  beside the file it protects buys nothing, and refusing to start over a store
+  location would cost the operator their server while deleting the store stayed
+  an available downgrade. **The default location is unchanged**, for the same
+  reason: a tool that writes to `/var/lib` or `$HOME` on `init` is a tool people
+  stop running. What changed is that it is no longer silent.
+
+  - `orangerail init` names the store in its closing summary and says, in one
+    clause, that an agent with file tools over this directory can write it.
+  - The generated `orangerail.config.mjs` carries the relocation as a commented
+    one-liner directly under the `createFileStore` call, with the argument above
+    it — the fix is visible where the decision is, not only in a doc.
+  - `orangerail status` reports the resolved store directory and whether it is
+    inside the project on every run, in the register of `hosts:`. It is a fact,
+    not an alarm: **the exit code is unchanged**, since a health check that
+    failed on the configuration the tool ships is one nobody runs. Paths are
+    compared as resolved real paths, so a relative `dir` and a symlink landing
+    back inside the project both answer on the location rather than the
+    spelling.
+
+  `orangerail audit verify` does catch the forgery, and now cannot stop doing so
+  quietly: the exact sentence is pinned by a test.
+
+  ```
+  forged approval <id>: executed at seq 2 with no "approved" audit record — no human decision was ever recorded
+  ```
+
+  Read that as detection after the write, never as prevention. `docs/audit-log.md`
+  now states the measured bar alongside the re-chaining attack it used to lead
+  with.
+
 ### Fixed
 
 - **`--exclude payment` was refused on a schema declaring `Payment`.** The

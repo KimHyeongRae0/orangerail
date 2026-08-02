@@ -136,6 +136,27 @@ describe('runInit front door', () => {
   });
 
   /**
+   * ONT-066 — the summary is the one moment the operator is looking at what init
+   * just built. The store it scaffolds is inside the directory their agent has
+   * file tools over, and a scaffold that says nothing about that is the tool
+   * choosing the configuration silently.
+   */
+  it('names where the store landed and who else can write it', async () => {
+    const repoDir = makeRepo({ prefix: 'ont-066-init-store-' });
+
+    const { code, stdout } = await runCaptured({ cwd: repoDir });
+
+    expect(code).toBe(0);
+    expect(stdout).toContain('.orangerail/store/');
+    expect(stdout).toContain('inside this project');
+    expect(stdout).toContain('agent with file tools over this directory can write them');
+    // The remedy is named where it lives — in the generated config — and the
+    // chain is named as an after-the-fact report, never as prevention.
+    expect(stdout).toContain('`createFileStore` call');
+    expect(stdout).toContain('it is a report,');
+  });
+
+  /**
    * ONT-056 — the gated count in the closing summary is derived through the same
    * predicate the emitter branched on, so a run that leaves writes executable
    * cannot close with a line the reader mistakes for "all of them are gated".

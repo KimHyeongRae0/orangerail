@@ -8,7 +8,13 @@ import { hostSurveyInitBeat, surveyHostConfigs } from '../../host-mcp';
 import { runDocs } from '../docs';
 import { DEFAULT_STUDIO_PORT, runStudio } from '../studio';
 import { runInitFromArtifacts } from './artifacts';
-import { buildFileSet, EXISTING_DB_DOC, isActionGated, resolvePrismaConstruction } from './codegen';
+import {
+  buildFileSet,
+  EXISTING_DB_DOC,
+  GENERATED_STORE_DIR,
+  isActionGated,
+  resolvePrismaConstruction,
+} from './codegen';
 import {
   clobberRefusal,
   degradeNotice,
@@ -331,6 +337,30 @@ export const runInit = async ({
       ? ''
       : `  ✓  refused ${excluded.length} model(s) — ${excluded.join(', ')} — recorded in ${GOVERNANCE_FILE}\n`;
 
+  // Where the approvals queue and the audit chain just landed, and who else can
+  // write there (ONT-066). It is a `{ tick, body }` pair like the governance
+  // beat because the location alone is not the finding: the finding is that the
+  // default puts the log recording the agent's writes inside the directory the
+  // agent has file tools over, and one appended line there executes a staged
+  // action. The default is not moved — a tool that writes to `/var/lib` on init
+  // is a tool people stop running — so the whole change is that it is stated
+  // once, here, at the moment it is created, and again on every `status`.
+  //
+  // Printed unconditionally, including for a read-only ontology: the store
+  // exists either way, and a beat that appears only when something is gated
+  // would be absent from exactly the runs where the operator concludes there is
+  // nothing to guard.
+  const storeBeat = {
+    tick: `  ✓  approvals queue + audit chain at ${GENERATED_STORE_DIR}/ — inside this project, so an\n     agent with file tools over this directory can write them\n`,
+    body:
+      `\n  That store is the record of which writes a human approved, and appending one line to\n` +
+      `  ${GENERATED_STORE_DIR}/approvals.jsonl marks a staged action approved — the next\n` +
+      '  `check_approval` then executes it, because the gate reads that store and never the\n' +
+      '  audit chain. `orangerail audit verify` reports the forgery afterwards; it is a report,\n' +
+      '  not a gate, and it does not prevent the write. The generated config carries the\n' +
+      '  one-line move at the `createFileStore` call — see docs/audit-log.md.\n',
+  };
+
   // The surface this run just narrowed is not necessarily the whole surface
   // (ONT-060). This is the exact moment the operator believes otherwise — they
   // asked for four models and were handed four models — so if the project's own
@@ -346,10 +376,12 @@ export const runInit = async ({
       `  ✓  ${gateLine}\n` +
       excludedBeat +
       governanceBeat.tick +
+      storeBeat.tick +
       hostBeat.tick +
       '\n  These files are yours — re-scans never modify them; `orangerail sync` reports drift.\n' +
       gateGuidance +
       governanceBeat.body +
+      storeBeat.body +
       hostBeat.body,
   );
 
