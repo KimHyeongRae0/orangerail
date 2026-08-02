@@ -509,6 +509,16 @@ full against a reference captured on `main`.
 
 ### Documentation
 
+- **The Quickstart now lists the Prisma 7 driver adapter among its
+  prerequisites, so a reader on Prisma 7 installs it instead of discovering it
+  from an `exit 1`.** The requirements block named Node versions and then sent
+  the reader straight at `orangerail init`, which on Prisma 7 refuses until the
+  adapter the schema's `datasource` provider names is installed — reproduced
+  cold from packed tarballs on a Prisma 7 SQLite project. The refusal is
+  correct and unchanged; the four provider → package pairs simply arrive one
+  step earlier now. `docs/existing-database.md#prisma-7` still holds the full
+  walkthrough and nothing moved out of it.
+
 - **A third example runs orangerail against the thing you would do instead, and
   scores it off the rows.** `examples/vs-a-rules-file/` makes the README's rules-file
   section reproducible: three scenarios, both arms executed on the same database with

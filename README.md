@@ -279,6 +279,12 @@ tarballs of this release, in a scratch project holding nothing but a two-model P
 **Requirements: Node 20 or newer** for the `orangerail` CLI and `orangerail-mcp` (Node 18 for
 `orangerail-core`, `orangerail-docs-gen` and `orangerail-studio` on their own).
 
+**On Prisma 7, install the driver adapter your `datasource` provider names before step 1** —
+`postgresql` → `@prisma/adapter-pg`, `sqlite` → `@prisma/adapter-better-sqlite3`, `mysql` →
+`@prisma/adapter-mariadb`, `sqlserver` → `@prisma/adapter-mssql`. Prisma 7 removed the
+no-argument client constructor, so `init` exits 1 rather than generate an ontology that cannot
+construct a client.
+
 **1. Scan your project.** Run this in a repo with a `prisma/schema.prisma` or an OpenAPI spec.
 The scanner reads your files, makes no LLM calls, and needs no API key. Have a live database and
 no schema file? `prisma db pull` writes one — the whole path is in
