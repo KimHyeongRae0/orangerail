@@ -1,4 +1,5 @@
-import type { EmployeeMetric, ExtractedOntology, MetricOrUnavailable } from './types';
+import { toRenderableValue } from '../../../render';
+import type { EmployeeMetric, ExtractedOntology } from './types';
 
 /**
  * The human-facing honesty report (plan Step 9). ANALYTICS.md opens with the
@@ -7,9 +8,6 @@ import type { EmployeeMetric, ExtractedOntology, MetricOrUnavailable } from './t
  * (no score/rank/rating), and calls out tracker-view vs chat-view divergences
  * explicitly. Deterministic: rows are ordered by accountId, no timestamps.
  */
-
-const show = ({ value }: { value: MetricOrUnavailable }): string =>
-  value === 'unavailable' ? 'n/a' : String(value);
 
 /**
  * ONT-013 D4: cap an over-long display string for the human-readable table
@@ -87,18 +85,306 @@ const METRIC_FORMULAS: [string, string][] = [
   ],
 ];
 
+/**
+ * The in-place stand-in for a value the roster could not print as it is.
+ *
+ * Byte-identical to `packages/cli/src/render.ts:102`, which is what
+ * `approvals show` prints, what `/api/instances` serves (ONT-071) and what the
+ * studio's person panel renders (ONT-072). A reader who has met the marker on
+ * one of those surfaces must meet the same words here; a fourth spelling of one
+ * fact would be a regression in honesty, not a gain.
+ */
+const unrenderable = ({ reason }: { reason: string }): string => `<UNRENDERABLE — ${reason}>`;
+
+/**
+ * ONT-071's sentence for a field JSON would drop, reused verbatim for a field
+ * the row simply does not carry — for the reader the two are the same fact, and
+ * `data/*.json` really would drop both.
+ */
+const ABSENT_REASON = 'undefined, which JSON drops key and all';
+
+/** How much of a stray string reaches a marker, so one field cannot flood the row. */
+const MAX_PREVIEW_CHARS = 40;
+
+/**
+ * Name what a value IS, in ONT-071's spellings, so the roster and the two
+ * surfaces that already report on these same rows describe them the same way.
+ *
+ * The cases `render.ts` turns into markers before the roster ever sees them — a
+ * bigint, a symbol, a function, a non-finite number — are still spelled here:
+ * this vocabulary is copied to be identical, not trimmed to what is reachable
+ * today.
+ */
+const describeValue = ({ value }: { value: unknown }): string => {
+  if (value === null) {
+    return 'null';
+  }
+
+  switch (typeof value) {
+    case 'string': {
+      const clipped =
+        value.length > MAX_PREVIEW_CHARS ? `${value.slice(0, MAX_PREVIEW_CHARS)}...` : value;
+
+      return `a string (${JSON.stringify(clipped)})`;
+    }
+    case 'number':
+      return `the number ${String(value)}`;
+    case 'boolean':
+      return `the boolean ${String(value)}`;
+    case 'bigint':
+      return `a bigint (${value.toString()})`;
+    case 'symbol':
+      return `a symbol (${value.toString()})`;
+    case 'function':
+      return `a function (${value.name === '' ? 'anonymous' : value.name})`;
+    case 'undefined':
+      return 'undefined';
+    default:
+      return Array.isArray(value) ? `an array of ${value.length} item(s)` : 'an object';
+  }
+};
+
+/**
+ * Fit one rendered value into a markdown table cell.
+ *
+ * A cell ends at a `|` and a row ends at a newline, so a value carrying either
+ * does not just look wrong — it silently becomes other columns. A display name
+ * of `Ann | 9 | 999 | yes` used to shift every metric one cell left per pipe,
+ * and a name carrying CRLF used to end the table where it sat. Both are real
+ * values a Jira export can hold, so both are ESCAPED and kept rather than
+ * marked: the person really is called that, and throwing the name away to
+ * protect the table would be the same lie in the other direction.
+ *
+ * The ONT-013 D4 cap still applies, and applies to markers too, so a long
+ * failure message cannot bloat the row either. Capping before escaping keeps
+ * the cap meaning "80 characters of the value", as it always did.
+ */
+const cellText = ({ value }: { value: string }): string =>
+  truncateDisplay({ value: value.replace(/[\r\n]+/g, ' ') }).replaceAll('|', '\\|');
+
+/** A cell that names, in place, the value the column could not print. */
+const markerCell = ({ reason }: { reason: string }): string =>
+  cellText({ value: unrenderable({ reason }) });
+
+/** A cell naming a value that is not the thing its column declares. */
+const mismatchCell = ({ value, declared }: { value: unknown; declared: string }): string =>
+  markerCell({ reason: `${describeValue({ value })} where the row declares ${declared}` });
+
+/** One field of a row: what was there, or the reason the roster cannot print it. */
+type Reading = { ok: true; value: unknown } | { ok: false; reason: string };
+
+/**
+ * One row's JSON-safe mirror, plus the reasons the walk that produced it left
+ * behind.
+ *
+ * `toRenderableValue` (`render.ts:296`) walks the row once and returns two
+ * things: a mirror in which every part JSON cannot carry has already become
+ * ONT-071's marker, and a list — derived from the walk, never from the rendered
+ * text — of where and why. Reading through the mirror is what makes a throwing
+ * getter, a cycle and a non-finite number the roster's problem instead of the
+ * caller's; consulting the list is what keeps a value that literally spells the
+ * marker from being mistaken for a refusal.
+ */
+interface RowMirror {
+  root: string;
+  mirror: unknown;
+  refused: Map<string, string>;
+}
+
+const mirrorRow = ({ employee, index }: { employee: EmployeeMetric; index: number }): RowMirror => {
+  const root = `employee[${index}]`;
+  const { value: mirror, fields } = toRenderableValue({ value: employee, path: root });
+
+  return { root, mirror, refused: new Map(fields.map((field) => [field.path, field.reason])) };
+};
+
+/**
+ * Read one declared field off a row's mirror.
+ *
+ * `EmployeeMetric` (`types.ts:87`) says every field is present. That declaration
+ * is a contract nothing on the way in enforces, so the row is read as the
+ * unknown it actually is. A key the row does not carry is a reason, never an
+ * `undefined` interpolated into the table as the word "undefined".
+ */
+const readField = ({
+  row,
+  from,
+  at,
+  key,
+}: {
+  row: RowMirror;
+  from: unknown;
+  /** The path of `from` itself, as the walk named it. */
+  at: string;
+  key: string;
+}): Reading => {
+  const refusedHere = row.refused.get(`${at}.${key}`);
+
+  if (refusedHere !== undefined) {
+    return { ok: false, reason: refusedHere };
+  }
+
+  const refusedParent = row.refused.get(at);
+
+  if (refusedParent !== undefined) {
+    return { ok: false, reason: refusedParent };
+  }
+
+  if (from === null || typeof from !== 'object') {
+    return {
+      ok: false,
+      reason: `${describeValue({ value: from })} where the row declares an object`,
+    };
+  }
+
+  const value = (from as Record<string, unknown>)[key];
+
+  return value === undefined ? { ok: false, reason: ABSENT_REASON } : { ok: true, value };
+};
+
+/** A field read straight off the row, which is where every column but the mix starts. */
+const readRow = ({ row, key }: { row: RowMirror; key: string }): Reading =>
+  readField({ row, from: row.mirror, at: row.root, key });
+
+/** What every metric column of this table is allowed to be. */
+const METRIC_DECLARED = 'a number or "unavailable"';
+
+/**
+ * A metric as the roster prints it, or `null` when the value is not one.
+ *
+ * A number renders as its digits and the literal `'unavailable'` as `n/a` —
+ * both exactly what this table printed before.
+ *
+ * `'unavailable'` is accepted on ALL ten metric columns, including the five
+ * `EmployeeMetric` declares as plain numbers. It is the scanner's own spelling
+ * for "no value" (`types.ts:84`), already written into the other five, and the
+ * two declarations of one emitted row disagree about which is which: the studio
+ * reads the same `data/employee.json` through `InstanceEmployee`
+ * (`packages/studio/src/snapshot/instances.ts:21-34`), which calls
+ * `medianCycleDays*` and `weekendOffHoursShare` a `MetricValue` and
+ * `helpGiven`/`helpReceived` a plain `number` — the opposite split. Taking the
+ * wider reading marks nothing that a surface already prints as a word, which is
+ * the judgement #109 made first: marking `'unavailable'` would be a regression
+ * in honesty rather than a gain.
+ */
+const metricText = ({ value }: { value: unknown }): string | null => {
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  return value === 'unavailable' ? 'n/a' : null;
+};
+
+/** One metric column, as its value or as the marker that names it. */
+const metricCell = ({ row, key }: { row: RowMirror; key: string }): string => {
+  const read = readRow({ row, key });
+
+  if (!read.ok) {
+    return markerCell({ reason: read.reason });
+  }
+
+  const text = metricText({ value: read.value });
+
+  return text === null
+    ? mismatchCell({ value: read.value, declared: METRIC_DECLARED })
+    : cellText({ value: text });
+};
+
+/** One column the row declares as a plain string (the identity columns). */
+const stringCell = ({ row, key }: { row: RowMirror; key: string }): string => {
+  const read = readRow({ row, key });
+
+  if (!read.ok) {
+    return markerCell({ reason: read.reason });
+  }
+
+  return typeof read.value === 'string'
+    ? cellText({ value: read.value })
+    : mismatchCell({ value: read.value, declared: 'a string' });
+};
+
+/**
+ * The active column.
+ *
+ * A row with no `active` used to print `no`, which a reader has no way to tell
+ * apart from "this person left the team" — a missing field asserting a fact
+ * about a person is the quiet omission ONT-070 exists to stop.
+ */
+const activeCell = ({ row }: { row: RowMirror }): string => {
+  const read = readRow({ row, key: 'active' });
+
+  if (!read.ok) {
+    return markerCell({ reason: read.reason });
+  }
+
+  if (typeof read.value !== 'boolean') {
+    return mismatchCell({ value: read.value, declared: 'a boolean' });
+  }
+
+  return read.value ? 'yes' : 'no';
+};
+
+/** The complexity mix parts, in the order the roster prints them. */
+const MIX_KEYS = ['hi', 'med', 'lo'] as const;
+
+/** What the complexity mix column is allowed to be. */
+const MIX_DECLARED = 'an object with hi/med/lo';
+
+/**
+ * The complexity mix as `hi/med/lo`, or ONE marker for the whole column.
+ *
+ * Named once rather than as three interleaved markers (#109's rule): the reason
+ * says which part is missing, which is the fact a reader needs, and the row
+ * stays readable. Each part must be a number — the `/` separator would make
+ * `1/n/a/0` unreadable, so `'unavailable'` is not accepted here even though
+ * every other metric column takes it.
+ */
+const mixCell = ({ row }: { row: RowMirror }): string => {
+  const read = readRow({ row, key: 'complexityMix' });
+
+  if (!read.ok) {
+    return markerCell({ reason: read.reason });
+  }
+
+  if (read.value === null || typeof read.value !== 'object') {
+    return mismatchCell({ value: read.value, declared: MIX_DECLARED });
+  }
+
+  const at = `${row.root}.complexityMix`;
+  const parts: string[] = [];
+
+  for (const key of MIX_KEYS) {
+    const part = readField({ row, from: read.value, at, key });
+
+    if (!part.ok) {
+      return markerCell({ reason: `its ${key} is ${part.reason}` });
+    }
+
+    if (typeof part.value !== 'number') {
+      const was = describeValue({ value: part.value });
+
+      return markerCell({ reason: `its ${key} is ${was} where the row declares a number` });
+    }
+
+    parts.push(String(part.value));
+  }
+
+  return parts.join('/');
+};
+
 /** Render the per-person metrics table (no ranking / score column). */
 const renderRoster = ({ employees }: { employees: EmployeeMetric[] }): string => {
   const header =
     '| accountId | name | active | tickets | storyPoints | hi/med/lo | reopen% | reassign g/r | helpGiven | helpReceived | offHours% | cycle 1st/2nd |';
   const divider = '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |';
 
-  const rows = employees.map((e) => {
-    const mix = `${e.complexityMix.hi}/${e.complexityMix.med}/${e.complexityMix.lo}`;
-    const reassign = `${show({ value: e.reassignmentsGiven })}/${show({ value: e.reassignmentsReceived })}`;
-    const cycle = `${e.medianCycleDaysFirstHalf}/${e.medianCycleDaysSecondHalf}`;
+  const rows = employees.map((employee, index) => {
+    const row = mirrorRow({ employee, index });
 
-    return `| ${e.accountId} | ${truncateDisplay({ value: e.displayName })} | ${e.active ? 'yes' : 'no'} | ${e.ticketCount} | ${e.storyPointsTotal} | ${mix} | ${show({ value: e.reopenRate })} | ${reassign} | ${show({ value: e.helpGiven })} | ${show({ value: e.helpReceived })} | ${e.weekendOffHoursShare} | ${cycle} |`;
+    const reassign = `${metricCell({ row, key: 'reassignmentsGiven' })}/${metricCell({ row, key: 'reassignmentsReceived' })}`;
+    const cycle = `${metricCell({ row, key: 'medianCycleDaysFirstHalf' })}/${metricCell({ row, key: 'medianCycleDaysSecondHalf' })}`;
+
+    return `| ${stringCell({ row, key: 'accountId' })} | ${stringCell({ row, key: 'displayName' })} | ${activeCell({ row })} | ${metricCell({ row, key: 'ticketCount' })} | ${metricCell({ row, key: 'storyPointsTotal' })} | ${mixCell({ row })} | ${metricCell({ row, key: 'reopenRate' })} | ${reassign} | ${metricCell({ row, key: 'helpGiven' })} | ${metricCell({ row, key: 'helpReceived' })} | ${metricCell({ row, key: 'weekendOffHoursShare' })} | ${cycle} |`;
   });
 
   return [header, divider, ...rows].join('\n');

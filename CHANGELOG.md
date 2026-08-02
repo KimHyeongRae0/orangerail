@@ -108,6 +108,26 @@ re-run `orangerail init` — the choice is baked into the generated files.
 
 ### Fixed
 
+- **A name with a `|` in it rewrote every other column of ANALYTICS.md.** The
+  roster interpolated each stored value straight into a markdown table row, so a
+  Jira display name of `Ann | 9 | 999 | yes` shifted every metric one cell left
+  per pipe: the rendered row read 999 tickets and `yes` story points for someone
+  with one ticket and five points. A display name carrying a line break ended the
+  table where it sat. And a story-point total that overflowed to `Infinity` — two
+  values that each pass the scanner's finite check and sum past it — printed as
+  `Infinity` in the report while `data/employee.json`, written by the same run,
+  carried `null`.
+
+  Every roster cell is now read through the same walk `approvals show` and
+  `/api/instances` use. A pipe or a line break in a name is escaped and the name
+  is kept whole — it is a real name, and dropping it to protect the table would
+  be the same lie in the other direction. A value the column cannot carry is
+  named in the vocabulary those surfaces already print
+  (`<UNRENDERABLE — the number Infinity>`), never printed as something else and
+  never dropped. A row missing a field gets one marker in that cell and its other
+  cells verbatim, instead of ending the whole `init` run before a byte is
+  written. A conforming export's ANALYTICS.md is byte-identical to before.
+
 - **The driver adapter was picked by install order, not by the schema.**
   `@prisma/adapter-pg` heads the table of adapters orangerail knows how to
   construct, and the selection took the first one the repo carried. A schema
