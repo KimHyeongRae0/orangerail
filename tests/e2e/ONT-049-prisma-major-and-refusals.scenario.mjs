@@ -156,7 +156,9 @@ assert({
   message: `phase 4: expected exit 1, got ${orphanRun.status}`,
 });
 assert({
-  ok: orphanRun.stderr.includes('no supported driver adapter is installed'),
+  // The finding names the scanned provider since ONT-073: the repo that refuses
+  // may carry a supported adapter, just not the one this provider needs.
+  ok: orphanRun.stderr.includes('no driver adapter for `postgresql` is installed'),
   message: 'phase 4: the refusal did not state the finding',
 });
 assert({

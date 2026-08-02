@@ -279,7 +279,7 @@ model Refund {
 
     expect(code).toBe(1);
     expect(printed()).toContain('orangerail sync --accept-new:');
-    expect(printed()).toContain('no supported driver adapter is installed');
+    expect(printed()).toContain('no driver adapter for `sqlite` is installed');
     expect(existsSync(join(cwd, 'ontology', 'Refund.mjs'))).toBe(false);
   });
 
@@ -287,14 +287,61 @@ model Refund {
     writeConfig({ actions: GATED_DELETE });
     withPrismaSource();
     installPackage({ pkg: '@prisma/client', version: '7.9.1' });
-    installPackage({ pkg: '@prisma/adapter-pg', version: '7.9.1' });
+    // The adapter for the provider this schema declares. It used to plant
+    // `@prisma/adapter-pg` over a `provider = "sqlite"` schema and assert
+    // `PrismaPg` came out — the ONT-073 defect, asserted as the contract.
+    installPackage({ pkg: '@prisma/adapter-better-sqlite3', version: '7.9.1' });
 
     const code = await sync({ acceptNew: true, acceptGovernance: true });
 
     expect(code).toBe(0);
     expect(readFileSync(join(cwd, 'ontology', 'Refund.mjs'), 'utf8')).toContain(
-      'new PrismaClient({ adapter: new PrismaPg(url) })',
+      'new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) })',
     );
+  });
+
+  /**
+   * ONT-073 AC-6 — `--accept-new` is the second doorway that writes generated
+   * Prisma call sites, so it selects the adapter exactly the way `init` does. A
+   * project generated against one adapter and re-synced against another would
+   * hold two files whose clients connect through different drivers.
+   */
+  it('picks the adapter by provider from --accept-new too (ONT-073)', async () => {
+    writeConfig({ actions: GATED_DELETE });
+    mkdirSync(join(cwd, 'prisma'), { recursive: true });
+    writeFileSync(
+      join(cwd, 'prisma', 'schema.prisma'),
+      PRISMA_SCHEMA.replace('sqlite', 'mysql'),
+      'utf8',
+    );
+    installPackage({ pkg: '@prisma/client', version: '7.9.1' });
+    installPackage({ pkg: '@prisma/adapter-pg', version: '7.9.1' });
+    installPackage({ pkg: '@prisma/adapter-mariadb', version: '7.9.1' });
+
+    const code = await sync({ acceptNew: true, acceptGovernance: true });
+    const generated = readFileSync(join(cwd, 'ontology', 'Refund.mjs'), 'utf8');
+
+    expect(code).toBe(0);
+    expect(generated).toContain('new PrismaClient({ adapter: new PrismaMariaDb(url) })');
+    expect(generated).not.toContain('PrismaPg');
+  });
+
+  it('refuses --accept-new when the adapter the provider names is the one missing (ONT-073)', async () => {
+    writeConfig({ actions: GATED_DELETE });
+    mkdirSync(join(cwd, 'prisma'), { recursive: true });
+    writeFileSync(
+      join(cwd, 'prisma', 'schema.prisma'),
+      PRISMA_SCHEMA.replace('sqlite', 'mysql'),
+      'utf8',
+    );
+    installPackage({ pkg: '@prisma/client', version: '7.9.1' });
+    installPackage({ pkg: '@prisma/adapter-pg', version: '7.9.1' });
+
+    const code = await sync({ acceptNew: true, acceptGovernance: true });
+
+    expect(code).toBe(1);
+    expect(printed()).toContain('npm install @prisma/adapter-mariadb');
+    expect(existsSync(join(cwd, 'ontology', 'Refund.mjs'))).toBe(false);
   });
 });
 

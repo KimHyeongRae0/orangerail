@@ -279,7 +279,9 @@ describe('runInit refusal exit codes (ONT-049)', () => {
     const { code, stderr } = await runCaptured({ cwd: repoDir });
 
     expect(code).toBe(1);
-    expect(stderr).toContain('no supported driver adapter is installed');
+    // The finding names the provider it was asked about (ONT-073), because the
+    // repo may well have a supported adapter — just not this one's.
+    expect(stderr).toContain('no driver adapter for `postgresql` is installed');
     expect(stderr).toContain('npm install @prisma/adapter-pg');
     expect(existsSync(join(repoDir, 'orangerail.config.mjs'))).toBe(false);
     expect(existsSync(join(repoDir, 'ontology'))).toBe(false);
@@ -314,6 +316,95 @@ describe('runInit refusal exit codes (ONT-049)', () => {
     expect(readFileSync(join(six, 'ontology', 'Article.mjs'), 'utf8')).toContain(
       'client = new PrismaClient();',
     );
+  });
+});
+
+/**
+ * ONT-073 — the driver adapter follows the schema's own `datasource` provider,
+ * never install order, and the closing summary names both so a wrong choice is
+ * visible without reading generated code.
+ */
+describe('orangerail init — the adapter matches the provider (ONT-073)', () => {
+  /** The same repo, re-pointed at a database whose adapter is NOT first in the table. */
+  const makeMysqlRepo = ({ prefix }: { prefix: string }): string => {
+    const dir = makeRepo({ prefix });
+
+    writeFileSync(
+      join(dir, 'prisma', 'schema.prisma'),
+      SCHEMA.replace('postgresql', 'mysql'),
+      'utf8',
+    );
+
+    return dir;
+  };
+
+  it('emits the MySQL adapter in a repo that also carries the PostgreSQL one', async () => {
+    const repoDir = makeMysqlRepo({ prefix: 'ont-073-init-mysql-' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/client', version: '7.9.1' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/adapter-pg', version: '7.9.1' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/adapter-mariadb', version: '7.9.1' });
+
+    const { code, stdout } = await runCaptured({ cwd: repoDir });
+    const generated = readFileSync(join(repoDir, 'ontology', 'Article.mjs'), 'utf8');
+
+    expect(code).toBe(0);
+    expect(generated).toContain('new PrismaClient({ adapter: new PrismaMariaDb(url) })');
+    // `@prisma/adapter-pg` heads the table and is installed here, which is
+    // exactly the repo that used to be handed `new PrismaPg(url)` over MySQL.
+    expect(generated).not.toContain('PrismaPg');
+
+    // AC-3: the choice and its reason are in the summary, not only in the bytes.
+    expect(stdout).toContain('driver adapter PrismaMariaDb from @prisma/adapter-mariadb');
+    expect(stdout).toContain('chosen for the `mysql` provider your schema declares');
+  });
+
+  it('refuses a MySQL schema carrying only the PostgreSQL adapter, writing nothing', async () => {
+    const repoDir = makeMysqlRepo({ prefix: 'ont-073-init-mysql-refuse-' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/client', version: '7.9.1' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/adapter-pg', version: '7.9.1' });
+
+    const { code, stdout, stderr } = await runCaptured({ cwd: repoDir });
+
+    expect(code).toBe(1);
+    expect(stderr).toContain('Your datasource provider is `mysql`');
+    expect(stderr).toContain('npm install @prisma/adapter-mariadb');
+    expect(stdout).toBe('');
+    expect(existsSync(join(repoDir, 'orangerail.config.mjs'))).toBe(false);
+    expect(existsSync(join(repoDir, 'ontology'))).toBe(false);
+  });
+
+  it('keeps install order, and says so, when the schema declares no provider', async () => {
+    // There is nothing better to choose from here, so the pre-ONT-073 answer
+    // stands — and the summary states that it was install order that gave it.
+    const repoDir = makeRepo({ prefix: 'ont-073-init-no-provider-' });
+
+    writeFileSync(
+      join(repoDir, 'prisma', 'schema.prisma'),
+      SCHEMA.replace('  provider = "postgresql"\n', ''),
+      'utf8',
+    );
+    installPackage({ cwd: repoDir, pkg: '@prisma/client', version: '7.9.1' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/adapter-pg', version: '7.9.1' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/adapter-mariadb', version: '7.9.1' });
+
+    const { code, stdout } = await runCaptured({ cwd: repoDir });
+
+    expect(code).toBe(0);
+    expect(readFileSync(join(repoDir, 'ontology', 'Article.mjs'), 'utf8')).toContain(
+      'new PrismaClient({ adapter: new PrismaPg(url) })',
+    );
+    expect(stdout).toContain('driver adapter PrismaPg from @prisma/adapter-pg');
+    expect(stdout).toContain('your schema declares no datasource provider');
+  });
+
+  it('says nothing about an adapter on the pre-7 bare construction', async () => {
+    const repoDir = makeRepo({ prefix: 'ont-073-init-prisma6-' });
+    installPackage({ cwd: repoDir, pkg: '@prisma/client', version: '6.19.3' });
+
+    const { code, stdout } = await runCaptured({ cwd: repoDir });
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain('driver adapter');
   });
 });
 
