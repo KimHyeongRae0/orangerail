@@ -157,6 +157,18 @@ with the datasource. A transport is told the field and not the stored value.
 
 ### Fixed
 
+- **`orangerail init --yes` started a server and never returned.** `--yes` is the
+  flag you pass when nobody is going to answer a prompt — a CI job, a script, a
+  Dockerfile — and it ended by launching the studio, which waits for a person.
+  Measured on a cold start: scaffolding complete at 0.45s, `serving on
+  http://127.0.0.1:4820` at 0.46s, still running when it was killed 30 seconds
+  later. **`--yes` now implies `--no-studio`.** Nothing is lost, because `init`
+  already closes by naming ``orangerail studio`` as the next command. An explicit
+  `--studio` alongside `--yes` still serves, and the interactive path is
+  untouched: on a terminal without `--yes`, `Launch studio and open browser?
+  [Y/n]` is still asked and still defaults to yes. Anything scripted that relied
+  on `init --yes` coming up on a port needs `--studio` added.
+
 - **A name with a `|` in it rewrote every other column of ANALYTICS.md.** The
   roster interpolated each stored value straight into a markdown table row, so a
   Jira display name of `Ann | 9 | 999 | yes` shifted every metric one cell left
@@ -522,6 +534,14 @@ full against a reference captured on `main`.
   was run end to end against MySQL 9.7.1 — read, create, update and an approved
   gated delete through the shipped MCP server, with `orangerail audit verify`
   reporting `audit chain OK` — rather than being signature-verified only.
+
+- The README Quickstart now names the Prisma 7 wall before a reader hits it. A
+  schema still carrying `url` in its `datasource` block fails every `prisma`
+  command, and `db push --skip-generate` is gone —
+  [docs/existing-database.md](docs/existing-database.md#prisma-7) already
+  answered both, but the Quickstart linked it only for `prisma db pull`, which is
+  not the condition a reader in that state matches. One sentence, no content
+  moved out of the doc.
 
 ## 0.1.1 — 2026-08-01
 

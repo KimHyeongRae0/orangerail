@@ -111,7 +111,23 @@ const affirmative = ({ answer, fallback }: { answer: string; fallback: boolean }
   return trimmed === 'y' || trimmed === 'yes';
 };
 
-/** Build the flag-only (non-interactive) resolution. */
+/**
+ * Build the flag-only (non-interactive) resolution.
+ *
+ * `studio` defaults to **false** here, and only here (ONT-077). `--yes` is the
+ * flag you pass when nobody is going to answer a prompt — a CI job, a script, a
+ * Dockerfile — and the studio is a server that waits for a person: `init --yes`
+ * scaffolded in 0.45s and then served indefinitely. Nothing is lost, because
+ * `init` already closes by naming `orangerail studio` as the next command.
+ *
+ * An explicit `--studio` still wins, because `flags.studio` is `true` then and
+ * `??` never reaches the default. The interactive branch below keeps its own
+ * `[Y/n]` fallback of `true`: a human at a terminal who presses Enter is
+ * answering the question, which is the case this default is not about.
+ *
+ * `open` is deliberately left alone. `init` reads it only inside `runStudio`,
+ * so it is already moot when the studio does not start.
+ */
 const fromFlags = ({ flags }: { flags: InitFlags }): ResolvedInit => ({
   preset: resolvePreset({ value: flags.preset }),
   gate: resolveGate({ value: flags.gate }),
@@ -119,7 +135,7 @@ const fromFlags = ({ flags }: { flags: InitFlags }): ResolvedInit => ({
   ...(flags.models === undefined ? {} : { models: flags.models }),
   ...(flags.exclude === undefined ? {} : { exclude: flags.exclude }),
   docs: flags.docs ?? true,
-  studio: flags.studio ?? true,
+  studio: flags.studio ?? false,
   open: flags.open,
   ...(flags.port === undefined ? {} : { port: flags.port }),
 });

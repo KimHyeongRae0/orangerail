@@ -30,6 +30,9 @@ Usage:
                                                  --models keeps only those models; --exclude refuses
                                                  the named ones and records the refusal so later
                                                  scans stop proposing them
+                                                 --yes implies --no-studio, because nothing that
+                                                 answers no prompts should be left serving; pass
+                                                 --studio alongside it to serve anyway
   orangerail sync [--config <path>] [--accept-new] [--accept-governance] [--exclude <csv>]
                                                    re-scan and report drift
                                                    exit 0 nothing to act on / 1 unresolved drift / 2 could not check
