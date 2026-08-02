@@ -287,6 +287,35 @@ full against a reference captured on `main`.
   routes can no longer take the process down either: a snapshot that cannot be
   serialized is answered as a 500 with a reason.
 
+- **Selecting one person blanked the whole studio.** The person scorecard read
+  `employee.complexityMix.hi` directly. That deref is type-correct —
+  `complexityMix` is declared required — and it threw anyway, because nothing on
+  the read path checks a row against the shape it was declared to have:
+  `defineObject` stores the schema and never parses `resolve` output with it. A
+  datasource that returns a row without that column therefore reached the
+  browser intact, and one click on that person threw during render.
+
+  What made it a whole-application failure was that the studio had no error
+  boundary anywhere. React unmounts the root when a component throws, so one
+  missing metric took the ontology map, every other person and the navigation
+  with it. There are boundaries now, one per view: a view that fails says which
+  view it was and why, its siblings keep rendering and stay interactive, and the
+  error still reaches the browser console for whoever has to fix it.
+
+  The panel itself no longer derefs anything. Every metric is read as the
+  unknown it actually is, and a value that is not what the row declared —
+  absent, `null`, a string where a number belongs, a mix missing `med`, a getter
+  that throws — is printed as a marker naming it, in the same words
+  `/api/instances` already uses for a field it could not print. A field that
+  cannot be shown is named, never dropped, and never filtered out: a person who
+  disappears from the fleet is worse than a person with one bad metric. A row
+  that fully conforms renders exactly as it did before.
+
+  Not fixed here, and deliberately: `resolve` output is still never validated
+  against the declared schema. That is the root, it is a `core` change touching
+  every consumer, and it gets its own ticket. This one keeps the browser
+  standing.
+
 ### Documentation
 
 - `docs/existing-database.md` no longer steers around this defect by prescribing
