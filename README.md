@@ -614,6 +614,10 @@ approval does across the upgrade — both are written up under **Upgrading from 
   unattended and three deletions becoming approvals. Deterministic, asserted, no API key.
 - [`governed-writes`](./examples/governed-writes) — the same gate in isolation, one destructive
   call at a time, with a recorded terminal session.
+- [`vs-a-rules-file`](./examples/vs-a-rules-file) — the two sections above, made runnable against
+  the thing you would do instead: a rules file read the way a real host reads one, project *and*
+  global, plus a precondition written by hand. Three scenarios, both arms executed, every verdict
+  scored off the rows — including the column where the rules file wins, which is asserted.
 
 ## Development
 

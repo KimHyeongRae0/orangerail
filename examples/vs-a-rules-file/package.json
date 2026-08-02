@@ -1,0 +1,12 @@
+{
+  "name": "orangerail-example-vs-a-rules-file",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Two arms on the same task: a rules file with an unenforced write tool, and orangerail. Run both, diff the output.",
+  "devDependencies": {
+    "prisma": "^6",
+    "@prisma/client": "^6",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  }
+}
