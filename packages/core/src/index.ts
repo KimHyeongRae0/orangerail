@@ -70,6 +70,17 @@ export type { IdentityConfig, ResolveIdentity, ResolveIdentityContext } from './
 
 export { evaluateWhere, isSerializableWhere } from './policy/where';
 
+export {
+  checkConformance,
+  conformanceOfField,
+  conformanceReason,
+  markNonconforming,
+  renderConformancePath,
+  unrenderable,
+  UNRENDERABLE_PREFIX,
+} from './conformance';
+export type { Conformance, ConformanceIssue, FieldConformance } from './conformance';
+
 export { markPublicDiagnostic, PUBLIC_DIAGNOSTIC_KEY, readPublicDiagnostic } from './diagnostic';
 export type { PublicDiagnostic, PublicDiagnosticCode } from './diagnostic';
 

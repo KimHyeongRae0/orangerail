@@ -52,6 +52,24 @@ connected through the wrong driver. Install the adapter your provider names.
 Projects already generated that way keep their emitted `PrismaPg` line until you
 re-run `orangerail init` — the choice is baked into the generated files.
 
+**A declarative `where` clause now refuses a row that does not match the shape
+its object declares.** If your ontology says a field is a required string and the
+row your resolver returns does not carry it, or carries something else, the
+action is refused with a new outcome — `target_nonconforming` — instead of being
+evaluated against a value nobody checked. Actions that were staging on such a row
+will start refusing, which is the point: `undefined !== 'soldout'` is `true`, so
+a `neq` clause written to stop an action was permitting it.
+
+The refusal is scoped to the ONE field the clause reads. A row that fails its
+schema anywhere else passes exactly as before, so an ontology that is imprecise
+in a column no policy consults is unaffected. A field declared `.optional()` that
+is absent is conforming. A functional `where` predicate is unchanged and
+unchecked — the engine cannot know which fields it reads.
+
+If an action starts refusing, the audit record names the field and quotes what
+the schema wanted; `orangerail sync` is the tool that reconciles the declaration
+with the datasource. A transport is told the field and not the stored value.
+
 ### Security
 
 - **The scaffolded store sits where the governed agent can write it, and one
@@ -105,6 +123,37 @@ re-run `orangerail init` — the choice is baked into the generated files.
   Read that as detection after the write, never as prevention. `docs/audit-log.md`
   now states the measured bar alongside the re-chaining attack it used to lead
   with.
+
+- **The `where` gate failed closed on no row and open on a wrong one.**
+  `defineObject` stored the schema and nothing ever parsed a resolver's output
+  with it, so the gate read a property off a row nobody had checked. A row
+  missing the declared field yielded `undefined`, and `undefined !== 'soldout'`
+  is `true` — the clause written to stop the action permitted it, and the action
+  executed. Measured against the project's own flagship policy:
+
+  ```
+  CONTROL (status: 'soldout')          -> rejected_where          <- the gate works
+  DRIFT   (status absent)              -> approval_pending -> executed
+  DRIFT   (status: { code: 'soldout' })-> approval_pending
+  ```
+
+  `neq` is the operator that opened; `eq`, `in` and the ordered ops failed closed
+  by accident of their comparison rather than by anyone's decision. Reachable
+  without exotica — a resolver that forgets a field, a `select` that narrows one,
+  a column renamed in a migration the ontology did not follow.
+
+  The row is now checked against the object's declared schema before the clause
+  is evaluated, and the refusal is `target_nonconforming` rather than
+  `rejected_where`: "the condition did not hold" and "the row did not match what
+  you declared" are different repairs, and only the first one existed. See
+  **Upgrading** for what changes for an existing project.
+
+  Two read surfaces follow the same verdict. `<Object>_get` and `<Object>_list`
+  stay total and stop serving a non-conforming value silently — the field is
+  marked with `<UNRENDERABLE — …>`, the vocabulary the approver view and the
+  studio already share, and the call still succeeds — and the audit record's
+  prior state now says the row is not what the object declares instead of showing
+  a row with a field quietly missing from it.
 
 ### Fixed
 

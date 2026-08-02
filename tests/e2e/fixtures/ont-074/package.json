@@ -1,0 +1,7 @@
+{
+  "name": "ont-074-fixture-catalog",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "e2e fixture repo for ONT-074: one Prisma model carrying the three scalars whose JS values are not their declared type (DateTime, Decimal, BigInt) plus the String column a where clause reads, so a live run can prove that a drifted field refuses and that a Date/Decimal/BigInt row does not. Copied OUT OF REPO so the Prisma-major probe reads the node_modules the scenario plants rather than the monorepo's own."
+}
