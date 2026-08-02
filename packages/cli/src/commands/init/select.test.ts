@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildFileSet } from './codegen';
 import type { IrAction, IrObject, ScannedSource } from './ir';
 import { emptySource } from './ir';
-import { applyFilters, assertSelection, SOURCE_NAMES, unaccountedModels } from './select';
+import { applyFilters, resolveSelection, SOURCE_NAMES, unaccountedModels } from './select';
 import type { ResolvedInit } from './wizard';
 
 const objectNamed = ({ name }: { name: string }): IrObject => ({
@@ -144,22 +144,22 @@ describe('applyFilters — a filtered-out object takes its actions with it (ONT-
   });
 });
 
-describe('assertSelection — garbage fails loudly like --preset does (ONT-041 defect E)', () => {
+describe('resolveSelection — garbage fails loudly like --preset does (ONT-041 defect E)', () => {
   it('refuses a --sources value that is not a known scanner, naming the valid set', () => {
     expect(() =>
-      assertSelection({ source: twoModels(), options: optionsOf({ sources: ['nonsense'] }) }),
+      resolveSelection({ source: twoModels(), options: optionsOf({ sources: ['nonsense'] }) }),
     ).toThrow(/unknown source "nonsense" — expected one of prisma, openapi/);
   });
 
   it('refuses a --models value that matches nothing, naming what the repo has', () => {
     expect(() =>
-      assertSelection({ source: twoModels(), options: optionsOf({ models: ['Typo'] }) }),
+      resolveSelection({ source: twoModels(), options: optionsOf({ models: ['Typo'] }) }),
     ).toThrow(/unknown model "Typo" — expected one of A, B/);
   });
 
   it('names every offending value, not just the first', () => {
     expect(() =>
-      assertSelection({ source: twoModels(), options: optionsOf({ models: ['Typo', 'Nope'] }) }),
+      resolveSelection({ source: twoModels(), options: optionsOf({ models: ['Typo', 'Nope'] }) }),
     ).toThrow(/"Typo", "Nope"/);
   });
 
@@ -167,9 +167,9 @@ describe('assertSelection — garbage fails loudly like --preset does (ONT-041 d
     const source = twoModels();
 
     expect(() =>
-      assertSelection({ source, options: optionsOf({ sources: SOURCE_NAMES, models: ['A'] }) }),
+      resolveSelection({ source, options: optionsOf({ sources: SOURCE_NAMES, models: ['A'] }) }),
     ).not.toThrow();
-    expect(() => assertSelection({ source, options: optionsOf({}) })).not.toThrow();
+    expect(() => resolveSelection({ source, options: optionsOf({}) })).not.toThrow();
   });
 });
 
@@ -182,13 +182,13 @@ describe('assertSelection — garbage fails loudly like --preset does (ONT-041 d
 describe('--exclude — the deny-list front door (ONT-059)', () => {
   it('refuses an unknown name, naming it and the scanned set, before anything is written', () => {
     expect(() =>
-      assertSelection({ source: twoModels(), options: optionsOf({ exclude: ['Typo'] }) }),
+      resolveSelection({ source: twoModels(), options: optionsOf({ exclude: ['Typo'] }) }),
     ).toThrow(/unknown model "Typo" in --exclude — expected one of A, B/);
   });
 
   it('refuses a name given to both --models and --exclude instead of picking a winner', () => {
     expect(() =>
-      assertSelection({
+      resolveSelection({
         source: twoModels(),
         options: optionsOf({ models: ['A'], exclude: ['A'] }),
       }),
@@ -197,14 +197,14 @@ describe('--exclude — the deny-list front door (ONT-059)', () => {
 
   it('refuses an --exclude that would leave nothing to govern', () => {
     expect(() =>
-      assertSelection({ source: twoModels(), options: optionsOf({ exclude: ['A', 'B'] }) }),
+      resolveSelection({ source: twoModels(), options: optionsOf({ exclude: ['A', 'B'] }) }),
     ).toThrow(/names every scanned model/);
   });
 
   it('accepts a valid refusal and drops the model, its relations and its actions', () => {
     const options = optionsOf({ exclude: ['B'] });
 
-    assertSelection({ source: twoModels(), options });
+    resolveSelection({ source: twoModels(), options });
 
     const filtered = applyFilters({ source: twoModels(), options });
 
@@ -225,7 +225,7 @@ describe('--exclude — the deny-list front door (ONT-059)', () => {
     };
     const options = optionsOf({ models: ['A', 'B'], exclude: ['C'] });
 
-    assertSelection({ source, options });
+    resolveSelection({ source, options });
 
     expect(applyFilters({ source, options }).objects.map((object) => object.name)).toEqual([
       'A',
@@ -261,5 +261,183 @@ describe('unaccountedModels — what --models left behind (ONT-059)', () => {
 
     expect(unaccountedModels({ source, options: optionsOf({}) })).toEqual([]);
     expect(unaccountedModels({ source, options: optionsOf({ exclude: ['B'] }) })).toEqual([]);
+  });
+});
+
+/**
+ * ONT-063 — the typed name is resolved to the scanned one, and only the scanned
+ * one survives.
+ *
+ * The assertions below are all one claim: `resolveSelection` returns a
+ * selection, and its names are the SCANNED spellings. A lenient comparison that
+ * let `payment` through while keeping the typed string would satisfy "the flag
+ * works" and still write `"excluded": ["payment"]` into a committed
+ * `orangerail.governance.json`, where `sync` compares it exactly and matches
+ * nothing — the ONT-059 defect back again, this time with a file that looks
+ * right.
+ */
+describe('--models / --exclude are resolved to the scanned casing (ONT-063)', () => {
+  /** A Prisma-shaped scan: the model is `Payment`, the table is `payment`. */
+  const shop = (): ScannedSource => ({
+    ...emptySource(),
+    objects: [objectNamed({ name: 'Customer' }), objectNamed({ name: 'Payment' })],
+    actions: [...crudFor({ name: 'Customer' }), ...crudFor({ name: 'Payment' })],
+  });
+
+  /**
+   * What `scanRepo` really hands over for a schema declaring `Order` AND
+   * `order`: the allocator (ONT-041) has already renamed the second one,
+   * because both would claim `ontology/Order.mjs`. Folding only the emitted
+   * names would see no collision here at all — which is the trap, since typing
+   * `order` would then land on `Order`.
+   */
+  const collidingCase = (): ScannedSource => ({
+    ...emptySource(),
+    objects: [
+      objectNamed({ name: 'Order' }),
+      { ...objectNamed({ name: 'order_2' }), sourceModel: 'order' },
+    ],
+    actions: [],
+  });
+
+  it('AC-1: --exclude payment behaves exactly as --exclude Payment does', () => {
+    const typed = resolveSelection({
+      source: shop(),
+      options: optionsOf({ exclude: ['payment'] }),
+    });
+    const exact = resolveSelection({
+      source: shop(),
+      options: optionsOf({ exclude: ['Payment'] }),
+    });
+
+    expect(typed).toEqual(exact);
+    expect(applyFilters({ source: shop(), options: typed })).toEqual(
+      applyFilters({ source: shop(), options: exact }),
+    );
+  });
+
+  it('AC-2: the surviving name is the scanned one, which is what gets recorded', () => {
+    // Read as: this is the array that reaches `writeBaseline`. Anything but
+    // `Payment` here is a deny-list that `excluded.has(name)` never matches.
+    expect(
+      resolveSelection({ source: shop(), options: optionsOf({ exclude: ['PAYMENT'] }) }).exclude,
+    ).toEqual(['Payment']);
+  });
+
+  it('AC-3: --models resolves the same way, and the emitted filenames do not move', () => {
+    const typed = resolveSelection({ source: shop(), options: optionsOf({ models: ['payment'] }) });
+
+    expect(typed.models).toEqual(['Payment']);
+
+    const paths = ({ options }: { options: ResolvedInit }): string[] =>
+      buildFileSet({
+        source: applyFilters({ source: shop(), options }),
+        preset: 'approval-for-writes',
+        gate: 'all',
+      })
+        .map((file) => file.path)
+        .sort();
+
+    expect(paths({ options: typed })).toEqual(
+      paths({
+        options: resolveSelection({ source: shop(), options: optionsOf({ models: ['Payment'] }) }),
+      }),
+    );
+    expect(paths({ options: typed })).toContain('ontology/Payment.mjs');
+  });
+
+  it('AC-4: a name that matches nothing case-insensitively keeps the existing refusal', () => {
+    expect(() =>
+      resolveSelection({ source: shop(), options: optionsOf({ exclude: ['paymnet'] }) }),
+    ).toThrow(/unknown model "paymnet" in --exclude — expected one of Customer, Payment/);
+
+    // No plural rule, no prefix rule, no edit distance. Each of these is one
+    // keystroke from a real model and none of them is that model: a flag that
+    // decides which tables an agent can reach cannot guess.
+    for (const near of ['payments', 'pay', 'paymentss']) {
+      expect(() =>
+        resolveSelection({ source: shop(), options: optionsOf({ exclude: [near] }) }),
+      ).toThrow(/unknown model/);
+    }
+  });
+
+  it('AC-5: differing casing cannot smuggle one model into both flags', () => {
+    expect(() =>
+      resolveSelection({
+        source: shop(),
+        options: optionsOf({ models: ['Payment'], exclude: ['payment'] }),
+      }),
+    ).toThrow(/"Payment" appears in both --models and --exclude/);
+  });
+
+  it('AC-6: two models whose source names differ only in case are refused, not picked between', () => {
+    expect(() =>
+      resolveSelection({ source: collidingCase(), options: optionsOf({ exclude: ['order'] }) }),
+    ).toThrow(
+      /ambiguous model "order" in --exclude — it could mean Order or order_2, whose source names differ only in case/,
+    );
+
+    // Including when the typed name IS one of them. `--exclude Order` on this
+    // schema reads as "refuse the orders table", and half of it would stay
+    // reachable without a word said.
+    expect(() =>
+      resolveSelection({ source: collidingCase(), options: optionsOf({ models: ['ORDER'] }) }),
+    ).toThrow(/ambiguous model "ORDER" in --models/);
+    expect(() =>
+      resolveSelection({ source: collidingCase(), options: optionsOf({ exclude: ['Order'] }) }),
+    ).toThrow(/ambiguous model/);
+
+    // The de-collided name the scan warning hands the operator is the way
+    // through: it names exactly one model, so it resolves.
+    expect(
+      resolveSelection({ source: collidingCase(), options: optionsOf({ exclude: ['order_2'] }) })
+        .exclude,
+    ).toEqual(['order_2']);
+
+    // A model NOT in the colliding pair still resolves — the refusal is about
+    // the name that has two answers, not about the whole schema.
+    expect(
+      resolveSelection({
+        source: {
+          ...collidingCase(),
+          objects: [...collidingCase().objects, objectNamed({ name: 'Refund' })],
+        },
+        options: optionsOf({ exclude: ['refund'] }),
+      }).exclude,
+    ).toEqual(['Refund']);
+  });
+
+  it('counts models rather than typed strings when --exclude covers everything', () => {
+    // `--exclude PAYMENT,payment` is one model. Refusing this run for naming
+    // "every scanned model" would be a refusal over an arithmetic accident.
+    const resolved = resolveSelection({
+      source: shop(),
+      options: optionsOf({ exclude: ['PAYMENT', 'payment'] }),
+    });
+
+    expect(resolved.exclude).toEqual(['Payment']);
+
+    // And the guard still fires when the resolved set really is everything.
+    expect(() =>
+      resolveSelection({
+        source: shop(),
+        options: optionsOf({ exclude: ['customer', 'PAYMENT'] }),
+      }),
+    ).toThrow(/names every scanned model/);
+  });
+
+  it('leaves a selection whose casing already matches byte-identical', () => {
+    const options = optionsOf({ models: ['Customer'], exclude: ['Payment'] });
+
+    expect(resolveSelection({ source: shop(), options })).toEqual(options);
+  });
+
+  it('reports what an allow-list left behind under its scanned name', () => {
+    const resolved = resolveSelection({
+      source: shop(),
+      options: optionsOf({ models: ['customer'] }),
+    });
+
+    expect(unaccountedModels({ source: shop(), options: resolved })).toEqual(['Payment']);
   });
 });

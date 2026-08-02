@@ -640,4 +640,84 @@ model Refund {
     // as a proposal on the next run.
     expect(recordedExclusions()).toEqual(['Payment']);
   });
+
+  /**
+   * ONT-063. This command's own report tells the operator to run
+   * `orangerail sync --exclude <name>`, and the name they retype comes from
+   * whichever surface they were last looking at — `psql`, where the table is
+   * `payment`, as readily as the schema file, where the model is `Payment`.
+   * What gets WRITTEN has to be the scanned name either way: `splitExclusions`
+   * compares the recorded list exactly, so a file holding `payment` would be a
+   * deny-list matching nothing.
+   */
+  it('records the scanned name whatever casing --exclude was typed in (ONT-063)', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+    out = [];
+
+    expect(await sync({ exclude: ['payment'] })).toBe(0);
+    expect(recordedExclusions()).toEqual(['Payment']);
+    expect(printed()).toContain(`info: Payment is excluded, as recorded in ${GOVERNANCE_FILE}`);
+
+    // The proof that the recorded name is the one the next run compares: a
+    // fresh run reading only the file is green and quiet.
+    out = [];
+    expect(await sync()).toBe(0);
+    expect(printed()).not.toContain('proposal:');
+    expect(printed()).not.toContain('matches nothing in your sources');
+  });
+
+  it('counts refused models, not typed strings, when the same one is named twice (ONT-063)', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+    out = [];
+
+    expect(await sync({ exclude: ['PAYMENT', 'payment'] })).toBe(0);
+    expect(recordedExclusions()).toEqual(['Payment']);
+    expect(printed()).toContain('recorded 1 refused model(s)');
+  });
+
+  it('still refuses a name that matches nothing even ignoring case (ONT-063)', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    writeSchema();
+    await sync({ acceptGovernance: true });
+    out = [];
+
+    // One keystroke from `payment`, and not `payment`. No prefix or plural rule
+    // rescues it: this flag decides which tables an agent can reach.
+    for (const near of ['paymnet', 'payments', 'pay']) {
+      expect(await sync({ exclude: [near] })).toBe(2);
+    }
+
+    expect(printed()).toContain('which your sources do not have');
+    expect(recordedExclusions()).toEqual([]);
+  });
+
+  it('refuses rather than picks when two model names differ only in case (ONT-063)', async () => {
+    writeConfig({ actions: ORDER_CRUD });
+    // Both are declared, so the allocator renames the second to `payment_2` —
+    // and a rule folding only the emitted names would see no collision at all.
+    writeSchema({
+      source: `${PRISMA_SCHEMA}
+model payment {
+  id String @id
+}
+`,
+    });
+    await sync({ acceptGovernance: true });
+    out = [];
+
+    expect(await sync({ exclude: ['Payment'] })).toBe(2);
+    expect(printed()).toContain(
+      'which could mean Payment or payment_2 — those source names differ only in case',
+    );
+    expect(recordedExclusions()).toEqual([]);
+
+    // The de-collided name resolves, because it names exactly one model.
+    out = [];
+    expect(await sync({ exclude: ['payment_2'] })).toBe(1);
+    expect(recordedExclusions()).toEqual(['payment_2']);
+  });
 });

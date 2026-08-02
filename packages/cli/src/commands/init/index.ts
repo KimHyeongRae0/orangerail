@@ -19,7 +19,7 @@ import {
 import type { ScannedSource } from './ir';
 import { hasScannedContent, scanRepo } from './scan';
 import { hasYamlSpec, YAML_HINT } from './scanners/openapi/scan';
-import { applyFilters, assertSelection, unaccountedModels } from './select';
+import { applyFilters, resolveSelection, unaccountedModels } from './select';
 import { runWizard, type InitFlags } from './wizard';
 
 /**
@@ -191,11 +191,15 @@ export const runInit = async ({
     return 1;
   }
 
-  const options = result.options;
-
   // A `--sources` / `--models` value that selects nothing is refused here,
   // before a byte is written — the same contract `--preset` already has.
-  assertSelection({ source: scanned, options });
+  //
+  // Everything below reads the RESOLVED options, never the ones the wizard
+  // returned (ONT-063). `--exclude payment` on a schema declaring `Payment`
+  // resolves to `Payment`, and it is `Payment` that filters the scan, names the
+  // refusal in the summary, and is written into `orangerail.governance.json` —
+  // where every later run compares it exactly.
+  const options = resolveSelection({ source: scanned, options: result.options });
 
   const source = applyFilters({ source: scanned, options });
 

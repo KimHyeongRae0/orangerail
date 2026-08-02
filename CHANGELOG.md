@@ -45,7 +45,26 @@ that is Prisma's signed `BigInt` scalar, and it is written down in
 
 ### Fixed
 
+- **`--exclude payment` was refused on a schema declaring `Payment`.** The
+  comparison was an exact string match, so the flag that keeps card data off the
+  agent's surface failed on the casing an operator naturally types: a Postgres
+  user types the table name `psql` shows them, and the scanner reports the Prisma
+  model name. The remedy `orangerail sync` prints in its own report —
+  `orangerail sync --exclude <name>` — failed the same way for the same reason.
 
+  `--models` and `--exclude` now resolve what was typed to the scanned name, and
+  **the scanned name is what gets recorded**. That distinction is the fix, not a
+  detail of it: everything downstream is exact-match set membership, so accepting
+  `payment` and writing `"excluded": ["payment"]` into `orangerail.governance.json`
+  would have produced a committed deny-list that matches nothing — a correct
+  looking file with a permanently red `sync` behind it.
+
+  Case is the only difference accepted. There is no prefix, plural or
+  edit-distance rule: `payments` and `pay` are still refused, naming the models
+  the repo has, because a flag that decides which tables an agent can reach must
+  not guess. Two models whose source names differ only in case (`Order` and
+  `order`, which the scanner already de-collides to `Order` and `order_2`) refuse
+  with a diagnostic naming both rather than resolving to one of them.
 
 - **One `BigInt` column took the whole model out of service.** Measured against
   MySQL 9.7.1 with prisma / `@prisma/adapter-mariadb` 7.9.1: every `_get` and
