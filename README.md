@@ -272,7 +272,7 @@ separate time, which is the part that makes leaving possible.
 
 ## Quickstart
 
-Every output below is verbatim from one run of the `0.1.1` packages, installed from the packed
+Every output below is verbatim from one run of the `0.1.2` packages, installed from the packed
 tarballs of this release, in a scratch project holding nothing but a two-model Prisma schema
 (`Customer`, `Order`) and Prisma 6.
 
@@ -302,6 +302,8 @@ $ npx orangerail init --yes --preset approval-for-writes --no-studio
   ✓  generated a governed MCP server under ontology/
   ✓  --gate delete: 2 of 6 write action(s) gated behind human approval — the other 4 run when the agent calls them
   ⚠  no governance baseline recorded — the generated config did not load
+  ✓  approvals queue + audit chain at .orangerail/store/ — inside this project, so an
+     agent with file tools over this directory can write them
 
   These files are yours — re-scans never modify them; `orangerail sync` reports drift.
 
@@ -310,6 +312,13 @@ $ npx orangerail init --yes --preset approval-for-writes --no-studio
   orangerail.governance.json is what makes a later "someone deleted an approval gate" visible.
   Recording it needs the config to load, so run `orangerail sync --accept-governance`
   once the step below is done, and commit the file.
+
+  That store is the record of which writes a human approved, and appending one line to
+  .orangerail/store/approvals.jsonl marks a staged action approved — the next
+  `check_approval` then executes it, because the gate reads that store and never the
+  audit chain. `orangerail audit verify` reports the forgery afterwards; it is a report,
+  not a gate, and it does not prevent the write. The generated config carries the
+  one-line move at the `createFileStore` call — see docs/audit-log.md.
 
 Next step: install the runtime deps so the generated code can load:
   npm install orangerail-core zod
@@ -586,7 +595,7 @@ left un-gated — off by default, and with real caveats:
 
 ## Status
 
-**Pre-release, and installable.** v0 is on npm at `0.1.1` — `orangerail` (the CLI) plus
+**Pre-release, and installable.** v0 is on npm at `0.1.2` — `orangerail` (the CLI) plus
 `orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio`. `npx
 orangerail init` runs against your own project today, with no checkout of this repo. The API
 will move before 1.0.
@@ -595,8 +604,8 @@ will move before 1.0.
 and never checked it, so a `<Object>_list` call could read an object type the server never
 exposed — the mechanism is in
 [the limits doc](./docs/limits.md#typed-is-not-enforced--where-the-check-actually-lives), and the
-fix is in `0.1.1`. It is enforced in `orangerail-mcp`, so upgrading the package applies it with
-no re-run of `init`. `0.1.1` also narrows what `filter` accepts and changes what a pending
+fix is in `0.1.2`. It is enforced in `orangerail-mcp`, so upgrading the package applies it with
+no re-run of `init`. `0.1.2` also narrows what `filter` accepts and changes what a pending
 approval does across the upgrade — both are written up under **Upgrading from 0.1.0** in the
 [CHANGELOG](./CHANGELOG.md), which is worth reading before you bump.
 

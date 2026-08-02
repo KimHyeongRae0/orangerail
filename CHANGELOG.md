@@ -8,9 +8,7 @@ This is a v0 project: the API is the design target and it will move before 1.0.
 Anything that changes what an existing project does on upgrade is called out
 under **Upgrading** rather than buried in a list.
 
-## Unreleased
-
-Everything below is merged on `main`.
+## 0.1.2 — 2026-08-02
 
 ### Upgrading
 
@@ -569,6 +567,12 @@ full against a reference captured on `main`.
   moved out of the doc.
 
 ## 0.1.1 — 2026-08-01
+
+**Never published.** This version was cut in the repository — the five manifests
+were bumped and the entries below are on `main` — but it was never tagged and
+never reached npm, so no `0.1.1` is installable. Everything in it ships in
+`0.1.2`. The section is kept because the entries describe real changes and the
+`0.1.2` notes build on them.
 
 The first release after `0.1.0`.
 

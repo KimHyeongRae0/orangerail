@@ -1,6 +1,6 @@
 {
   "name": "orangerail-docs-gen",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "orangerail docs-gen: deterministically generate the agent-facing domain document (AGENTS.md sections + Mermaid diagram) from an ontology registry (prompt rail)",
   "keywords": [
