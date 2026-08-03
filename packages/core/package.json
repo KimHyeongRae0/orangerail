@@ -2,12 +2,14 @@
   "name": "orangerail-core",
   "version": "0.1.2",
   "type": "module",
-  "description": "orangerail core: defineObject / defineLink / defineAction, policy engine, governed action lifecycle, store contract",
+  "description": "Define the read tools and the approval-gated write actions an AI agent may run against your data — the permission model behind an orangerail MCP server.",
   "keywords": [
-    "ontology",
-    "agent",
-    "governance",
     "mcp",
+    "ai-agent",
+    "approval",
+    "human-in-the-loop",
+    "permissions",
+    "destructive",
     "zod",
     "typescript"
   ],
