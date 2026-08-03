@@ -1,8 +1,17 @@
-<img src="./assets/logo.svg" width="52" alt="">
+<div align="center">
+
+<img src="./assets/logo.svg" width="76" alt="">
 
 # orangerail
 
-> Decide once what your agent may do. Then leave it working.
+**Decide once what your agent may do. Then leave it working.**
+
+<!-- One line on purpose: inside an `align="center"` block GitHub turns every newline into a <br>, so a badge per line stacks them vertically. -->
+[![npm](https://img.shields.io/npm/v/orangerail?logo=npm&logoColor=fff&label=npm&color=EE7A2B)](https://www.npmjs.com/package/orangerail) [![CI](https://github.com/KimHyeongRae0/orangerail/actions/workflows/ci.yml/badge.svg)](https://github.com/KimHyeongRae0/orangerail/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/orangerail?logo=nodedotjs&logoColor=fff&color=444)](https://nodejs.org) [![published with provenance](https://img.shields.io/badge/npm-published%20with%20provenance-EE7A2B?logo=npm&logoColor=fff)](https://www.npmjs.com/package/orangerail#provenance) [![license](https://img.shields.io/badge/license-MIT-444)](./LICENSE)
+
+[**Quickstart**](#quickstart) &nbsp;·&nbsp; [What it does not govern](./docs/limits.md) &nbsp;·&nbsp; [Against a rules file](./docs/vs-a-rules-file.md) &nbsp;·&nbsp; [Examples](./examples) &nbsp;·&nbsp; [Docs](./docs)
+
+</div>
 
 ![fifteen back-office items handed to an agent with nobody watching: twelve ordinary writes finish, three deletions stop and become approvals bound to the exact call](./examples/unattended-queue/demo.gif)
 
@@ -33,6 +42,18 @@ govern](./docs/limits.md).
 move before 1.0, and [Status](#status) has the one upgrade note that matters.
 
 ---
+
+<details>
+<summary><b>Contents</b></summary>
+
+| | |
+| --- | --- |
+| **Start here** | [Quickstart](#quickstart) · [v0 commands](#v0-commands) · [Wire it into your agent host](#wire-it-into-your-agent-host) |
+| **See it work** | [See it stop an agent](#see-it-stop-an-agent) · [See your whole domain as a map](#see-your-whole-domain-as-a-map) · [The run this is built for](#the-run-this-is-built-for) |
+| **Decide if you need it** | [Why the prompt is the wrong control](#why-the-prompt-is-the-wrong-control) · [Against the thing you would do instead](#against-the-thing-you-would-do-instead) · [What the agent gets instead of `execute_sql`](#what-the-agent-gets-instead-of-execute_sql) |
+| **Go further** | [Declaring a rule the generator cannot derive](#declaring-a-rule-the-generator-cannot-derive) · [Status](#status) · [Docs](#docs) · [Examples](#examples) · [Development](#development) |
+
+</details>
 
 ## Quickstart
 
