@@ -83,3 +83,18 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/*
+ * The declared CRUD op — provenance, not a verdict, so it borrows `stub`'s muted
+ * register and takes no colour from the `--policy-*` or `--alert` families. A
+ * `delete` gets no more weight here than a `create`: which of them is dangerous
+ * is a semantic question this app does not answer.
+ */
+.op {
+  padding: 1px 6px;
+  font-size: var(--font-size-1);
+  color: var(--overlay-60);
+  background: var(--surface-chip);
+  border-radius: 8px;
+  letter-spacing: 0.04em;
+}

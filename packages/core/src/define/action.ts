@@ -3,7 +3,14 @@ import type { z } from 'zod';
 import { shapeKeys } from '../introspect';
 import { renderBigInts } from '../json';
 import { computeSignatureHash } from '../signature';
-import type { ActionDefinition, Identity, ObjectDefinition, Policy, RuntimePolicy } from '../types';
+import type {
+  ActionDefinition,
+  ActionOp,
+  Identity,
+  ObjectDefinition,
+  Policy,
+  RuntimePolicy,
+} from '../types';
 
 /** Input to {@link buildActionDefinition} / `defineAction` (§3.1). */
 export interface DefineActionInput<
@@ -14,6 +21,12 @@ export interface DefineActionInput<
 > {
   name: Name;
   input: Input;
+  /**
+   * The CRUD operation this action performs, as provenance (ONT-091). Optional,
+   * never inferred, and deliberately outside the signature hash — see
+   * {@link ActionOp} and `buildActionDefinition`.
+   */
+  op?: ActionOp;
   target?: Target;
   /** Defaults to `${camelCase(target.name)}Id`; must be a key of `input` (AC-1). */
   targetIdFrom?: keyof z.infer<Input> & string;
@@ -110,6 +123,12 @@ export const buildActionDefinition = <
     }
   }
 
+  // `op` is NOT an argument here, and must never become one (ONT-091). The hash
+  // covers `{ actionName, inputShape, policyDeclarative }` and is what staging
+  // compares against at execution time, so folding provenance into it would
+  // change the hash of every action the moment a project regenerates — failing
+  // the signature check on approvals staged before the upgrade, for a field that
+  // says nothing about what the action does when it runs.
   const signatureHash = computeSignatureHash({ actionName: def.name, input: def.input, policy });
 
   const base = {
@@ -120,8 +139,15 @@ export const buildActionDefinition = <
     signatureHash,
   };
 
+  // Spread only when declared, so an action that omits `op` keeps the exact key
+  // set it had before this field existed — `canonicalJson` over a definition
+  // sees no new `undefined` to render.
+  const withOp = def.op ? { ...base, op: def.op } : base;
+
   const withTarget =
-    def.target && targetIdFrom !== undefined ? { ...base, target: def.target, targetIdFrom } : base;
+    def.target && targetIdFrom !== undefined
+      ? { ...withOp, target: def.target, targetIdFrom }
+      : withOp;
 
   const withPolicy = policy ? { ...withTarget, policy } : withTarget;
 

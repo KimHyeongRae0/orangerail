@@ -13,7 +13,7 @@ import {
   prismaClientBlock,
   wrapResolveError,
 } from './emit-object';
-import { emitActionFile } from './emit-action';
+import { emitActionFile, isActionGated } from './emit-action';
 import { type PrismaAdapter, type PrismaConstruction, SUPPORTED_ADAPTERS } from './prisma-runtime';
 
 const product: IrObject = {
@@ -1171,5 +1171,88 @@ describe('wrapResolveError over a generated client (ONT-067)', () => {
       buildResolveDiagnostic({ objectName: 'Product', clientModule }).replaceAll('"', '\\"'),
     );
     expect(accessorName({ model: 'Product' })).toBe('product');
+  });
+});
+
+/**
+ * The op reaches disk as DATA (ONT-091). The generated header already said
+ * `DESTRUCTIVE:` above a delete, but a comment is inert — nothing downstream
+ * could read it, so the studio had no way to tell an un-gated delete from a
+ * create once someone removed the `policy` block.
+ */
+describe('emitActionFile — op provenance (ONT-091)', () => {
+  const noteAction = ({
+    op,
+    idField,
+  }: {
+    op: 'create' | 'update' | 'delete';
+    idField?: string;
+  }) => {
+    const action: IrAction = {
+      name: `${op}Note`,
+      source: 'prisma',
+      prisma: { model: 'Note', op, ...(idField === undefined ? {} : { idField }) },
+      write: true,
+      input: [{ name: 'id', kind: 'scalar', scalar: 'int', optional: false }],
+    };
+
+    return action;
+  };
+
+  it('emits the op for every CRUD operation, not only delete', () => {
+    const cases = [
+      { action: noteAction({ op: 'create' }), expected: 'op: "create",' },
+      { action: noteAction({ op: 'update', idField: 'id' }), expected: 'op: "update",' },
+      { action: noteAction({ op: 'delete', idField: 'id' }), expected: 'op: "delete",' },
+    ];
+
+    for (const { action, expected } of cases) {
+      expect(emitActionFile({ action, gate: 'all' }).content).toContain(expected);
+    }
+  });
+
+  it('emits it under every gate policy, including the one that writes no policy at all', () => {
+    const action = noteAction({ op: 'delete', idField: 'id' });
+
+    for (const gate of ['all', 'delete', 'none'] as const) {
+      const { content } = emitActionFile({ action, gate });
+      expect(content).toContain('op: "delete",');
+    }
+
+    // `--gate none` is the case the ticket exists for: no policy block, so
+    // before this change the file carried the fact in prose only.
+    const ungated = emitActionFile({ action, gate: 'none' }).content;
+    // The exact emitted line, not a loose regex: the un-gated HEADER tells the
+    // reader to add `policy: { approval: 'required' },` themselves, so a regex
+    // matches the advice and reports a policy that is not there.
+    expect(ungated).not.toContain("\n  policy: { approval: 'required' },");
+    expect(ungated).toContain('op: "delete",');
+  });
+
+  it('agrees with the gate decision, because both read the same field', () => {
+    const action = noteAction({ op: 'delete', idField: 'id' });
+    const { content } = emitActionFile({ action, gate: 'delete' });
+
+    expect(isActionGated({ action, gate: 'delete' })).toBe(true);
+    expect(content).toContain('op: "delete",');
+    expect(content).toMatch(/approval:\s*'required'/);
+  });
+
+  it('emits NO op for an openapi action, which has none to declare', () => {
+    const action: IrAction = {
+      name: 'cancelOrder',
+      source: 'openapi',
+      method: 'POST',
+      path: '/orders/{id}/cancel',
+      write: true,
+      input: [{ name: 'id', kind: 'scalar', scalar: 'string', optional: false }],
+    };
+
+    const { content } = emitActionFile({ action, gate: 'all' });
+
+    // An HTTP method does not classify: `POST /orders/{id}/cancel` is
+    // destructive and `DELETE /sessions/{id}` is not. Absence here is the
+    // honest answer, and it has to stay absent.
+    expect(content).not.toContain('op:');
   });
 });

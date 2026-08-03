@@ -126,3 +126,69 @@ describe('buildSnapshot (plan section 3.2)', () => {
     expect(snapshot).toEqual({ objects: [], links: [], actions: [] });
   });
 });
+
+describe('buildSnapshot — action op (ONT-091)', () => {
+  const snapshotOf = ({ ops }: { ops: ('create' | 'update' | 'delete' | undefined)[] }) => {
+    const registry = createRegistry();
+
+    ops.forEach((op, index) => {
+      registry.defineAction({
+        name: `action_${index}`,
+        input: z.object({ id: z.string() }),
+        ...(op ? { op } : {}),
+        execute: async () => undefined,
+      });
+    });
+
+    return buildSnapshot({ registry });
+  };
+
+  it('carries a declared op through to the wire format', () => {
+    const snapshot = snapshotOf({ ops: ['create', 'update', 'delete'] });
+
+    expect(snapshot.actions.map((action) => action.op)).toEqual(['create', 'update', 'delete']);
+  });
+
+  it('omits the key entirely when the action declared none', () => {
+    const snapshot = snapshotOf({ ops: [undefined] });
+    const action = snapshot.actions[0]!;
+
+    // Absent, not `undefined`: an ontology generated before 0.1.3 declares no
+    // op anywhere, and the studio has to be able to say "declared nothing"
+    // rather than serve a key whose value someone could read as a choice.
+    expect('op' in action).toBe(false);
+    expect(JSON.parse(JSON.stringify(action))).not.toHaveProperty('op');
+  });
+
+  it('never derives an op from the action name', () => {
+    const registry = createRegistry();
+
+    registry.defineAction({
+      name: 'deleteEverything',
+      input: z.object({ id: z.string() }),
+      execute: async () => undefined,
+    });
+
+    const action = buildSnapshot({ registry }).actions[0]!;
+
+    expect(action.name).toBe('deleteEverything');
+    expect(action.op).toBeUndefined();
+  });
+
+  it('leaves the op independent of the policy — the whole point of the ticket', () => {
+    const registry = createRegistry();
+
+    registry.defineAction({
+      name: 'deleteOrder',
+      op: 'delete',
+      input: z.object({ id: z.string() }),
+      execute: async () => undefined,
+    });
+
+    const action = buildSnapshot({ registry }).actions[0]!;
+
+    // No policy block at all, and the fact that it deletes a row survives.
+    expect(action.approval).toBe('auto');
+    expect(action.op).toBe('delete');
+  });
+});

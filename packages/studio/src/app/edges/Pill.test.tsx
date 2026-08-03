@@ -68,3 +68,32 @@ describe('Pill (plan section 3.3 — action-edge grammar)', () => {
     window.removeEventListener(SELECT_ACTION_EVENT, handler);
   });
 });
+
+describe('Pill — declared op (ONT-091)', () => {
+  it('renders the declared op for every CRUD operation, not only delete', () => {
+    for (const op of ['create', 'update', 'delete'] as const) {
+      const { container } = renderPill({ action: { ...base, name: `${op}_thing`, op } });
+      const chip = container.querySelector('[data-testid="action-op"]');
+      expect(chip?.textContent).toBe(op);
+      expect(chip?.getAttribute('title')).toBe(`declared op: ${op}`);
+      cleanup();
+    }
+  });
+
+  it('renders no op chip when the action declared none', () => {
+    const { container } = renderPill({ action: base });
+
+    expect(container.querySelector('[data-testid="action-op"]')).toBeNull();
+  });
+
+  it('keeps the op out of the policy channel — an ungated delete stays an auto chip', () => {
+    const { container } = renderPill({ action: { ...base, name: 'deleteOrder', op: 'delete' } });
+
+    // The op is provenance and `auto` is policy. They are two chips saying two
+    // different things, and the op must not silently upgrade the pill into
+    // looking governed (or into looking alarming).
+    expect(container.querySelector("[data-auto='true']")).not.toBeNull();
+    expect(container.querySelector("[data-gated='true']")).toBeNull();
+    expect(container.textContent).toContain('delete');
+  });
+});

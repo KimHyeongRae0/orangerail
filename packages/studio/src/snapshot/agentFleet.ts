@@ -1,3 +1,5 @@
+import type { ActionOp } from 'orangerail-core';
+
 /**
  * Deterministic, offline agent-fleet governance model. A pure function over a
  * fleet manifest that derives the governance facts a fleet of orchestrating
@@ -19,8 +21,17 @@
  * expresses today; a fleet manifest (A2A Agent Card-style) supplies it.
  */
 
-/** Write verb, classified by the action scanner (not on `ActionDefinition` today). */
-export type ActionVerb = 'create' | 'update' | 'delete';
+/**
+ * Write verb, as the fleet manifest names it.
+ *
+ * It used to say "not on `ActionDefinition` today", and that stopped being true
+ * with ONT-091: core now carries the same union as `ActionOp`, so this is an
+ * alias rather than a second declaration of the same three strings. The two
+ * NAMES still differ because `ActionVerb` is already exported from this
+ * package's public surface and renaming it is a breaking change that has to be
+ * its own release note — the union behind them is one union.
+ */
+export type ActionVerb = ActionOp;
 
 /** Coarse agent classification for the view's supervisor/spawner badges. */
 export type AgentRole = 'supervisor' | 'worker' | 'hybrid';

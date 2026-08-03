@@ -59,6 +59,7 @@ const wrapPrismaError = (error) => {
 
 export const createShop = registry.defineAction({
   name: "createShop",
+  op: "create",
   input: z.object({
     "id": z.number().int().optional(),
     "slug": z.string(),

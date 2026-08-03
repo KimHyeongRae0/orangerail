@@ -143,6 +143,23 @@ export interface RuntimePolicy {
 }
 
 /**
+ * The CRUD operation an action performs on its target, declared by whoever
+ * wrote the action (ONT-091).
+ *
+ * This is PROVENANCE, not a verdict. It records a syntactic property the
+ * generator already knew — `init` reads the same fact out of the scanner IR to
+ * decide what `--gate delete` gates — so that the fact survives on disk instead
+ * of living only in the `policy` block it happened to produce. Danger is
+ * semantic and this union does not express it: an `update` that clears every
+ * column destroys more than a `delete` of one draft row.
+ *
+ * Optional and never inferred. An action that declares none is UNDECLARED, not
+ * "not a delete", and nothing in this repo may guess one from a name or an HTTP
+ * method.
+ */
+export type ActionOp = 'create' | 'update' | 'delete';
+
+/**
  * A registered action type with its input-signature hash (§3.4). `targetIdFrom`
  * is stored resolved (explicit value or the `${camelCase(target.name)}Id`
  * default) whenever a target is present.
@@ -154,6 +171,8 @@ export interface ActionDefinition<
   readonly kind: 'action';
   readonly name: Name;
   readonly input: Input;
+  /** The declared CRUD operation, when the author declared one (ONT-091). */
+  readonly op?: ActionOp;
   readonly target?: ObjectDefinition;
   readonly targetIdFrom?: string;
   readonly policy?: RuntimePolicy;
@@ -169,6 +188,7 @@ export interface RuntimeAction {
   kind: 'action';
   name: string;
   input: z.ZodType;
+  op?: ActionOp;
   target?: ObjectDefinition;
   targetIdFrom?: string;
   policy?: RuntimePolicy;

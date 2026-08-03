@@ -20,6 +20,7 @@ import type {
 } from './types';
 
 export type {
+  ActionOp,
   ApprovalKind,
   GraphSnapshot,
   ReadAccessKind,
@@ -131,6 +132,11 @@ const buildActions = ({ registry }: { registry: Registry }): SnapshotAction[] =>
 
     return {
       ...base,
+      // Carried, never derived (ONT-091). An action that declares no `op` gets
+      // no key at all rather than `op: undefined`, so "undeclared" survives
+      // JSON serialisation as an absent key instead of arriving at the browser
+      // as a value the app has to special-case.
+      ...(action.op ? { op: action.op } : {}),
       ...(action.target ? { target: action.target.name } : {}),
       ...(whereText === undefined ? {} : { whereText }),
     };
