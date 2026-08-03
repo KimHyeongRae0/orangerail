@@ -15,8 +15,11 @@ name: Release
 # Trusted Publisher, pointing at:
 #   owner/repository: KimHyeongRae0/orangerail
 #   workflow file:    release.yml
-# A package with no trusted publisher configured fails with a 404 or 403 at the
-# publish step. That is the expected failure and it is not retryable from here.
+# A package with no trusted publisher configured is caught by the "Verify every
+# package's trusted publisher over OIDC" step below, before anything is
+# published. Left to the publish step it would surface as a 404 or 403 midway
+# through the loop, with the earlier packages already on the registry at a
+# version npm does not allow anyone to republish.
 
 on:
   # The real publish is tied to an annotated tag, so a released artifact always
@@ -138,28 +141,60 @@ jobs:
 
           ls -la dist-tarballs
 
-      # Order matters: a dependency must exist on the registry before a package
-      # that names it, or an install racing the release resolves nothing. This
-      # is the same topological order scripts/release-dry-run.sh documents —
-      # core -> docs-gen -> mcp -> studio -> cli — kept identical on purpose so
-      # the runbook and the automation cannot drift into two different answers.
+      # A green publish step does NOT prove the trusted publishers exist, which
+      # is the whole reason the rehearsal is here. npm runs the OIDC exchange
+      # even under --dry-run (lib/commands/publish.js calls oidc() before the
+      # `if (!dryRun)` guard), but a rejected exchange is silent:
+      # lib/utils/oidc.js logs "Failed token exchange request with body
+      # message: ..." at *verbose* and returns undefined, and npm falls back to
+      # whatever credential .npmrc holds — here the literal placeholder
+      # actions/setup-node writes when NODE_AUTH_TOKEN is unset. Under
+      # --dry-run that credential is never exercised, so the step exits 0 with
+      # five trusted publishers configured or with none.
       #
-      # That script remains the local pre-flight and is still worth running, but
-      # note its `pnpm -r publish --dry-run` step reports "There are no new
-      # packages that should be published" whenever the current version is
-      # already on the registry, and still exits 0. It is a real check only
-      # AFTER the version bump.
-      - name: Publish to npm over OIDC
-        env:
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+      # So ask for the one line that distinguishes the two, and demand it for
+      # every package before anything is published. A missing trusted publisher
+      # is the failure npm cannot undo — it surfaces mid-loop, after the earlier
+      # packages are on the registry at a version nobody may republish. This
+      # step moves that discovery in front of the first publish, where the cost
+      # is a red run instead of a forced version bump.
+      - name: Verify every package's trusted publisher over OIDC
         run: |
           set -euo pipefail
 
-          flags="--access public"
-          if [ "${DRY_RUN}" = "true" ]; then
-            echo "DRY RUN — nothing will be published"
-            flags="${flags} --dry-run"
-          fi
+          for name in orangerail-core orangerail-docs-gen orangerail-mcp orangerail-studio orangerail; do
+            tarball="${GITHUB_WORKSPACE}/dist-tarballs/${name}-${VERSION}.tgz"
+
+            # Fail as a missing file rather than letting npm reinterpret an
+            # absent path as something remote — see the publish step's comment.
+            test -f "${tarball}" || { echo "missing tarball: ${tarball}" >&2; exit 1; }
+
+            # --dry-run so this proves the exchange without publishing, and
+            # --loglevel verbose because the success line is printed there and
+            # nowhere quieter. Not `silly`: verbose logs the outcome of the
+            # exchange, not the token it returns.
+            if ! output="$(npm publish "${tarball}" --access public --dry-run --loglevel verbose 2>&1)"; then
+              echo "${output}" >&2
+              echo "::error::npm publish --dry-run failed for ${name}" >&2
+              exit 1
+            fi
+
+            # The exact string comes from lib/utils/oidc.js. If npm reworded it
+            # this assertion fails loudly and nothing is published, which is the
+            # right direction to fail in.
+            if ! printf '%s' "${output}" | grep -q 'Successfully retrieved and set token'; then
+              echo "${output}" >&2
+              echo "::error::no OIDC token exchange for ${name}. Configure its trusted publisher at https://www.npmjs.com/package/${name}/access -> Trusted Publisher -> KimHyeongRae0/orangerail, workflow release.yml, no environment. Nothing has been published." >&2
+              exit 1
+            fi
+
+            echo "trusted publisher ok: ${name}"
+          done
+
+      - name: Publish to npm over OIDC
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
+        run: |
+          set -euo pipefail
 
           # Provenance is generated automatically when publishing over trusted
           # publishing, so --provenance is deliberately not passed here.
@@ -173,21 +208,40 @@ jobs:
           # `Refusing to fetch "github:dist-tarballs/orangerail-core-0.1.2.tgz"`
           # (EALLOWGIT) before reaching the registry. An absolute path cannot be
           # mistaken for a spec.
+          #
+          # Order matters here and nowhere else in this file: a dependency must
+          # exist on the registry before a package that names it, or an install
+          # racing the release resolves nothing. It is the same topological
+          # order scripts/release-dry-run.sh documents — core -> docs-gen ->
+          # mcp -> studio -> cli — kept identical on purpose so the runbook and
+          # the automation cannot drift into two different answers. That script
+          # remains the local pre-flight and is still worth running, but note
+          # its `pnpm -r publish --dry-run` step reports "There are no new
+          # packages that should be published" whenever the current version is
+          # already on the registry, and still exits 0. It is a real check only
+          # AFTER the version bump.
           for name in orangerail-core orangerail-docs-gen orangerail-mcp orangerail-studio orangerail; do
             tarball="${GITHUB_WORKSPACE}/dist-tarballs/${name}-${VERSION}.tgz"
 
-            # Fail before publishing anything if a tarball is missing, rather
-            # than letting npm reinterpret the absent path as something remote.
-            test -f "${tarball}" || { echo "missing tarball: ${tarball}" >&2; exit 1; }
-
             echo "==> ${name}@${VERSION}"
-            npm publish "${tarball}" ${flags}
+            npm publish "${tarball}" --access public
           done
 
+      # A rehearsal that summarises itself as "Release 0.1.2" is how someone
+      # later reads a green run as a shipped one. Say which it was.
       - name: Summary
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
         run: |
           {
-            echo "### Release ${VERSION}"
+            if [ "${DRY_RUN}" = "true" ]; then
+              echo "### Rehearsal for ${VERSION} — nothing was published"
+              echo
+              echo "Every package's trusted publisher was verified over OIDC."
+            else
+              echo "### Release ${VERSION}"
+            fi
+
             echo
             echo "| Package | Version |"
             echo "| --- | --- |"
