@@ -166,8 +166,20 @@ jobs:
           # `--access public` is likewise redundant (the packages are unscoped
           # and each manifest sets publishConfig.access) and is passed only so
           # the intent is legible at the call site.
+          # The `${GITHUB_WORKSPACE}/` prefix is load-bearing, not tidiness. npm
+          # resolves a bare argument as a package *spec*, and a spec shaped like
+          # `a/b` is GitHub shorthand — so the relative `dist-tarballs/<pkg>.tgz`
+          # was read as a repository and the first rehearsal died with
+          # `Refusing to fetch "github:dist-tarballs/orangerail-core-0.1.2.tgz"`
+          # (EALLOWGIT) before reaching the registry. An absolute path cannot be
+          # mistaken for a spec.
           for name in orangerail-core orangerail-docs-gen orangerail-mcp orangerail-studio orangerail; do
-            tarball="dist-tarballs/${name}-${VERSION}.tgz"
+            tarball="${GITHUB_WORKSPACE}/dist-tarballs/${name}-${VERSION}.tgz"
+
+            # Fail before publishing anything if a tarball is missing, rather
+            # than letting npm reinterpret the absent path as something remote.
+            test -f "${tarball}" || { echo "missing tarball: ${tarball}" >&2; exit 1; }
+
             echo "==> ${name}@${VERSION}"
             npm publish "${tarball}" ${flags}
           done
