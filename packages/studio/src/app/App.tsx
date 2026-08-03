@@ -664,6 +664,8 @@ const Studio = () => {
         <Toolbar
           category={category}
           availability={availability}
+          actionCount={snapshot?.actions.length ?? 0}
+          opDeclared={snapshot?.actions.filter((action) => action.op !== undefined).length ?? 0}
           onCategory={handleCategory}
           showMode={showMode}
           onShowMode={handleShowMode}

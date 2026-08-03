@@ -5,6 +5,10 @@
  * React/Vite code (plan section 3.1 / 3.2).
  */
 
+import type { ActionOp } from 'orangerail-core';
+
+export type { ActionOp };
+
 /** How an object's read exposure is declared (mirrors core `ReadAccess`). */
 export type ReadAccessKind = 'authenticated' | 'anonymous';
 
@@ -50,6 +54,14 @@ export type WhereKind = 'none' | 'declarative' | 'functional';
 /** An action type as a governed, policy-aware graph affordance. */
 export interface SnapshotAction {
   name: string;
+  /**
+   * The CRUD operation the action declares, carried through verbatim from
+   * `ActionDefinition.op` (ONT-091). Absent means the action DECLARED none —
+   * never "checked, and it is not a delete". Nothing derives it here; an
+   * ontology generated before 0.1.3 carries none at all, which is why the map
+   * states how many actions declared one.
+   */
+  op?: ActionOp;
   /** The target object name, when the action targets one. */
   target?: string;
   approval: ApprovalKind;

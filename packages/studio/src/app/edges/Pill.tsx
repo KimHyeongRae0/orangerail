@@ -11,9 +11,19 @@ import styles from './Pill.module.css';
  * policy chip below it (a lock + `approval` (+ roles) for governed actions, a
  * bolt + `auto` for ungoverned ones), the declarative `where` fused inline as a
  * dimmed guard segment (`only when …`), a `condition: code` marker for a
- * functional `where`, and a distinct muted `stub` chip for not-implemented
- * actions. Clicking dispatches one window event so selection is uniform whether
- * the pill sits on an edge label or a node. All strings render as text (AC-8).
+ * functional `where`, a muted `op` chip carrying the declared CRUD operation,
+ * and a distinct muted `stub` chip for not-implemented actions. Clicking
+ * dispatches one window event so selection is uniform whether the pill sits on
+ * an edge label or a node. All strings render as text (AC-8).
+ *
+ * The `op` chip is deliberately in the SAME muted register as `stub` and not in
+ * the `--policy-*` or `--alert` families (ONT-091). It reports what the action
+ * declared it does; it does not rank it. A `delete` is not automatically the
+ * dangerous one — an `update` that clears every column outranks it — so
+ * painting `delete` red here would be the studio issuing a verdict it has
+ * always refused to issue. It is rendered for all three ops rather than only
+ * `delete` so that a pill with NO op chip reads as "declared nothing", which is
+ * the honest reading of an ontology generated before 0.1.3.
  */
 export const Pill = ({
   action,
@@ -87,6 +97,12 @@ export const Pill = ({
 
         {action.where === 'functional' ? (
           <span className={styles.guard}>condition: code</span>
+        ) : null}
+
+        {action.op ? (
+          <span className={styles.op} data-testid="action-op" title={`declared op: ${action.op}`}>
+            {action.op}
+          </span>
         ) : null}
 
         {action.notImplemented ? <span className={styles.stub}>stub</span> : null}

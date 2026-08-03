@@ -310,6 +310,14 @@ const emitPrismaActionFile = ({
     '',
     `export const ${binding} = registry.defineAction({`,
     `  name: ${escapeStringLiteral({ value: action.name })},`,
+    // The op, as data (ONT-091). The header above already SAYS "DESTRUCTIVE"
+    // for a delete, but a comment is inert: nothing downstream can read it, so
+    // the studio had no way to tell an un-gated delete from a create. Emitted
+    // from the same `prisma.op` `isActionGated` reads, so the file and the gate
+    // decision cannot disagree — and emitted for every op, not only `delete`,
+    // because an action carrying no `op` must stay readable as "undeclared"
+    // rather than as "checked, not a delete".
+    `  op: ${escapeStringLiteral({ value: prisma.op })},`,
     `  input: ${renderInput({ action })},`,
     ...(gated ? ["  policy: { approval: 'required' },"] : []),
     ...(isTargeted
