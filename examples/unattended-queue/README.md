@@ -27,10 +27,11 @@ pnpm install && pnpm -r run build      # from the repo root
 Then, in this folder:
 
 ```bash
-npm install
+npm install                            # prisma + the MCP client
+export DATABASE_URL="file:./dev.db"    # prisma reads this; nothing else sets it
 npx prisma generate
 npx prisma db push
-node walkthrough.mjs
+node walkthrough.mjs                   # the whole queue, asserted
 ```
 
 The run resets the database *and* the approvals store first, so it says the same thing every
