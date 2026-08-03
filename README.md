@@ -37,7 +37,7 @@ One precondition, up front, because it decides whether any of this is worth inst
 second database MCP server, it can go around the rail — see [what orangerail does not
 govern](./docs/limits.md).
 
-**Pre-release, and installable.** v0 is on npm at `0.1.2` — `orangerail` (the CLI) plus
+**Pre-release, and installable.** v0 is on npm at `0.1.3` — `orangerail` (the CLI) plus
 `orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio`. The API will
 move before 1.0, and [Status](#status) has the one upgrade note that matters.
 
@@ -57,7 +57,7 @@ move before 1.0, and [Status](#status) has the one upgrade note that matters.
 
 ## Quickstart
 
-Every output below is verbatim from one run of the `0.1.2` packages **installed locally with
+Every output below is verbatim from one run of the `0.1.3` packages **installed locally with
 `npm i -D orangerail`** — the method step 1 documents, and the one install method every
 transcript on this page was recorded under. The project was a scratch directory holding nothing
 but a two-model Prisma schema (`Customer`, `Order`) and Prisma 6.
