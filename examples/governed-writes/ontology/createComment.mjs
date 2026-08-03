@@ -33,6 +33,7 @@ const wrapPrismaError = (error) => {
 
 export const createComment = registry.defineAction({
   name: "createComment",
+  op: "create",
   input: z.object({
     "id": z.number().int().optional(),
     "articleId": z.number().int(),

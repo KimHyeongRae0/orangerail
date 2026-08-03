@@ -35,6 +35,7 @@ const wrapPrismaError = (error) => {
 
 export const deleteArticle = registry.defineAction({
   name: "deleteArticle",
+  op: "delete",
   input: z.object({
     "id": z.number().int(),
   }),
