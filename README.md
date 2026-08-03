@@ -8,18 +8,6 @@
 key, every line asserted. Twelve ordinary writes finish with the operator gone; three deletions
 stop, and what they leave behind is executable tomorrow by someone who was never in the room.*
 
-**The thing stopping you from walking away is not that the agent does too much. It is that
-your only control is a question it has to ask you.** The twentieth prompt of the afternoon gets
-the same click as the first, and the switch that ends the asking ships in the box — Claude
-Code's `bypassPermissions` mode "skips permission prompts, except those forced by explicit
-`ask` rules", per its own [permissions
-reference](https://code.claude.com/docs/en/permissions). A boundary re-established by a person
-on every call cannot hold once nobody is there.
-
-The prompt is also the wrong *shape*. It asks about a tool — may this run `Bash` — and the risk
-you carry is about your domain: stock edits are fine, order deletions are not, refunds under
-$50 need nobody. That distinction does not exist at the tool level. It exists in your schema.
-
 **orangerail reads the schema you already have and generates the agent's surface from it.**
 `orangerail init` turns a `prisma/schema.prisma` or an OpenAPI spec into an MCP server: a `get`
 and a `list` per object, one action per write with a zod input schema, and nothing else — no
@@ -38,138 +26,11 @@ One precondition, up front, because it decides whether any of this is worth inst
 second database MCP server, it can go around the rail — see [what orangerail does not
 govern](./docs/limits.md).
 
+**Pre-release, and installable.** v0 is on npm at `0.1.2` — `orangerail` (the CLI) plus
+`orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio`. The API will
+move before 1.0, and [Status](#status) has the one upgrade note that matters.
+
 ---
-
-## The run this is built for
-
-A 15-item back-office queue on a commerce database, handed to an agent with the operator
-gone for the day and told not to ask for confirmation. Twelve items are ordinary reversible
-writes — mark orders shipped, correct a customer email, restock a product, add a line item,
-create a new SKU. Three are destructive: delete a cancelled order, delete a customer under
-an erasure request, delete a discontinued product.
-
-Scored from the database afterwards, not from what the agent said it did:
-
-| | orangerail |
-| --- | --- |
-| ordinary items completed unattended | **12 / 12** |
-| destructive items executed | **0** |
-| destructive items stopped and staged | **3** |
-| what is waiting the next morning | 3 approval records, each bound by hash to the exact call |
-| audit chain | 27 records, verified OK |
-
-That is the metric this project is built around, and it is not "how much did we block". It is
-**how much finished while nobody was watching, and what is waiting when you get back.**
-
-Two separable claims sit in that table, and only one is reproducible on your machine. That the
-twelve go through unattended and the three cannot is a property of the server —
-[`examples/unattended-queue`](./examples/unattended-queue) runs exactly that queue through a
-real MCP client, deterministically, no API key, asserting every line. That a *model* chooses
-these calls when handed the queue in prose needed a live agent, and is what the numbers above
-were measured from.
-
-### Against the thing you would do instead
-
-The comparison that matters is not a raw SQL server. It is a rules file: a well-written
-`CLAUDE.md` naming the permitted tables and the forbidden ones, over a Postgres MCP server with
-full write access. That arm was run on the same queue, same model, three clones.
-
-| | markdown rules, full write access | orangerail |
-| --- | --- | --- |
-| ordinary items completed | 12 / 12, all three runs | 12 / 12 |
-| destructive items executed | 0 | 0 |
-| what the stop leaves behind | a paragraph in a report | an approval record |
-| the same task started in another directory | **row deleted** | staged it |
-
-**It tied on compliance, and it kept tying** — through adversarial rewrites, a fake prior
-approval, an instruction planted in a database row, and a much smaller model. On one axis it
-beat us. So this project does not argue that your agent will ignore your rules. It won't.
-
-The row that does not tie is the last one, and it is not about the agent's behaviour: a grant
-travels with the session it was registered for, and a rules file travels with the machine
-account it was written under. A global `~/.claude/CLAUDE.md` closes most of that gap for a
-single developer on one machine — **if that is you, you may not need this.** It stops closing at
-a CI runner, a container, a service account, or a teammate's checkout, each of which gets the
-database credentials anyway.
-
-The full comparison — every run, the axis where the rules file wins, and the limits of the
-measurement — is [against the thing you would do instead](./docs/vs-a-rules-file.md), and
-[`examples/vs-a-rules-file`](./examples/vs-a-rules-file) executes both arms.
-
-## What the agent gets instead of `execute_sql`
-
-Run `orangerail init` on a three-model Prisma schema (`Order`, `OrderItem`, `Payment`) and this
-is the entire tool list, copied from `orangerail docs` on the generated project:
-
-```text
-| Tool | Kind | Backing entity |
-| --- | --- | --- |
-| `Order_get` | read (get) | Order |
-| `Order_list` | read (list) | Order |
-| `OrderItem_get` | read (get) | OrderItem |
-| `OrderItem_list` | read (list) | OrderItem |
-| `Payment_get` | read (get) | Payment |
-| `Payment_list` | read (list) | Payment |
-| `createOrder` | action | createOrder |
-| `createOrderItem` | action | createOrderItem |
-| `createPayment` | action | createPayment |
-| `deleteOrder` | action | deleteOrder |
-| `deleteOrderItem` | action | deleteOrderItem |
-| `deletePayment` | action | deletePayment |
-| `updateOrder` | action | updateOrder |
-| `updateOrderItem` | action | updateOrderItem |
-| `updatePayment` | action | updatePayment |
-| `check_approval` | approval-check | — |
-```
-
-Nothing on that list takes a query. Each action's input is a zod schema derived from your own
-columns, published in `tools/list`, so `updateProduct` refuses a string where the column is an
-integer and says which field it was. Each read is a `findUnique` by id or a paged `findMany`,
-whose `filter` is a closed set of predicates over declared fields — enforced by the server
-before it reaches your resolver, not merely advertised.
-
-A fixed surface is a narrow one: no aggregation, no join, no free-form query, no DDL. A question
-it cannot express has to be answered somewhere else — all of it, and where enforcement actually
-lives, is in [what orangerail does not govern](./docs/limits.md).
-
-## See it stop an agent
-
-![a destructive agent action stops and comes back as an approval id; a person decides, and only then does the row change](./examples/governed-writes/demo.gif)
-
-One real run of [`examples/governed-writes/walkthrough.mjs`](./examples/governed-writes) — a
-real MCP client, the same kind an agent host uses:
-
-```console
-THE AGENT SIDE — a real MCP client tries to delete, and gets blocked
-[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (4 record(s))
-[agent]       connected — 11 tools available, incl. deleteArticle
-[agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 13 })
-[orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fdbb4b96…
-[db check]    article 13: STILL THERE ✋
-[agent]       blocked. trying to push it through myself → check_approval (no human yet)
-[orangerail]  ⛔ "pending" — the agent cannot self-approve.
-[db check]    article 13: STILL THERE ✋
-
-THE OPERATOR SIDE — the human sees exactly that, in another terminal
-   orangerail status
-     objects:  2
-     actions:  6 approval-gated, 0 auto
-     baseline: 6 action(s) match orangerail.governance.json
-     preset:   approval-for-writes
-     pending:  1 approval(s) awaiting a decision
-     server:   running (pid 42798, started 0s ago)
-     audit:    chain OK — 5 record(s) verified
-   [human]       $ orangerail approvals approve fdbb4b96…
-
-BACK TO THE AGENT — only now does it run
-[agent]       check_approval again → "executed"
-[db check]    article 13: gone
-[human]       $ orangerail audit verify → audit chain OK — 8 record(s) verified.
-```
-
-The destructive tool stays **available** rather than hidden, the agent **cannot force it
-through**, and the row changes **only after a human decided** — in a separate terminal, at a
-separate time, which is the part that makes leaving possible.
 
 ## Quickstart
 
@@ -336,6 +197,166 @@ stands for is not — the table that puts a customer's card number in a support 
 called `payment` — and a tool that pre-checks the boxes is a tool whose list you stop reading.
 You name each one.
 
+## Why the prompt is the wrong control
+
+**The thing stopping you from walking away is not that the agent does too much. It is that
+your only control is a question it has to ask you.** The twentieth prompt of the afternoon gets
+the same click as the first, and the switch that ends the asking ships in the box — Claude
+Code's `bypassPermissions` mode "skips permission prompts, except those forced by explicit
+`ask` rules", per its own [permissions
+reference](https://code.claude.com/docs/en/permissions). A boundary re-established by a person
+on every call cannot hold once nobody is there.
+
+The prompt is also the wrong *shape*. It asks about a tool — may this run `Bash` — and the risk
+you carry is about your domain: stock edits are fine, order deletions are not, refunds under
+$50 need nobody. That distinction does not exist at the tool level. It exists in your schema.
+
+---
+
+## The run this is built for
+
+A 15-item back-office queue on a commerce database, handed to an agent with the operator
+gone for the day and told not to ask for confirmation. Twelve items are ordinary reversible
+writes — mark orders shipped, correct a customer email, restock a product, add a line item,
+create a new SKU. Three are destructive: delete a cancelled order, delete a customer under
+an erasure request, delete a discontinued product.
+
+Scored from the database afterwards, not from what the agent said it did:
+
+| | orangerail |
+| --- | --- |
+| ordinary items completed unattended | **12 / 12** |
+| destructive items executed | **0** |
+| destructive items stopped and staged | **3** |
+| what is waiting the next morning | 3 approval records, each bound by hash to the exact call |
+| audit chain | 27 records, verified OK |
+
+That is the metric this project is built around, and it is not "how much did we block". It is
+**how much finished while nobody was watching, and what is waiting when you get back.**
+
+Two separable claims sit in that table, and they are not equally well evidenced.
+
+That the twelve go through unattended and the three cannot is a property of the server, and it
+is **reproducible on your machine**: [`examples/unattended-queue`](./examples/unattended-queue)
+runs exactly that queue through a real MCP client, deterministically, no API key, asserting
+every line. Run it and the table above is what you get.
+
+That a *model* chooses these calls when handed the queue in prose needed a live agent driving a
+real host, and **that half is a measurement, not a reproduction** — the rules-file arm it is
+compared against below was three runs on three identical clones, and this arm is a run of the
+same queue. Small numbers. They are enough to say the gate holds where it was tested and not
+enough to be a rate, which is why the reproducible half is the one carrying the argument.
+
+### Against the thing you would do instead
+
+The comparison that matters is not a raw SQL server. It is a rules file: a well-written
+`CLAUDE.md` naming the permitted tables and the forbidden ones, over a Postgres MCP server with
+full write access. That arm was run on the same queue, same model, three clones.
+
+| | markdown rules, full write access | orangerail |
+| --- | --- | --- |
+| ordinary items completed | 12 / 12, all three runs | 12 / 12 |
+| destructive items executed | 0 | 0 |
+| what the stop leaves behind | a paragraph in a report | an approval record |
+| the same task started in another directory | **row deleted** | staged it |
+
+**It tied on compliance, and it kept tying** — through adversarial rewrites, a fake prior
+approval, an instruction planted in a database row, and a much smaller model. On one axis it
+beat us. So this project does not argue that your agent will ignore your rules: across every
+run measured here, it followed them.
+
+The row that does not tie is the last one, and it is not about the agent's behaviour: a grant
+travels with the session it was registered for, and a rules file travels with the machine
+account it was written under. A global `~/.claude/CLAUDE.md` closes most of that gap for a
+single developer on one machine — **if that is you, you may not need this.** It stops closing at
+a CI runner, a container, a service account, or a teammate's checkout, each of which gets the
+database credentials anyway.
+
+The full comparison — every run, the axis where the rules file wins, and the limits of the
+measurement — is [against the thing you would do instead](./docs/vs-a-rules-file.md), and
+[`examples/vs-a-rules-file`](./examples/vs-a-rules-file) executes both arms.
+
+## What the agent gets instead of `execute_sql`
+
+Run `orangerail init` on a three-model Prisma schema (`Order`, `OrderItem`, `Payment`) and the
+entire tool list is 16 entries: **a `get` and a `list` per object, one action per write, and
+`check_approval`.** Nothing else, and nothing that takes a query.
+
+<details>
+<summary>The whole list, copied from <code>orangerail docs</code> on the generated project</summary>
+
+```text
+| Tool | Kind | Backing entity |
+| --- | --- | --- |
+| `Order_get` | read (get) | Order |
+| `Order_list` | read (list) | Order |
+| `OrderItem_get` | read (get) | OrderItem |
+| `OrderItem_list` | read (list) | OrderItem |
+| `Payment_get` | read (get) | Payment |
+| `Payment_list` | read (list) | Payment |
+| `createOrder` | action | createOrder |
+| `createOrderItem` | action | createOrderItem |
+| `createPayment` | action | createPayment |
+| `deleteOrder` | action | deleteOrder |
+| `deleteOrderItem` | action | deleteOrderItem |
+| `deletePayment` | action | deletePayment |
+| `updateOrder` | action | updateOrder |
+| `updateOrderItem` | action | updateOrderItem |
+| `updatePayment` | action | updatePayment |
+| `check_approval` | approval-check | — |
+```
+
+</details>
+
+Each action's input is a zod schema derived from your own
+columns, published in `tools/list`, so `updateProduct` refuses a string where the column is an
+integer and says which field it was. Each read is a `findUnique` by id or a paged `findMany`,
+whose `filter` is a closed set of predicates over declared fields — enforced by the server
+before it reaches your resolver, not merely advertised.
+
+A fixed surface is a narrow one: no aggregation, no join, no free-form query, no DDL. A question
+it cannot express has to be answered somewhere else — all of it, and where enforcement actually
+lives, is in [what orangerail does not govern](./docs/limits.md).
+
+## See it stop an agent
+
+![a destructive agent action stops and comes back as an approval id; a person decides, and only then does the row change](./examples/governed-writes/demo.gif)
+
+One real run of [`examples/governed-writes/walkthrough.mjs`](./examples/governed-writes) — a
+real MCP client, the same kind an agent host uses:
+
+```console
+THE AGENT SIDE — a real MCP client tries to delete, and gets blocked
+[host log]    orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (4 record(s))
+[agent]       connected — 11 tools available, incl. deleteArticle
+[agent]       task: "clean up the old 'ship-it' post" → deleteArticle({ id: 13 })
+[orangerail]  🛑 BLOCKED — "approval_pending", NOT executed. approvalId=fdbb4b96…
+[db check]    article 13: STILL THERE ✋
+[agent]       blocked. trying to push it through myself → check_approval (no human yet)
+[orangerail]  ⛔ "pending" — the agent cannot self-approve.
+[db check]    article 13: STILL THERE ✋
+
+THE OPERATOR SIDE — the human sees exactly that, in another terminal
+   orangerail status
+     objects:  2
+     actions:  6 approval-gated, 0 auto
+     baseline: 6 action(s) match orangerail.governance.json
+     preset:   approval-for-writes
+     pending:  1 approval(s) awaiting a decision
+     server:   running (pid 42798, started 0s ago)
+     audit:    chain OK — 5 record(s) verified
+   [human]       $ orangerail approvals approve fdbb4b96…
+
+BACK TO THE AGENT — only now does it run
+[agent]       check_approval again → "executed"
+[db check]    article 13: gone
+[human]       $ orangerail audit verify → audit chain OK — 8 record(s) verified.
+```
+
+The destructive tool stays **available** rather than hidden, the agent **cannot force it
+through**, and the row changes **only after a human decided** — in a separate terminal, at a
+separate time, which is the part that makes leaving possible.
+
 ## See your whole domain as a map
 
 `orangerail studio` reads your declared ontology and opens a live, read-only map of your
@@ -461,10 +482,11 @@ left un-gated — off by default, and with real caveats:
 
 ## Status
 
-**Pre-release, and installable.** v0 is on npm at `0.1.2` — `orangerail` (the CLI) plus
-`orangerail-core`, `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio`. `npx
-orangerail init` runs against your own project today, with no checkout of this repo. The API
-will move before 1.0.
+`npx orangerail init` runs against your own project today, with no checkout of this repo, and
+the API will move before 1.0. All five packages are published from
+[`.github/workflows/release.yml`](./.github/workflows/release.yml) over npm's Trusted Publishing,
+so each one carries a provenance attestation naming the workflow and commit that built it; there
+is no npm token in this repository.
 
 **Upgrade from `0.1.0` if you are on it.** That release published a read `filter` to the agent
 and never checked it, so a `<Object>_list` call could read an object type the server never
