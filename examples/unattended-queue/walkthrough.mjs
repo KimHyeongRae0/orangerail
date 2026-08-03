@@ -12,7 +12,8 @@
  * demonstrated is the server's, and a scripted client makes the run deterministic and
  * free of any API key.
  *
- * Run: `npm install && npx prisma generate && npx prisma db push && node walkthrough.mjs`
+ * Run: `npm install && export DATABASE_URL="file:./dev.db" && npx prisma generate &&
+ *       npx prisma db push && node walkthrough.mjs`
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';

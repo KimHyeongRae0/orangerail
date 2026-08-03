@@ -5,6 +5,15 @@
  */
 import { PrismaClient } from '@prisma/client';
 
+/**
+ * The client below is constructed at import time, in THIS process, so it reads
+ * `process.env` rather than the env `walkthrough.mjs` hands to the CLI processes
+ * it spawns. Without this line `node walkthrough.mjs` on a fresh checkout dies in
+ * `seed()` with "Environment variable not found: DATABASE_URL". `??=` leaves an
+ * existing value alone, so someone pointing this at a real database still gets it.
+ */
+process.env.DATABASE_URL ??= 'file:./dev.db';
+
 const prisma = new PrismaClient();
 
 export const seed = async () => {
