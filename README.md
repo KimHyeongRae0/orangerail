@@ -2,6 +2,12 @@
 
 > Decide once what your agent may do. Then leave it working.
 
+![fifteen back-office items handed to an agent with nobody watching: twelve ordinary writes finish, three deletions stop and become approvals bound to the exact call](./examples/unattended-queue/demo.gif)
+
+*One run of [`examples/unattended-queue`](./examples/unattended-queue) — a real MCP client, no API
+key, every line asserted. Twelve ordinary writes finish with the operator gone; three deletions
+stop, and what they leave behind is executable tomorrow by someone who was never in the room.*
+
 **The thing stopping you from walking away is not that the agent does too much. It is that
 your only control is a question it has to ask you.** The twentieth prompt of the afternoon gets
 the same click as the first, and the switch that ends the asking ships in the box — Claude
