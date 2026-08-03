@@ -640,7 +640,10 @@ const Studio = () => {
           }}
           attributionPosition="bottom-left"
         >
-          <Background variant={BackgroundVariant.Dots} color="#393b3c" gap={16} size={1} />
+          {/* No `color` prop: React Flow would take a literal, and a literal
+              here is a colour living outside tokens.css. The pattern is filled
+              from `--grid-dot` in that file instead. */}
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
           <ParticleOverlay activeEdgeIds={activeEdgeIds} />
         </ReactFlow>
       </ViewBoundary>

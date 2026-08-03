@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>orangerail studio</title>
+    <!-- The mark inlined as a data URI rather than a served file: the studio
+         server has no static route beyond the bundle, and a favicon that
+         404s on a colleague's machine is worse than none. Source of truth is
+         assets/logo-small.svg. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%20width%3D%2264%22%20height%3D%2264%22%20role%3D%22img%22%20aria-label%3D%22orangerail%22%3E%20%3Cstyle%3E%20svg%20%7B%20--rail%3A%20%23ee7a2b%3B%20%7D%20%40media%20%28prefers-color-scheme%3A%20dark%29%20%7B%20svg%20%7B%20--rail%3A%20%23ff8a3d%3B%20%7D%20%7D%20.rail%20%7B%20fill%3A%20none%3B%20stroke%3A%20var%28--rail%29%3B%20stroke-linecap%3A%20round%3B%20stroke-width%3A%207%3B%20%7D%20%3C%2Fstyle%3E%20%3Cg%20transform%3D%22translate%281.5%202.5%29%22%3E%20%3Cpath%20class%3D%22rail%22%20d%3D%22M7%2047%20H57%22%2F%3E%20%3Cpath%20class%3D%22rail%22%20d%3D%22M22%2047%20C35%2047%2034%2021%2046%2021%22%2F%3E%20%3Cpath%20class%3D%22rail%22%20d%3D%22M54%2012%20V30%22%2F%3E%20%3C%2Fg%3E%20%3C%2Fsvg%3E"
+    />
   </head>
   <body>
     <div id="root"></div>

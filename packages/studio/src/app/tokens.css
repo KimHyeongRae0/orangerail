@@ -1,10 +1,39 @@
 /**
- * orangerail studio design tokens — re-implemented from the measured Liam ERD
- * clone spec (.docs/scratch/ref-ONT-005-liam-erd.md). Values are the tool's
- * dark theme, copied from live getComputedStyle measurements cross-checked
- * against Liam's source CSS variables. The one flagged discrepancy (resting
- * edge stroke) resolves to the source token #5f6366 (plan section 3.3).
- * Dark-only, exactly like Liam's public viewer — no light theme, no minimap.
+ * orangerail studio design tokens.
+ *
+ * The greys and the layout metrics still come from the measured Liam ERD clone
+ * spec (.docs/scratch/ref-ONT-005-liam-erd.md) — that survey is what the canvas,
+ * card and edge geometry were built against. The ACCENT no longer does: Liam's
+ * green was carried over with the geometry, and it had drifted into carrying two
+ * unrelated meanings at once (see "Interaction" below).
+ *
+ * Three layers, in order. Nothing below layer 1 holds a literal colour.
+ *
+ *   1. PRIMITIVES  — the raw ramps. `--rail-*` is the brand, and the only hue
+ *                    the product owns; `--alert-*` is red; the rest are neutral.
+ *   2. SEMANTIC    — what a colour MEANS here: surface, text, interaction,
+ *                    policy, feedback. Components read these.
+ *   3. LEGACY      — the older names, kept as aliases so every module keeps
+ *                    working. Prefer a layer-2 name in new code.
+ *
+ * INTERACTION vs POLICY, the distinction this file exists to hold:
+ *
+ *   `--accent` means "this is what you are pointing at" — hover, selection, the
+ *   active tab, a highlighted edge. It is chrome and it is transient.
+ *
+ *   `--policy-*` means "this is what the rail does to this action" — a durable
+ *   fact about the ontology, not about the cursor. `--policy-gated` is the brand
+ *   orange because a gate IS the product; `--policy-auto` is deliberately
+ *   COLOURLESS, because an ungated action is the ordinary case and the studio
+ *   scores nothing. Painting `auto` green said "all clear", which is a verdict
+ *   this app does not issue.
+ *
+ *   `--alert-*` is red and is reserved for what FleetView flags — a destructive
+ *   action running with no gate. It was orange before this file was reorganised,
+ *   which put it in the brand's hue and made "the thing to look at" and "the
+ *   product's own colour" indistinguishable.
+ *
+ * Dark-only, like Liam's public viewer — no light theme, no minimap.
  *
  * The Inter font is bundled locally (woff2 + OFL.txt alongside) so the app
  * loads no remote resources at runtime (AC-9). Field types use a monospace
@@ -36,41 +65,99 @@
 }
 
 :root {
-  /* Canvas + grid */
-  --canvas-background: #141414;
-  --dot-grid: #393b3c;
+  /* ─────────── 1. PRIMITIVES ─────────── */
 
-  /* Node card */
-  --node-background: #141616;
-  --node-muted-background: #232526;
-  --node-border: #5f6366;
-  /* Subtle white overlay for column-row hover (clone spec references
-     `--pane-background-hover` by name only; this is our palette-consistent
-     value). */
-  --pane-background-hover: rgba(255, 255, 255, 0.05);
-  --overlay-20: rgba(255, 255, 255, 0.2);
-  --overlay-60: rgba(255, 255, 255, 0.6);
-  --overlay-70: rgba(255, 255, 255, 0.7);
-  --foreground: #ffffff;
+  /* Rail — the brand. `-500` is the canonical value on this dark canvas;
+     `-700` is the same hue weighted for white backgrounds (logo, README,
+     og-image) and is not used inside the app. */
+  --rail-300: #ffc39a;
+  --rail-500: #ff8a3d;
+  --rail-700: #ee7a2b;
+  --rail-veil: rgba(255, 138, 61, 0.1);
+  --rail-veil-strong: rgba(255, 138, 61, 0.16);
+  --rail-glow: rgba(255, 138, 61, 0.38);
+
+  /* Alert — red, and only red. Nothing else in the app may claim this hue. */
+  --alert-500: #ff6b6b;
+  --alert-300: #ffb4b4;
+  --alert-veil: rgba(255, 107, 107, 0.14);
+
+  /* Neutrals — the Liam greys, unchanged. */
+  --grey-900: #141414;
+  --grey-850: #141616;
+  --grey-800: #191b1b;
+  --grey-750: #1f2222;
+  --grey-700: #232526;
+  --grey-500: #393b3c;
+  --grey-400: #5f6366;
+  --white: #ffffff;
+
+  /* ─────────── 2. SEMANTIC ─────────── */
+
+  /* Surface */
+  --surface-canvas: var(--grey-900);
+  --surface-card: var(--grey-850);
+  --surface-sunken: var(--grey-800);
+  --surface-raised: var(--grey-750);
+  --surface-muted: var(--grey-700);
+  --surface-hover: rgba(255, 255, 255, 0.05);
+  --surface-chip: rgba(255, 255, 255, 0.06);
+  --surface-selected: rgba(255, 255, 255, 0.08);
+
+  /* Line */
+  --border-subtle: rgba(255, 255, 255, 0.14);
+  --border-strong: var(--grey-400);
+  --grid-dot: var(--grey-500);
+
+  /* Text */
+  --text-primary: var(--white);
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-tertiary: rgba(255, 255, 255, 0.6);
+  --text-faint: rgba(255, 255, 255, 0.2);
+
+  /* Interaction — transient, about the cursor. */
+  --accent: var(--rail-500);
+  --accent-veil: var(--rail-veil);
+  --accent-veil-strong: var(--rail-veil-strong);
+  --accent-glow: var(--rail-glow);
+
+  /* Policy — durable, about the ontology. `auto` carries no hue on purpose. */
+  --policy-gated: var(--rail-500);
+  --policy-gated-veil: var(--rail-veil);
+  --policy-auto: var(--text-tertiary);
+
+  /* Feedback */
+  --alert: var(--alert-500);
+  --alert-surface: var(--alert-veil);
+  --danger-text: var(--alert-300);
+
+  /* ─────────── 3. LEGACY ALIASES ─────────── */
+
+  --canvas-background: var(--surface-canvas);
+  --dot-grid: var(--grid-dot);
+  --node-background: var(--surface-card);
+  --node-muted-background: var(--surface-muted);
+  --node-border: var(--border-strong);
+  --pane-background-hover: var(--surface-hover);
+  --overlay-20: var(--text-faint);
+  --overlay-60: var(--text-tertiary);
+  --overlay-70: var(--text-secondary);
+  --foreground: var(--text-primary);
   --border-radius-md: 6px;
 
-  /* Accent (single channel, used for border/glow/edge/icons/markers alike) */
-  --primary-accent: #1ded83;
-  --primary-overlay-10: rgba(29, 237, 131, 0.1);
-  --primary-overlay-15: rgba(29, 237, 131, 0.15);
+  --primary-accent: var(--accent);
+  --primary-overlay-10: var(--accent-veil);
+  --primary-overlay-15: var(--accent-veil-strong);
 
-  /* Edges */
-  --edge-resting: #5f6366;
-  --edge-highlighted: #1ded83;
+  --edge-resting: var(--border-strong);
+  --edge-highlighted: var(--accent);
 
-  /* Shadows */
   --shadow-resting: 0px 0px 20px 0px rgba(0, 0, 0, 0.4);
-  --shadow-highlighted: 0px 0px 20px 0px rgba(29, 237, 131, 0.4);
+  --shadow-highlighted: 0px 0px 20px 0px var(--accent-glow);
 
-  /* Action pill (Stately grammar in the Liam palette) */
-  --pill-background: #1f2222;
-  --pill-chip-background: #191b1b;
-  --pill-border: rgba(255, 255, 255, 0.14);
+  --pill-background: var(--surface-raised);
+  --pill-chip-background: var(--surface-sunken);
+  --pill-border: var(--border-subtle);
 
   /* Motion */
   --timing-function: ease-out;
@@ -96,6 +183,16 @@ body,
   color: var(--foreground);
   font-family: var(--ui-font);
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * React Flow's dot grid. It is drawn by the library, which takes its colour as
+ * a prop and would therefore hold a literal outside this file; styling the
+ * pattern here keeps `--grid-dot` the single source for it.
+ */
+.react-flow__background-pattern,
+.react-flow__background {
+  fill: var(--grid-dot);
 }
 
 /*
