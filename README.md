@@ -57,9 +57,10 @@ move before 1.0, and [Status](#status) has the one upgrade note that matters.
 
 ## Quickstart
 
-Every output below is verbatim from one run of the `0.1.2` packages, installed from the packed
-tarballs of this release, in a scratch project holding nothing but a two-model Prisma schema
-(`Customer`, `Order`) and Prisma 6.
+Every output below is verbatim from one run of the `0.1.2` packages **installed locally with
+`npm i -D orangerail`** — the method step 1 documents, and the one install method every
+transcript on this page was recorded under. The project was a scratch directory holding nothing
+but a two-model Prisma schema (`Customer`, `Order`) and Prisma 6.
 
 **Requirements: Node 20 or newer** for the `orangerail` CLI and `orangerail-mcp` (Node 18 for
 `orangerail-core`, `orangerail-docs-gen` and `orangerail-studio` on their own). **On Prisma 7,
@@ -69,7 +70,22 @@ rather than generate an ontology that cannot construct a client. Both moves, and
 your provider needs, are in
 [Adopting orangerail against an existing database](./docs/existing-database.md#prisma-7).
 
-**1. Scan your project.** Run this in a repo with a `prisma/schema.prisma`.
+**1. Install orangerail into the project you are about to scan.**
+
+```bash
+npm i -D orangerail
+```
+
+Install it rather than reaching for `npx -y orangerail` on a project that has not: `npx` fetches
+a copy of its own, carrying its own `orangerail-core`, while your project resolves a second one,
+and every `orangerail status` from then on opens with a `runtime:` block reporting two copies
+loaded. Writes still complete under it — that is a hazard rather than a fault — and it is
+avoidable, which is why this page takes the path that avoids it. What the block means and how to
+clear one you already have is in [two copies of
+`orangerail-core`](./docs/troubleshooting.md#two-copies-of-orangerail-core). Every
+`npx orangerail …` below runs the copy this line just installed.
+
+**2. Scan your project.** Run this in a repo with a `prisma/schema.prisma`.
 Live database and no schema file? `prisma db pull` writes one — the whole path is in
 [Adopting orangerail against an existing database](./docs/existing-database.md).
 An OpenAPI spec is also accepted and yields considerably less — see
@@ -80,7 +96,7 @@ $ npx orangerail init --yes --preset approval-for-writes --no-studio
   ✓  scanned your sources — 2 object(s), 6 action(s)
   ✓  generated a governed MCP server under ontology/
   ✓  --gate delete: 2 of 6 write action(s) gated behind human approval — the other 4 run when the agent calls them
-  ⚠  no governance baseline recorded — the generated config did not load
+  ✓  recorded that posture in orangerail.governance.json — commit it
   ✓  approvals queue + audit chain at .orangerail/store/ — inside this project, so an
      agent with file tools over this directory can write them
 
@@ -88,9 +104,10 @@ $ npx orangerail init --yes --preset approval-for-writes --no-studio
 
   Change what is gated by editing `policy` in ontology/<action>.mjs, or re-run init
   with `--gate all` (gate every write) or `--gate none` (gate nothing).
-  orangerail.governance.json is what makes a later "someone deleted an approval gate" visible.
-  Recording it needs the config to load, so run `orangerail sync --accept-governance`
-  once the step below is done, and commit the file.
+  orangerail.governance.json holds the posture init just generated, which nobody has reviewed yet.
+  From now on `orangerail sync` fails when an action gets weaker than that file, and
+  `orangerail mcp` refuses to serve it. Read the file, then run
+  `orangerail sync --accept-governance` to vouch for it as reviewed.
 
   That store is the record of which writes a human approved, and appending one line to
   .orangerail/store/approvals.jsonl marks a staged action approved — the next
@@ -98,10 +115,9 @@ $ npx orangerail init --yes --preset approval-for-writes --no-studio
   audit chain. `orangerail audit verify` reports the forgery afterwards; it is a report,
   not a gate, and it does not prevent the write. The generated config carries the
   one-line move at the `createFileStore` call — see docs/audit-log.md.
+orangerail docs: wrote /private/tmp/shop/.orangerail/generated/AGENTS.md
 
-Next step: install the runtime deps so the generated code can load:
-  npm install orangerail-core zod
-Then run `orangerail studio` or `orangerail mcp`.
+Done. Run `orangerail studio` to explore the map, or `orangerail mcp`.
 ```
 
 `--gate delete` is the default, and it is the line worth pausing on. Gating *every* write is
@@ -111,32 +127,73 @@ most reliably predicts a row is gone, and lets the rest through. That is a start
 a verdict: `create` can be the most consequential write a schema has. Pass `--gate all`,
 `--gate none`, or edit `policy` per file afterwards.
 
-The `⚠` is the first run's shape, not a failure: `orangerail-core` is not installed yet, so the
-config init just wrote cannot be imported, and the baseline is read off the **live registry** —
-never off the generated text. Step 4 settles it.
+The fourth `✓` is there because of step 1. `init` reads the baseline off the **live registry** —
+never off the generated text — so it has to import the config it just wrote, and that import
+needs `orangerail-core` resolvable from the project. Installing orangerail locally puts one
+there. Scan through `npx -y orangerail` on a project with nothing installed and the same line
+reads `⚠ no governance baseline recorded — the generated config did not load` instead. Either
+way it is the posture `init` generated and nobody has reviewed; step 6 is what changes that.
 
-**2. Install the runtime the generated code loads.**
+**3. Install the runtime the generated code loads.**
 
 ```bash
 npm install orangerail-core zod
 ```
 
-**3. Point your agent host at it.** Drop this in your project root as `.mcp.json`:
+On this run npm answered `up to date`: both already resolved, hoisted out of `orangerail`'s own
+dependency tree by step 1. Name them anyway — they are what your `ontology/*.mjs` files import
+directly, a hoist is a layout decision npm is free to change, and pnpm's default layout does not
+produce one at all.
+
+**4. Give the generated actions a database to reach.**
+
+```bash
+npm install @prisma/client@6
+export DATABASE_URL="file:./dev.db"
+npx prisma generate
+npx prisma db push --skip-generate
+```
+
+`@prisma/client` has to match the major of the `prisma` CLI already in your project; this
+Quickstart is on Prisma 6, which is what the `@6` pins. `generate` writes the client the
+generated actions import; `db push` creates `dev.db` and its tables — `--skip-generate` only
+because the line above it already generated.
+
+**Skip this step and the payoff at step 7 never arrives.** The generated actions import
+`@prisma/client` lazily, so `init`, `sync` and `status` all stay green and nothing says a word
+until the agent calls a write. Then every write fails with `the datasource client is not
+installed or has never been generated` — and on a *gated* one it fails after the approval has
+been consumed: `orangerail approvals list` reads `No pending approvals.` afterwards, and the row
+is untouched. The human decision was spent on a write that never happened, and has to be made a
+second time.
+
+**Already have a database? Do not `db push` over it.** `prisma db pull` writes a schema from the
+tables that are already there, and the whole path — including what Prisma 7 changes — is in
+[Adopting orangerail against an existing database](./docs/existing-database.md).
+`npm install @prisma/client` and `npx prisma generate` are still yours to run; only the `db push`
+is replaced.
+
+**5. Point your agent host at it.** Drop this in your project root as `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "orangerail": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "orangerail", "mcp"],
+      "command": "./node_modules/.bin/orangerail",
+      "args": ["mcp"],
       "env": { "DATABASE_URL": "file:./dev.db" }
     }
   }
 }
 ```
 
-**4. Record the governance baseline — and commit it.** `ontology/` is yours to edit, which
+`command` names the binary step 1 installed, rather than `npx -y orangerail`. Naming it directly
+is the only spelling that can only ever run the copy in this project: an `npx` line resolves to a
+fetched copy whenever the local one is missing, and a host running from its own copy is the
+duplicate above made permanent for the one process that does the writing.
+
+**6. Record the governance baseline — and commit it.** `ontology/` is yours to edit, which
 means the one line that disarms the whole flow (`policy: { approval: 'required' }`) is one
 careless deletion away, and a re-scan cannot notice: the scanner has no opinion on policy. So
 the posture is compared against a recorded file.
@@ -145,20 +202,21 @@ the posture is compared against a recorded file.
 npx orangerail sync --accept-governance
 ```
 
-That writes `orangerail.governance.json` at your repo root: one row per action holding its
+That rewrites `orangerail.governance.json` at your repo root: one row per action holding its
 approval gate, approver roles, `where` guard and target. **Commit it.** Its whole value is that
 a pull request removing an approval gate shows `"approval": "required"` turning into `null` in
-its own diff, in front of a reviewer, before CI runs at all. (`init` writes one itself whenever
-the generated config loads, stamped `"recordedBy": "init"` — the posture init *generated*,
-before anyone reviewed it. `--accept-governance` re-records it as `"recordedBy": "sync"`, the
-human assertion.)
+its own diff, in front of a reviewer, before CI runs at all. (Step 2 already wrote the file —
+`init` does whenever the generated config loads — stamped `"recordedBy": "init"`, the posture
+init *generated*, before anyone reviewed it. `--accept-governance` re-records it as
+`"recordedBy": "sync"`, the human assertion.)
 
 From then on `orangerail sync` exits 1 when the posture weakens, and `orangerail mcp` refuses to
 serve the weakened action — not listed, not resolvable, not executable, while everything else
 is served. What that does and does not defend against is in
 [the limits doc](./docs/limits.md#what-the-governance-baseline-defends-against).
 
-**5. Now leave.** When you come back:
+**7. Now leave.** While you are gone the agent works the queue: the writes you left un-gated go
+through, and the deletion it was asked for stops. When you come back:
 
 ```console
 $ npx orangerail status
@@ -168,7 +226,7 @@ orangerail status
   baseline: 6 action(s) match orangerail.governance.json
   preset:   approval-for-writes
   pending:  1 approval(s) awaiting a decision
-  store:    /srv/shop/.orangerail/store
+  store:    /private/tmp/shop/.orangerail/store
             Inside the project root, so an agent with file tools over this directory can
             write it: one appended line in approvals.jsonl is a decision no human made,
             and the next `check_approval` executes the staged action — the gate reads
@@ -177,23 +235,25 @@ orangerail status
             directory this agent's process cannot write is what removes the reach — see
             docs/audit-log.md.
   server:   not detected — no orangerail mcp is running against this store
-  hosts:    no MCP client config next to this project, so orangerail cannot tell what
-            else your agent has mounted.
+  hosts:    .mcp.json declares orangerail and nothing else.
             Project scope only (.mcp.json, .cursor/mcp.json, .vscode/mcp.json); user- and
             machine-scope MCP config is not read.
-  audit:    chain OK — 1 record(s) verified
+  audit:    chain OK — 5 record(s) verified
 
 $ npx orangerail approvals list
-a5d65f2b-88b4-4a86-8bc5-da90ab636f0b  "deleteCustomer"  by "local-dev" [dev]  8s ago  input={"id":2}
+c4818df5-770c-446f-883a-e9c0f7e615a2  "deleteCustomer"  by "local-dev" [dev]  0s ago  input={"id":2}
 
 1 pending approval(s).
 
-$ npx orangerail approvals approve a5d65f2b-88b4-4a86-8bc5-da90ab636f0b
+$ npx orangerail approvals approve c4818df5-770c-446f-883a-e9c0f7e615a2
 approve ok (approved)
 ```
 
 The agent's next `check_approval` is the first moment the row can change. Nothing ran before you
-said so, and every step is on the hash chain.
+said so, and every step is on the hash chain. That whole sequence — the commands on this page,
+executed in the order written, ending in a row that is gone — is what
+[`tests/e2e/ONT-093-quickstart-runs-as-documented.sh`](./tests/e2e/ONT-093-quickstart-runs-as-documented.sh)
+runs against this repository's own build on every regression pass.
 
 With the qualifier the `store:` line above states, which is why it is on every readout —
 [Keep the store out of the agent's reach](./docs/audit-log.md#keep-the-store-out-of-the-agents-reach).
@@ -490,7 +550,7 @@ file:
 
 ```bash
 claude mcp add -s project orangerail -e DATABASE_URL="file:./dev.db" \
-  -- npx -y orangerail mcp
+  -- ./node_modules/.bin/orangerail mcp
 ```
 
 `env` carries whatever your `orangerail.config.mjs` needs to reach your backend. The server
@@ -498,17 +558,24 @@ resolves the config from the host's working directory; when that is not your pro
 it explicitly by appending `"--config", "/abs/path/to/orangerail.config.mjs"` to `args`.
 
 ```console
-$ claude mcp list
-orangerail: npx -y orangerail mcp - ✔ Connected
+$ claude mcp get orangerail
+orangerail:
+  Scope: Project config (shared via .mcp.json)
+  Status: ⏸ Pending approval (run `claude` to approve)
+  Type: stdio
+  Command: ./node_modules/.bin/orangerail
+  Args: mcp
+  Environment:
+    DATABASE_URL=file:./dev.db
 ```
 
-A project-scoped `.mcp.json` is only connected to once you have trusted the directory in the
-host; until then the same line reads `⏸ Pending approval`, which is the host asking, not the
-config being wrong. As the server comes up it writes one line to stderr (stdout is the JSON-RPC
-channel), which lands in your host's log:
+`⏸ Pending approval` is the host asking, not the config being wrong: a project-scoped
+`.mcp.json` is only connected to once you have trusted the directory, and the same readout says
+`✔ Connected` afterwards. As the server comes up it writes one line to stderr (stdout is the
+JSON-RPC channel), which lands in your host's log:
 
 ```console
-orangerail mcp: serving · governance active · 6 action(s) approval-gated · matches the recorded baseline · audit chain OK (0 record(s))
+orangerail mcp: serving · governance active · 2 action(s) approval-gated · matches the recorded baseline · audit chain OK (0 record(s))
 ```
 
 **From source instead.** To run an unreleased change, clone this repo, `pnpm install && pnpm -r
@@ -521,7 +588,7 @@ left un-gated — off by default, and with real caveats:
 
 ## Status
 
-`npx orangerail init` runs against your own project today, with no checkout of this repo, and
+`orangerail init` runs against your own project today, with no checkout of this repo, and
 the API will move before 1.0. All five packages are published from
 [`.github/workflows/release.yml`](./.github/workflows/release.yml) over npm's Trusted Publishing,
 so each one carries a provenance attestation naming the workflow and commit that built it; there
@@ -549,6 +616,8 @@ does across the upgrade — both under **Upgrading from 0.1.0** in the
   `prisma db pull` onto a live database, and what Prisma 7 changes.
 - [Also ask the host to prompt](./docs/host-approval-prompt.md) — the optional client-side
   prompt on un-gated writes.
+- [Troubleshooting](./docs/troubleshooting.md) — the readouts that report something is wrong
+  with the install rather than with your policy, starting with two copies of `orangerail-core`.
 
 ## Examples
 
