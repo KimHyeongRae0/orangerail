@@ -21,18 +21,17 @@ Requires **Node 20 or newer** (`engines.node: ">=20.0.0"`). On an older runtime 
 CLI cannot load: it imports `node:readline/promises`, which does not exist before
 Node 17, and `orangerail-mcp`'s dependency tree requires Node 20.
 
-Nothing to install to try it — the agent host and your terminal can both fetch it
-on demand:
+Install it into the project you are going to scan:
 
 ```bash
-npx orangerail init
+npm i -D orangerail
 ```
 
-To pin it in a project:
-
-```bash
-npm install --save-dev orangerail
-```
+`npx -y orangerail` on a project that has not installed it works too, and leaves
+you with two copies of `orangerail-core` — one in the npx cache, one in your
+project — which every later `orangerail status` reports in a `runtime:` block.
+Writes still complete under it; it is avoidable, and installing locally is how.
+See [Troubleshooting](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/troubleshooting.md).
 
 The generated code imports `orangerail-core` and `zod` at runtime, so install
 those in the project you scanned:
@@ -44,18 +43,25 @@ npm install orangerail-core zod
 ## Get started
 
 ```bash
+npm i -D orangerail
 npx orangerail init --yes --preset approval-for-writes --no-studio
 npm install orangerail-core zod
-npx orangerail status
+npm install @prisma/client@6       # match your prisma CLI's major
+export DATABASE_URL="file:./dev.db"
+npx prisma generate
+npx prisma db push --skip-generate # skip if the database already exists
 npx orangerail sync --accept-governance   # review + vouch for orangerail.governance.json
+npx orangerail status
 ```
 
-`init` scans a `prisma/schema.prisma` or an OpenAPI spec, generates
+`init` scans a `prisma/schema.prisma`, generates
 `ontology/*.mjs` plus an `orangerail.config.mjs`, and — under the default
 `--gate delete` — gates every `delete` behind human approval while leaving the
 other writes executable. Pass `--gate all` to gate every write instead, or
 `--gate none` to gate nothing; the closing line names which one ran and how many
-actions it left executable. No schema file yet, just a live database? `prisma db pull`
+actions it left executable. An OpenAPI spec is accepted too and gives you far
+less — no objects and no read surface at all, just one `execute: notImplemented`
+action per non-GET operation to wire up yourself. No schema file yet, just a live database? `prisma db pull`
 writes one — see
 [Adopting orangerail against an existing database](../../docs/existing-database.md),
 which also covers what Prisma 7 changes (the generated client needs a driver
@@ -63,6 +69,12 @@ adapter, and `init` refuses rather than emitting one that cannot construct). The
 LLM calls, and needs no API key. **The generated files are yours** — `init`
 refuses to run again over them, and `orangerail sync` reports drift rather than
 editing them.
+
+The `@prisma/client` / `generate` / `db push` lines are not optional decoration:
+without them the generated actions load fine and the first governed write fails
+with `the datasource client is not installed or has never been generated` —
+after the approval has been consumed, so a human decision is spent and no row
+changes.
 
 Then point your agent host at the server. For Claude Code, a `.mcp.json` in your
 project root:
@@ -72,8 +84,8 @@ project root:
   "mcpServers": {
     "orangerail": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "orangerail", "mcp"],
+      "command": "./node_modules/.bin/orangerail",
+      "args": ["mcp"],
       "env": { "DATABASE_URL": "file:./dev.db" }
     }
   }
