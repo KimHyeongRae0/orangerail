@@ -1,6 +1,6 @@
 {
   "name": "orangerail-docs-gen",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Generate the AGENTS.md an AI agent reads to learn which data tools and approval-gated write actions exist, deterministically, with a Mermaid diagram.",
   "keywords": [

@@ -8,6 +8,88 @@ This is a v0 project: the API is the design target and it will move before 1.0.
 Anything that changes what an existing project does on upgrade is called out
 under **Upgrading** rather than buried in a list.
 
+## 0.1.3 — 2026-08-04
+
+### Upgrading
+
+**Generated actions now record which CRUD operation they perform.** `init` always knew — it is
+how `--gate delete` decides what to gate — but it wrote the fact into a JSDoc comment nothing
+downstream could read. It is now a field:
+
+```js
+export const deleteArticle = registry.defineAction({
+  name: "deleteArticle",
+  op: "delete",
+  ...
+```
+
+**Nothing breaks if you do not re-run `init`.** `op` is optional, is never inferred, and stays
+out of the signature hash, so an approval staged before the upgrade still verifies afterwards.
+What changes is that the studio now says how many of your actions declare one — an ontology
+generated before `0.1.3` reads `op 0 of 6`. That readout exists so a pre-upgrade ontology is
+legible as one rather than looking like six actions that happen not to delete anything.
+
+It is provenance, not a verdict. The chip takes no colour from the policy palette and is rendered
+for all three ops, because which operation is dangerous is a semantic question this project does
+not answer: an `update` that clears every column outranks a `delete` of one draft row.
+
+**The `.mcp.json` this project recommends now names the binary directly.**
+
+```diff
+-      "command": "npx",
+-      "args": ["-y", "orangerail", "mcp"],
++      "command": "./node_modules/.bin/orangerail",
++      "args": ["mcp"],
+```
+
+An existing `npx` entry keeps working. It also loads two copies of `orangerail-core` — one from
+the npx cache, one from your project — which `orangerail status` reports in a `runtime:` block and
+`docs/troubleshooting.md` now explains, including why `npm ls orangerail-core` is *not* the
+diagnosis in that case. Dropping `-y` is not the fix: npm fetches and runs a missing binary
+without it.
+
+**The studio's `auto` chip is no longer green.** Green read as "all clear", which is a verdict
+this app does not issue. A gate is the product, so `--policy-gated` carries the brand orange;
+risk moved to red, which nothing else may claim; and the ungated case carries no hue at all.
+
+### Fixed
+
+- **The Quickstart could not reach the write it promises.** It never installed `@prisma/client`,
+  never ran `prisma generate` and never created the database, so the closing move failed with
+  `the datasource client is not installed or has never been generated` — *after* the approval had
+  been consumed, leaving a spent human decision and an unchanged row. The generated actions
+  import `@prisma/client` lazily, so `init`, `sync` and `status` all stayed green and nothing said
+  a word until the agent called a write.
+- **The Quickstart's transcripts came from more than one install method** while claiming to be
+  verbatim from one run. The page now takes one method and every transcript was re-recorded under
+  it. `tests/e2e/ONT-093` lifts the commands out of the README and runs them, so the page and the
+  test cannot drift.
+- **The README promised an OpenAPI path v0 does not have.** An OpenAPI spec yields `0 object(s)`
+  and one `execute: notImplemented` action per non-GET operation. That is the scanner's design,
+  and the CLI's own diagnostics were already honest; only the README overstated.
+- **The `unattended-queue` example's own instructions did not work** — its "Run it" block crashed
+  on an unset `DATABASE_URL`. Every example's documented commands now run in the e2e suite, twice
+  each, discovered by listing `examples/` so a new one cannot go uncovered silently.
+
+### Added
+
+- **[`docs/troubleshooting.md`](./docs/troubleshooting.md)** — the readouts that report something
+  wrong with the *install* rather than with your policy: two copies of `orangerail-core`, and
+  `CORE VERSION SKEW`, where staging and approving keep reporting success and no governed write
+  ever completes.
+- A README header with the project mark, badges that each state a checked fact, and one line of
+  navigation.
+
+### Changed
+
+- The five packages describe themselves in the words people with this problem actually use.
+  `ontology` and `governance` are gone from every keyword list; both were measured against 39
+  public descriptions of the problem and appeared zero times and once respectively — that once
+  being a vendor describing his own product. Repository topics went from empty to nine. This
+  changes nothing about behaviour and everything about whether the packages are findable.
+- The three shipped examples declare their `op`, so the studio's readout on our own
+  demonstrations reflects what the generator emits today.
+
 ## 0.1.2 — 2026-08-02
 
 ### Upgrading

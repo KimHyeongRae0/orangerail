@@ -1,6 +1,6 @@
 {
   "name": "orangerail",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Generate an MCP server from your Prisma schema — typed per-model tools instead of execute_sql, destructive writes gated behind human approval, every action on an audit log. Plus the operator surface: approvals, audit verify, status, studio.",
   "keywords": [
