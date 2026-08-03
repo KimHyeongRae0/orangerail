@@ -70,7 +70,7 @@ export const Pill = ({
 
       <div className={styles.chips}>
         {governed ? (
-          <span className={styles.chip}>
+          <span className={styles.chip} data-gated="true">
             <LockGlyph />
             approval{action.roles.length > 0 ? ` · ${action.roles.join(', ')}` : ''}
           </span>

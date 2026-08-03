@@ -1,3 +1,5 @@
+<img src="./assets/logo.svg" width="52" alt="">
+
 # orangerail
 
 > Decide once what your agent may do. Then leave it working.
@@ -367,10 +369,12 @@ table to light up its relations and actions; click one to see its fields, links,
 actions available on it, each with the policy that governs it (`deleteProduct` → approval
 required).
 
-![the orangerail studio map — hovering tables to reveal relations, then focusing the actions an agent can take on a table](./assets/studio-map.gif)
+![the orangerail studio map — hovering tables to reveal relations, then opening deleteOrder to read the policy that governs it: target Order, approval required, approvers any, condition none](./assets/studio-map.gif)
 
 > Crisper version: [`assets/studio-map.mp4`](./assets/studio-map.mp4). One real run of
-> `orangerail studio` on a sample commerce domain.
+> `orangerail studio` on a sample commerce domain — nine objects, twenty-seven actions,
+> `--gate delete`. The locks and the bolts are not annotations added for the video: they are what
+> the studio draws from your ontology, which is why nine actions carry one and eighteen do not.
 
 The relations come from `ontology/_links.mjs`, which `init` derives from your Prisma relations —
 one `defineLink` per relation pair, carrying a cardinality. `studio`, `docs` and `mcp` all read

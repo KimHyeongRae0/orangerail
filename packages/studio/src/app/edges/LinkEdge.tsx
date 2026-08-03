@@ -4,7 +4,7 @@ import type { LinkEdge as LinkEdgeType } from '../model';
 
 /**
  * A link edge: a cubic Bézier path (React Flow's own `getBezierPath`, no custom
- * math), 1px, resting `#5f6366` and accent `#1ded83` when highlighted, with
+ * math), 1px, `--edge-resting` and `--edge-highlighted` when highlighted, with
  * cardinality shown by shared `<marker>` glyphs referenced by id — never text
  * labels (plan section 3.3). The `many` end carries the crow's-foot glyph; both
  * ends otherwise carry the single-bar glyph. `interactionWidth={0}` drops the

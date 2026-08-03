@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="orangerail">
+  <title>orangerail</title>
+  <style>
+    /* The mark carries its own colour so it can be used as a plain &lt;img&gt;,
+       where `currentColor` would not inherit. `-700` is weighted for white
+       backgrounds, `-500` for dark ones; both are the tokens in
+       packages/studio/src/app/tokens.css. */
+    svg { --rail: #ee7a2b; }
+    @media (prefers-color-scheme: dark) { svg { --rail: #ff8a3d; } }
+    .rail { fill: none; stroke: var(--rail); stroke-linecap: round; }
+    .track { stroke-width: 3.6; }
+    .stop { stroke-width: 4.4; }
+  </style>
+  <g transform="translate(0 -1)">
+    <!-- The main line: both rails run clear off the right edge. -->
+    <path class="rail track" d="M5 43 H59"/>
+    <path class="rail track" d="M5 52 H59"/>
+    <!-- The turnout: one call leaves the main line. -->
+    <path class="rail track" d="M20 43 C33 43 32 19 45 19"/>
+    <path class="rail track" d="M28 52 C41 52 40 28 53 28"/>
+    <!-- The buffer stop: the siding ends, and something waits there. -->
+    <path class="rail stop" d="M54 14 V33"/>
+  </g>
+</svg>
