@@ -9,10 +9,10 @@ key, every line asserted. Twelve ordinary writes finish with the operator gone; 
 stop, and what they leave behind is executable tomorrow by someone who was never in the room.*
 
 **orangerail reads the schema you already have and generates the agent's surface from it.**
-`orangerail init` turns a `prisma/schema.prisma` or an OpenAPI spec into an MCP server: a `get`
-and a `list` per object, one action per write with a zod input schema, and nothing else — no
-`execute_sql`, and nothing on the tool list that takes a query. It is a scanner and a code
-generator, with no LLM calls and no API keys. Writes you are happy to have run unattended run
+`orangerail init` turns a `prisma/schema.prisma` into an MCP server: a `get` and a `list` per
+object, one action per write with a zod input schema, and nothing else — no `execute_sql`, and
+nothing on the tool list that takes a query. It is a scanner and a code generator, with no LLM
+calls and no API keys. Writes you are happy to have run unattended run
 unattended. The ones you are not carry `policy: { approval: 'required' }`, which stops the call
 and turns it into an approval a person can act on later — including a person who is not you,
 after the conversation that produced it has ended.
@@ -46,9 +46,11 @@ rather than generate an ontology that cannot construct a client. Both moves, and
 your provider needs, are in
 [Adopting orangerail against an existing database](./docs/existing-database.md#prisma-7).
 
-**1. Scan your project.** Run this in a repo with a `prisma/schema.prisma` or an OpenAPI spec.
+**1. Scan your project.** Run this in a repo with a `prisma/schema.prisma`.
 Live database and no schema file? `prisma db pull` writes one — the whole path is in
 [Adopting orangerail against an existing database](./docs/existing-database.md).
+An OpenAPI spec is also accepted and yields considerably less — see
+[what the OpenAPI input gives you](#v0-commands).
 
 ```console
 $ npx orangerail init --yes --preset approval-for-writes --no-studio
@@ -426,8 +428,20 @@ into something that never compiled.
 
 ## v0 commands
 
-- **`init`** — deterministic scanner (Prisma / OpenAPI) that extracts your ontology from code
-  instead of asking you to type it. No LLM calls, no API keys — ever.
+- **`init`** — deterministic scanner that extracts your ontology from code instead of asking you
+  to type it. No LLM calls, no API keys — ever.
+
+  A `prisma/schema.prisma` is the input the rest of this README describes: objects with their
+  relations, a `get` and a `list` per object, one runnable action per write.
+
+  **An OpenAPI spec gives you a scaffold, not a server.** v0 reads JSON only — a `.yaml` spec is
+  refused with a convert-it hint rather than parsed. Every `GET` is skipped and no objects are
+  derived, so there is **no read surface at all**; what you get is one action per non-GET
+  operation, with a zod input schema built from the request body and `execute: notImplemented`
+  for you to wire up. That is real work saved on the input schemas and the policy wiring, and it
+  is not an MCP server you can hand an agent as-is. The reason it is thinner is structural rather
+  than neglect: an OpenAPI spec carries no relation graph to derive objects from
+  ([comparisons](./docs/comparisons.md)).
 - **`sync`** — re-scan and report drift, including a weakened governance posture. Exit **0** for
   nothing to act on, **1** for unresolved drift, **2** when it could not answer at all.
 - **`mcp`** — the typed MCP server, withholding any action weaker than the recorded baseline.
