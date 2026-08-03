@@ -2,11 +2,10 @@
   "name": "orangerail-docs-gen",
   "version": "0.1.2",
   "type": "module",
-  "description": "orangerail docs-gen: deterministically generate the agent-facing domain document (AGENTS.md sections + Mermaid diagram) from an ontology registry (prompt rail)",
+  "description": "Generate the AGENTS.md an AI agent reads to learn which data tools and approval-gated write actions exist, deterministically, with a Mermaid diagram.",
   "keywords": [
-    "ontology",
-    "agent",
-    "governance",
+    "mcp",
+    "ai-agent",
     "documentation",
     "mermaid",
     "typescript"

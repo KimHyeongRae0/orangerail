@@ -2,12 +2,13 @@
   "name": "orangerail-studio",
   "version": "0.1.2",
   "type": "module",
-  "description": "orangerail studio: a local, read-only web app that renders the declared ontology as an interactive domain map (React Flow + ELK). Ships a prebuilt static app plus a node-consumable snapshot entry the CLI serves.",
+  "description": "Local read-only web app mapping the objects, links and approval-gated write actions your MCP server exposes to an AI agent (React Flow + ELK).",
   "keywords": [
-    "ontology",
-    "agent",
-    "governance",
-    "studio",
+    "mcp",
+    "ai-agent",
+    "database",
+    "read-only",
+    "approval",
     "react-flow",
     "typescript"
   ],
