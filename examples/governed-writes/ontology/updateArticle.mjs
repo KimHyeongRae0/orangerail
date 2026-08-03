@@ -34,6 +34,7 @@ const wrapPrismaError = (error) => {
 
 export const updateArticle = registry.defineAction({
   name: "updateArticle",
+  op: "update",
   input: z.object({
     "id": z.number().int(),
     "slug": z.string().optional(),
