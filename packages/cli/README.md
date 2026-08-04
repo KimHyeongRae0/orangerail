@@ -25,6 +25,27 @@ scanner that generates the server, and the launcher the agent host spawns.
 reached through the workspace package `orangerail-mcp`, never a direct SDK dependency. The scanner
 makes **no LLM calls and needs no API key** — ever.
 
+## See your whole domain as a map
+
+One command, and the surface `init` generates is a map you can read.
+
+```console
+$ orangerail studio
+orangerail studio: scanning ontology — 9 object(s), 27 action(s)
+orangerail studio: building the interactive map…
+orangerail studio: serving on http://127.0.0.1:4820 — open it in your browser
+```
+
+Every object, how they relate, and every write action an agent can reach. Hover a table to light up
+its relations and actions; click one to read the policy that governs it.
+
+![the orangerail studio map — hovering tables to reveal relations, then opening deleteOrder to read the policy that governs it: target Order, approval required, approvers any, condition none](https://raw.githubusercontent.com/KimHyeongRae0/orangerail/main/assets/studio-map.gif)
+
+*One real run on a sample commerce domain, `--gate delete`. The locks are not annotations added for
+the video: they are what the studio draws from your ontology, which is why nine actions carry one
+and eighteen do not. It shows you the shape of the domain — it does not let the agent query across
+it: there is no traversal tool, no join and no aggregate.*
+
 ## Bounded is not safe
 
 A generated surface buys a reach that is *finite and legible*, not a claim that nothing harmful is
