@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Invoice {
+  id           String   @id
+  number       String   @unique
+  customerName String
+  amountCents  Int
+  issuedAt     DateTime
+  status       String   // "issued" | "paid" | "past_due"
+  reviewNote   String?
+  flagged      Boolean  @default(false)
+}
+
+model GatewayEvent {
+  id            String   @id
+  invoiceNumber String?
+  providerRef   String
+  kind          String   // "payment" | "refund" | "chargeback"
+  amountCents   Int
+  receivedAt    DateTime
+}

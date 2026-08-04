@@ -5,7 +5,7 @@
 <!-- One line on purpose, same reason as the badges below: a newline inside an `align="center"` block becomes a <br>. `<picture>` rather than a media query inside the SVG — that query follows the reader's OS, not GitHub's theme toggle, and half this word would vanish on the mismatch. -->
 <picture><source media="(prefers-color-scheme: dark)" srcset="./assets/wordmark-dark.svg"><img src="./assets/wordmark.svg" width="250" height="61" alt="orangerail"></picture>
 
-**Decide once what your agent may do. Then leave it working.**
+**Give your agent your database. Don't give it SQL.**
 
 <!-- One line on purpose: inside an `align="center"` block GitHub turns every newline into a <br>, so a badge per line stacks them vertically. -->
 [![npm](https://img.shields.io/npm/v/orangerail?logo=npm&logoColor=fff&label=npm&color=EE7A2B)](https://www.npmjs.com/package/orangerail) [![CI](https://github.com/KimHyeongRae0/orangerail/actions/workflows/ci.yml/badge.svg)](https://github.com/KimHyeongRae0/orangerail/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/orangerail?logo=nodedotjs&logoColor=fff&color=444)](https://nodejs.org) [![published with provenance](https://img.shields.io/badge/npm-published%20with%20provenance-EE7A2B?logo=npm&logoColor=fff)](https://www.npmjs.com/package/orangerail#provenance) [![license](https://img.shields.io/badge/license-MIT-444)](./LICENSE)
@@ -14,13 +14,16 @@
 
 </div>
 
-![a back-office queue handed to an agent with nobody watching: ordinary writes finish, a deletion stops and becomes an approval, and the one declared line that stopped it](./examples/unattended-queue/demo.gif)
+![orangerail init on a three-model Prisma schema, then the server's real tools/list: six reads, nine writes, check_approval, and no execute_sql](./assets/tool-surface.gif)
 
-*`orangerail init`, then one run of [`examples/unattended-queue`](./examples/unattended-queue) — a
-real MCP client, no API key, every line asserted. Twelve ordinary writes finish with the operator
-gone; three deletions stop, and what they leave behind is executable tomorrow by someone who was
-never in the room. The video shows six of the twelve — the row numbers jump, so you can see where —
-and then the line in `ontology/deleteOrder.mjs` that did the stopping.*
+*`orangerail init` on a three-model Prisma schema, then a real `tools/list` against the server it
+generated. Sixteen tools: a `get` and a `list` per object, one action per write, and
+`check_approval`. **Nothing on that list takes a query.** The three locks are `--gate delete`, which
+is a default you change in one line, not a verdict.*
+
+**A rules file cannot do this.** It can ask the agent not to run a query. It cannot take the tool off
+the list — and [we measured what the difference is worth](./docs/what-we-measured.md), including the
+four claims that died when we did.
 
 **orangerail reads the schema you already have and generates the agent's surface from it.**
 `orangerail init` turns a `prisma/schema.prisma` into an MCP server: a `get` and a `list` per
@@ -216,6 +219,12 @@ nobody. That distinction does not exist at the tool level. It exists in your sch
 
 ## The run this is built for
 
+![a back-office queue handed to an agent with nobody watching: ordinary writes finish, a deletion stops and becomes an approval, and the one declared line that stopped it](./examples/unattended-queue/demo.gif)
+
+*One run of [`examples/unattended-queue`](./examples/unattended-queue) — a real MCP client, no API
+key, every line asserted. The video shows six of the twelve; the row numbers jump, so you can see
+where.*
+
 A 15-item back-office queue on a commerce database, handed to an agent with the operator gone for
 the day and told not to ask for confirmation. Twelve items are ordinary reversible writes. Three
 are destructive: delete a cancelled order, delete a customer under an erasure request, delete a
@@ -375,6 +384,10 @@ the upgrade — both under **Upgrading from 0.1.0** in the [CHANGELOG](./CHANGEL
   on un-gated writes.
 - [Troubleshooting](./docs/troubleshooting.md) — the readouts that report something is wrong with
   the install rather than with your policy.
+- [What we measured, and what died](./docs/what-we-measured.md) — every claim this project made or
+  was tempted to make, and which ones survived being run. Four did not.
+- [`bench/`](./bench) — the fixtures behind that page, so you can disagree by reproducing rather
+  than by arguing.
 - [The MCP registry entry](./docs/mcp-registry.md) — what the listing is, and the step a
   hundred-character description cannot fit.
 
