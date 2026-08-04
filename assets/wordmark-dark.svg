@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" width="280" height="60" role="img" aria-label="orangerail">
+  <title>orangerail</title>
+  <style>
+    /* The dark-background wordmark. Selected by the `&lt;picture&gt;` element in
+       README.md; wordmark.svg is the light one. See that file's comment for why
+       this is two files rather than one with a media query.
+
+       `--rail` is the studio's `-500` token — packages/studio/src/app/tokens.css,
+       weighted for dark backgrounds. `--word` is GitHub's dark-theme text
+       colour. */
+    svg { --rail: #ff8a3d; --word: #e6edf3; }
+    .wordmark {
+      font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 92px;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+    }
+    .orange { fill: var(--word); }
+    .rail { fill: var(--rail); }
+  </style>
+  <text class="wordmark" x="20" y="86" textLength="520" lengthAdjust="spacingAndGlyphs"><tspan class="orange">orange</tspan><tspan class="rail">rail</tspan></text>
+</svg>
