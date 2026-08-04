@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id        String   @id
+  name      String
+  email     String
+  segment   String   // "self_serve" | "enterprise"
+  plan      String   // "starter" | "pro" | "enterprise"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CrmFixRequest {
+  id            String   @id @default(cuid())
+  customerId    String
+  field         String
+  proposedValue String
+  reason        String
+  createdAt     DateTime @default(now())
+}
