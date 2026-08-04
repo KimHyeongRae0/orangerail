@@ -9,7 +9,7 @@
 <!-- One line on purpose: inside an `align="center"` block GitHub turns every newline into a <br>, so a badge per line stacks them vertically. -->
 [![npm](https://img.shields.io/npm/v/orangerail?logo=npm&logoColor=fff&label=npm&color=EE7A2B)](https://www.npmjs.com/package/orangerail) [![CI](https://github.com/KimHyeongRae0/orangerail/actions/workflows/ci.yml/badge.svg)](https://github.com/KimHyeongRae0/orangerail/actions/workflows/ci.yml) [![node](https://img.shields.io/node/v/orangerail?logo=nodedotjs&logoColor=fff&color=444)](https://nodejs.org) [![published with provenance](https://img.shields.io/badge/npm-published%20with%20provenance-EE7A2B?logo=npm&logoColor=fff)](https://www.npmjs.com/package/orangerail#provenance) [![license](https://img.shields.io/badge/license-MIT-444)](./LICENSE)
 
-[**Quickstart**](#quickstart) &nbsp;·&nbsp; [What it does not govern](./docs/limits.md) &nbsp;·&nbsp; [Against a rules file](./docs/vs-a-rules-file.md) &nbsp;·&nbsp; [Examples](./examples) &nbsp;·&nbsp; [Docs](./docs)
+[**Quickstart**](#quickstart) · [What it does not govern](./docs/limits.md) · [Against a rules file](./docs/vs-a-rules-file.md) · [Examples](./examples) · [Docs](./docs)
 
 </div>
 
