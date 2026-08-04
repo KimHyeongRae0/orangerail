@@ -12,6 +12,12 @@ export default defineConfig({
   // does not resolve at all on older runtimes, so the prefix has to survive the
   // bundle. See packages/cli/tsup.config.ts for the failure it caused.
   removeNodeProtocol: false,
+  // This package emits ESM and CJS from one source, and `readShippedVersion`
+  // resolves the manifest through `import.meta.url` — which does not exist in
+  // CJS. `shims` supplies it there, so `dist/index.cjs` reports the same version
+  // as `dist/index.js` instead of `unknown`. Both outputs are asserted by
+  // tests/e2e/ONT-101-serverinfo-version-matches-manifest.sh.
+  shims: true,
   // Workspace deps and the SDK are resolved at runtime, never inlined.
   external: ['orangerail-core', '@modelcontextprotocol/sdk'],
 });
