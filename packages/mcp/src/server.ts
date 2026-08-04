@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -71,6 +72,31 @@ export type HostApprovalPrompt = 'off' | 'ungoverned-actions' | 'all-actions';
  * ignored by the host.
  */
 const REQUIRES_USER_INTERACTION = 'anthropic/requiresUserInteraction';
+
+/**
+ * The version this package shipped at, read from its own manifest so it cannot
+ * drift from what npm installed. `dist/` sits one level under the package root
+ * in both this repo and the published tarball, and npm always ships
+ * `package.json`, so the relative path holds for the ESM and the CJS build
+ * alike — tsup's `shims` option supplies `import.meta.url` to the CJS output.
+ *
+ * It was a string literal until ONT-101 (#163), and it read `0.1.0` while the
+ * package was on `0.1.3`. `serverInfo.version` is what a client displays and
+ * what a user quotes in a bug report, so it is where diagnosis starts.
+ *
+ * A build that cannot find its own manifest reports `unknown` rather than
+ * falling back to a number: an obviously absent version costs a reader one
+ * question, and a plausible wrong one costs them the whole investigation.
+ */
+const readShippedVersion = (): string => {
+  try {
+    const manifest = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+
+    return (JSON.parse(manifest) as { version: string }).version;
+  } catch {
+    return 'unknown';
+  }
+};
 
 /**
  * Operator-side sink for the FULL, unredacted failure text (§3.10). The agent
@@ -805,7 +831,7 @@ export const createMcpServer = ({
     };
 
   const server = new Server(
-    { name: 'orangerail', version: '0.1.0' },
+    { name: 'orangerail', version: readShippedVersion() },
     { capabilities: { tools: {} } },
   );
 
