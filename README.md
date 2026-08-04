@@ -43,6 +43,34 @@ Pre-release and installable: `0.1.3` on npm — `orangerail` (the CLI) plus `ora
 `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio`. The API will move before 1.0, and
 [Status](#status) has the one upgrade note that matters.
 
+## See your whole domain as a map
+
+One command, and the surface `init` generates is a map you can read.
+
+```console
+$ orangerail studio
+orangerail studio: scanning ontology — 9 object(s), 27 action(s)
+orangerail studio: building the interactive map…
+orangerail studio: serving on http://127.0.0.1:4820 — open it in your browser
+```
+
+Every object, how they relate, and every write action an agent can reach. Hover a table to light up
+its relations and actions; click one to read the policy that governs it.
+
+![the orangerail studio map — hovering tables to reveal relations, then opening deleteOrder to read the policy that governs it: target Order, approval required, approvers any, condition none](./assets/studio-map.gif)
+
+> Crisper version: [`assets/studio-map.mp4`](./assets/studio-map.mp4) — the same run at full
+> resolution. One real run on a sample commerce domain, `--gate delete`. The locks are not
+> annotations added for the video: they are what the studio draws from your ontology, which is why
+> nine actions carry one and eighteen do not.
+
+**Be exact about what that is worth.** The relations come from `ontology/_links.mjs`, which `init`
+derives from your Prisma relations, so `Customer_list`'s description reads `List Customer records.
+Relations: has many Order.` The agent is *told* that a Customer has many Orders. It still cannot
+follow the edge: no traversal tool, no join, no aggregate, and `Customer_list` refuses a filter that
+reaches into `Order`. Knowing the shape of a domain and being able to query across it are different
+things, and only the first one is here.
+
 ## Quickstart
 
 Seven steps, every output verbatim from one recorded run. The reasoning behind each one — and the
@@ -265,27 +293,6 @@ is in [what orangerail does not govern](./docs/limits.md).
 client. The destructive tool stays **available** rather than hidden, the agent **cannot force it
 through**, and the row changes **only after a human decided** — in a separate terminal, at a
 separate time, which is the part that makes leaving possible.*
-
-## See your whole domain as a map
-
-`orangerail studio` reads your declared ontology and opens a live, read-only map of your domain —
-every object, how they relate, and every write action an agent can reach. Hover a table to light up
-its relations and actions; click one to see its fields, links, and the actions available on it,
-each with the policy that governs it.
-
-![the orangerail studio map — hovering tables to reveal relations, then opening deleteOrder to read the policy that governs it: target Order, approval required, approvers any, condition none](./assets/studio-map.gif)
-
-> Crisper version: [`assets/studio-map.mp4`](./assets/studio-map.mp4). One real run on a sample
-> commerce domain — nine objects, twenty-seven actions, `--gate delete`. The locks are not
-> annotations added for the video: they are what the studio draws from your ontology, which is why
-> nine actions carry one and eighteen do not.
-
-**Be exact about what that is worth.** The relations come from `ontology/_links.mjs`, which `init`
-derives from your Prisma relations, so `Customer_list`'s description reads `List Customer records.
-Relations: has many Order.` The agent is *told* that a Customer has many Orders. It still cannot
-follow the edge: no traversal tool, no join, no aggregate, and `Customer_list` refuses a filter that
-reaches into `Order`. Knowing the shape of a domain and being able to query across it are different
-things, and only the first one is here.
 
 ## Declaring a rule the generator cannot derive
 
