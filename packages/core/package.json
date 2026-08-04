@@ -1,6 +1,6 @@
 {
   "name": "orangerail-core",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Define the read tools and the approval-gated write actions an AI agent may run against your data — the permission model behind an orangerail MCP server.",
   "keywords": [

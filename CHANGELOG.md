@@ -8,6 +8,29 @@ This is a v0 project: the API is the design target and it will move before 1.0.
 Anything that changes what an existing project does on upgrade is called out
 under **Upgrading** rather than buried in a list.
 
+## 0.1.5 — 2026-08-04
+
+**Documentation only. No code changed.** `0.1.4` and `0.1.5` are byte-identical as software; this
+release exists because npm renders its page from the published tarball, so the rewritten page could
+not reach a reader without a version.
+
+What changed on that page, and on the repository it links to:
+
+- **The front door leads with the generated tool surface rather than the approval gate.** One real
+  `init` on a three-model schema and one real `tools/list`: sixteen tools, no `execute_sql`, nothing
+  that takes a query. A rules file can ask an agent not to run a query; it cannot take the tool off
+  the list.
+- **[What we measured, and what died](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/what-we-measured.md)**
+  — six claims this project made or was tempted to make, four of which failed when they were run.
+  Three of the four were ours. The page also names three findings that cut against this project.
+- **[`bench/`](https://github.com/KimHyeongRae0/orangerail/tree/main/bench)** — the five fixtures
+  behind that page, scored from database rows rather than from what an agent reports, so the results
+  can be reproduced instead of believed.
+
+The claim this project still makes is narrower than the one it started with: a policy expressed as
+code is visible in a diff and fails closed when removed, and a policy expressed as prose is neither.
+Nothing about that depends on the model.
+
 ## 0.1.4 — 2026-08-04
 
 One functional fix, and the documentation that fix makes it worth publishing.
