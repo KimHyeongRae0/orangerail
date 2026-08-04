@@ -8,6 +8,37 @@ This is a v0 project: the API is the design target and it will move before 1.0.
 Anything that changes what an existing project does on upgrade is called out
 under **Upgrading** rather than buried in a list.
 
+## 0.1.4 — 2026-08-04
+
+One functional fix, and the documentation that fix makes it worth publishing.
+
+**`orangerail-mcp` reports the version it shipped at.** `serverInfo.version` was a string literal
+typed once. It answered `0.1.0` to every `initialize` while the package went out as 0.1.1, 0.1.2 and
+0.1.3, and nothing failed because nothing was looking. That field is what your MCP client displays
+and what you would quote in a bug report — it is where diagnosis starts. It now comes from the
+package's own manifest, and a build that cannot find its manifest reports `unknown` rather than a
+plausible wrong number (#164).
+
+If your client has been showing `orangerail 0.1.0` and you were on a later release, that was this.
+
+**`packages/cli` now declares `mcpName`.** The official MCP registry reads that field out of the
+published `package.json` to verify npm ownership. npm versions are immutable, so it could not be
+added to a release already out.
+
+Everything else in this release is documentation, and changes nothing your code does:
+
+- The README is 398 lines rather than 649. The per-step Quickstart reasoning moved to
+  [Quickstart, annotated](./docs/quickstart-notes.md), the command reference to
+  [Commands](./docs/commands.md), and host wiring to [Agent hosts](./docs/agent-hosts.md). The
+  eleven Quickstart commands are unchanged — the same e2e scenario executes them (#172).
+- **The npm page is a different document and it now has one.** npm renders
+  `packages/cli/README.md`, which had no images and one link that could not resolve outside the
+  published package. It now leads with the demo, and every link is absolute (#172).
+- All three videos re-shot: the front-door run (#168), the interception (#170), and the studio map
+  (#174), which was shot from 1x screenshots and is now 2x, so its close-ups resolve.
+- The wordmark no longer stretches every glyph 27.6% wider than it was drawn (#166, #172), and the
+  README nav line no longer renders as raw entities (#162).
+
 ## 0.1.3 — 2026-08-04
 
 ### Upgrading

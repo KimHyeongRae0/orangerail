@@ -39,7 +39,7 @@ verbs, so a destructive verb you declared is a verb the agent can call.
 tools.** If the agent also has a shell with credentials or a second database MCP server, it can go
 around the rail — see [what orangerail does not govern](./docs/limits.md).
 
-Pre-release and installable: `0.1.3` on npm — `orangerail` (the CLI) plus `orangerail-core`,
+Pre-release and installable: `0.1.4` on npm — `orangerail` (the CLI) plus `orangerail-core`,
 `orangerail-mcp`, `orangerail-docs-gen` and `orangerail-studio`. The API will move before 1.0, and
 [Status](#status) has the one upgrade note that matters.
 
