@@ -14,11 +14,14 @@
 
 </div>
 
-![fifteen back-office items handed to an agent with nobody watching: twelve ordinary writes finish, three deletions stop and become approvals bound to the exact call](./examples/unattended-queue/demo.gif)
+![a back-office queue handed to an agent with nobody watching: ordinary writes finish, a deletion stops and becomes an approval, and the one declared line that stopped it](./examples/unattended-queue/demo.gif)
 
-*One run of [`examples/unattended-queue`](./examples/unattended-queue) — a real MCP client, no API
-key, every line asserted. Twelve ordinary writes finish with the operator gone; three deletions
-stop, and what they leave behind is executable tomorrow by someone who was never in the room.*
+*`orangerail init`, then one run of [`examples/unattended-queue`](./examples/unattended-queue) — a
+real MCP client, no API key, every line asserted. Twelve ordinary writes finish with the operator
+gone; three deletions
+stop, and what they leave behind is executable tomorrow by someone who was never in the room. The
+video shows six of the twelve — the row numbers jump, so you can see where — and then the line in
+`ontology/deleteOrder.mjs` that did the stopping.*
 
 **orangerail reads the schema you already have and generates the agent's surface from it.**
 `orangerail init` turns a `prisma/schema.prisma` into an MCP server: a `get` and a `list` per
