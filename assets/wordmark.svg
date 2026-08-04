@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" width="280" height="60" role="img" aria-label="orangerail">
+  <title>orangerail</title>
+  <style>
+    /* The light-background wordmark. Its colours are FIXED — the dark variant is
+       a separate file (wordmark-dark.svg) selected by the `&lt;picture&gt;` element in
+       README.md, because `prefers-color-scheme` inside an SVG served to an
+       `&lt;img&gt;` follows the OS setting rather than GitHub's own theme toggle. A
+       reader on a light OS with GitHub set to dark would otherwise get the black
+       half of the word on a black page. The mark (assets/logo.svg) can carry a
+       media query safely because it is orange in both themes and never
+       disappears; half of this word would.
+
+       `--rail` is the studio's `-700` token — packages/studio/src/app/tokens.css.
+       `--word` is GitHub's light-theme text colour.
+
+       `textLength` is not decoration: this renders with whatever sans the viewer
+       has, and locking the advance width is what stops an unexpected font from
+       running the wordmark out of the viewBox. */
+    svg { --rail: #ee7a2b; --word: #1f2328; }
+    .wordmark {
+      font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 92px;
+      font-weight: 700;
+      letter-spacing: -0.015em;
+    }
+    .orange { fill: var(--word); }
+    .rail { fill: var(--rail); }
+  </style>
+  <text class="wordmark" x="20" y="86" textLength="520" lengthAdjust="spacingAndGlyphs"><tspan class="orange">orange</tspan><tspan class="rail">rail</tspan></text>
+</svg>

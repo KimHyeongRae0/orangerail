@@ -2,7 +2,8 @@
 
 <img src="./assets/logo.svg" width="76" alt="">
 
-# orangerail
+<!-- One line on purpose, same reason as the badges below: a newline inside an `align="center"` block becomes a <br>. `<picture>` rather than a media query inside the SVG — that query follows the reader's OS, not GitHub's theme toggle, and half this word would vanish on the mismatch. -->
+<picture><source media="(prefers-color-scheme: dark)" srcset="./assets/wordmark-dark.svg"><img src="./assets/wordmark.svg" width="280" height="60" alt="orangerail"></picture>
 
 **Decide once what your agent may do. Then leave it working.**
 
