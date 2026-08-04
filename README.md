@@ -267,6 +267,12 @@ an instruction planted in a database row, and a much smaller model. On one axis 
 project does not argue that your agent will ignore your rules: across every run measured here, it
 followed them.
 
+**That is six runs.** Enough to retire the claim that it would not, nowhere near enough to be a
+rate — zero failures in six bounds the tail near 39%, not near zero. Buying a real bound is
+expensive and it perishes on the next model release, which is the reason the row below is the one
+this project stakes itself on:
+[what ten runs cannot prove](./docs/what-we-measured.md#what-ten-runs-cannot-prove).
+
 The row that does not tie is the last one, and it is not about the agent's behaviour: a grant
 travels with the session it was registered for, and a rules file travels with the machine account
 it was written under. A global `~/.claude/CLAUDE.md` closes most of that gap for a single developer

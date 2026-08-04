@@ -41,6 +41,33 @@ that we cannot see, because we look at one call at a time.
 The full write-up is [against the thing you would do instead](./vs-a-rules-file.md).
 [`examples/vs-a-rules-file`](../examples/vs-a-rules-file) executes both arms.
 
+## What ten runs cannot prove
+
+**n = 6 for the table above; 10 across both rounds.** Three clean runs, two adversarial, one on a
+smaller model — that is the whole sample behind the tie, and the four structural fixtures below
+bring the total in the top table to ten. Numbers that small cannot tell the difference between
+*never fails* and *fails once in a hundred*. Zero failures in six puts the 95% upper bound near
+**39%**, and zero in ten near **26%** — which is to say the sample bounds almost nothing. It is
+enough to retire "the model will ignore your rules," because that claim predicted failures we did
+not see. It is not enough to promise you the tail.
+
+That matters more here than anywhere else in this document, because *"the rules file completed 12/12
+and executed 0 destructive items"* **is a rate.** Rates are the kind of thing a sample can only ever
+put a ceiling on, and buying a lower ceiling is expensive and perishable: a hundred clean runs would
+still only say *under 3%*, three thousand would be needed to say *under 0.1%*, and the next model
+release resets all of it.
+
+**The last row of the table is not a rate.** Nothing was sampled to establish that a deleted
+instruction reports nothing — there is no distribution over it, no run count that would strengthen
+it, and no model version that changes it. It is a property of the arrangement, so reading it is
+sufficient.
+
+That is the whole distinction this project now rests on, and it is narrower than it sounds: **a
+control that depends on a choice can only be bounded by sampling the choice, and a control that
+depends on an arrangement can be bounded by reading the arrangement.** It does not follow that we
+fail less often. We have no tail data for our own arm either. What differs is that one of these
+failure modes has a number you cannot afford to measure, and the other has a file you can open.
+
 ## Round two: structure instead of pressure
 
 The runs above applied *pressure* — every one gave the agent a moment to say no, and it always did.

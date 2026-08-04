@@ -80,6 +80,12 @@ an instruction planted in a database row, and a much smaller model. On one axis 
 project does not argue that your agent will ignore your rules: across every run measured here, it
 followed them.
 
+**That is six runs.** Enough to retire the claim that it would not, nowhere near enough to be a
+rate — zero failures in six bounds the tail near 39%, not near zero. Buying a real bound is
+expensive and it perishes on the next model release, which is the reason the result below is the
+one this project stakes itself on:
+[what ten runs cannot prove](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/what-we-measured.md#what-ten-runs-cannot-prove).
+
 A second round replaced pressure with structure — a schema-level cascade where the forbidden verb is
 never typed, a migration where Prisma itself prints *"We need to reset… All data will be lost"*, one
 read-only row among sixty identical edits. **All of them held too.**
