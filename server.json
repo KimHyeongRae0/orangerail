@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.KimHyeongRae0/orangerail",
+  "description": "Turns your Prisma schema into typed MCP tools, with destructive writes gated behind human approval",
+  "repository": {
+    "url": "https://github.com/KimHyeongRae0/orangerail",
+    "source": "github"
+  },
+  "version": "0.1.4",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "orangerail",
+      "version": "0.1.4",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "valueHint": "mcp",
+          "value": "mcp",
+          "description": "Serves the ontology that `orangerail init` generated in this project. With no ontology/ directory there is nothing to serve — run init first."
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "DATABASE_URL",
+          "description": "The database the generated actions reach, in the same form your Prisma datasource takes.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

@@ -375,6 +375,8 @@ the upgrade — both under **Upgrading from 0.1.0** in the [CHANGELOG](./CHANGEL
   on un-gated writes.
 - [Troubleshooting](./docs/troubleshooting.md) — the readouts that report something is wrong with
   the install rather than with your policy.
+- [The MCP registry entry](./docs/mcp-registry.md) — what the listing is, and the step a
+  hundred-character description cannot fit.
 
 ## Examples
 

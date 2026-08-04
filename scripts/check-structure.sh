@@ -45,7 +45,13 @@ warned() { warn "$1"; WARNS=$((WARNS + 1)); }
 # `CHANGELOG.md` was added at ONT-046: the five packages release together and
 # `files: ["dist"]` keeps a per-package changelog out of every tarball, so one
 # root changelog is the single place a user-visible change is mapped to a release.
-ROOT_FILES_ALLOWED='^(CLAUDE\.md|DESIGN\.md|README\.md|CHANGELOG\.md|LICENSE|\.git|\.gitignore|package\.json|pnpm-workspace\.yaml|pnpm-lock\.yaml|tsconfig\.json|tsconfig\.base\.json|\.npmrc|eslint\.config\.mjs|\.prettierrc|\.prettierignore)$'
+#
+# `server.json` was added at ONT-110: it is the MCP registry entry, and the root
+# is not a preference. `mcp-publisher publish` reads `./server.json` from the
+# working directory, and the registry's own quickstart puts it beside
+# `package.json`. Moving it under docs/ would mean the published metadata and the
+# file in the repository could drift apart with nothing to notice.
+ROOT_FILES_ALLOWED='^(CLAUDE\.md|DESIGN\.md|README\.md|CHANGELOG\.md|LICENSE|server\.json|\.git|\.gitignore|package\.json|pnpm-workspace\.yaml|pnpm-lock\.yaml|tsconfig\.json|tsconfig\.base\.json|\.npmrc|eslint\.config\.mjs|\.prettierrc|\.prettierignore)$'
 for f in * .[!.]*; do
   [[ -f "$f" ]] || continue
   if ! [[ "$f" =~ $ROOT_FILES_ALLOWED ]]; then

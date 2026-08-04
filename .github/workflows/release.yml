@@ -105,6 +105,36 @@ jobs:
 
           echo "all five packages are at ${expected}"
 
+          # server.json is the MCP registry entry, and it pins the version twice.
+          # Nothing in this repository reads it, so a stale one fails silently —
+          # the registry would keep advertising the previous release while npm
+          # moved on. Checking it here means the release that would strand it is
+          # the release that fails.
+          server_version="$(node -p "require('./server.json').version")"
+          server_package_version="$(node -p "require('./server.json').packages[0].version")"
+
+          for pair in "version:${server_version}" "packages[0].version:${server_package_version}"; do
+            field="${pair%%:*}"
+            declared="${pair#*:}"
+
+            if [ "${declared}" != "${expected}" ]; then
+              echo "::error::server.json ${field} is ${declared}, expected ${expected} — bump it with the packages"
+              exit 1
+            fi
+          done
+
+          registry_name="$(node -p "require('./server.json').name")"
+          package_name="$(node -p "require('./packages/cli/package.json').mcpName")"
+
+          # The registry verifies npm ownership by matching these two. They are
+          # in different files, and only one of them is immutable once published.
+          if [ "${registry_name}" != "${package_name}" ]; then
+            echo "::error::server.json name is ${registry_name}, packages/cli mcpName is ${package_name}"
+            exit 1
+          fi
+
+          echo "server.json agrees: ${registry_name} at ${expected}"
+
           # On a tag push the tag is the declaration of intent; the manifests
           # must agree with it or the tag points at the wrong tree.
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
