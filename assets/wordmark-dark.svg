@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" width="280" height="60" role="img" aria-label="orangerail">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 450 110" width="250" height="61" role="img" aria-label="orangerail">
   <title>orangerail</title>
   <style>
     /* The dark-background wordmark. Selected by the `&lt;picture&gt;` element in
@@ -7,7 +7,14 @@
 
        `--rail` is the studio's `-500` token — packages/studio/src/app/tokens.css,
        weighted for dark backgrounds. `--word` is GitHub's dark-theme text
-       colour. */
+       colour.
+       `textLength` locks the advance width so an unexpected font cannot run the
+       wordmark out of the viewBox — but it is paired with `lengthAdjust="spacing"`,
+       which moves the letters and never distorts them. It was
+       `spacingAndGlyphs` at 520 against a natural width of 407, which stretched
+       every glyph 27.6% wider than it was drawn. The value is now the measured
+       natural width, so on the intended font the adjustment is nil and on a
+       wider one the spacing tightens instead of the letters smearing. */
     svg { --rail: #ff8a3d; --word: #e6edf3; }
     .wordmark {
       font-family: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -18,5 +25,5 @@
     .orange { fill: var(--word); }
     .rail { fill: var(--rail); }
   </style>
-  <text class="wordmark" x="20" y="86" textLength="520" lengthAdjust="spacingAndGlyphs"><tspan class="orange">orange</tspan><tspan class="rail">rail</tspan></text>
+  <text class="wordmark" x="20" y="84" textLength="410" lengthAdjust="spacing"><tspan class="orange">orange</tspan><tspan class="rail">rail</tspan></text>
 </svg>
