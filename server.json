@@ -6,13 +6,13 @@
     "url": "https://github.com/KimHyeongRae0/orangerail",
     "source": "github"
   },
-  "version": "0.1.4",
+  "version": "0.1.5",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "orangerail",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "transport": { "type": "stdio" },
       "packageArguments": [
         {

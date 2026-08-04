@@ -1,6 +1,6 @@
 {
   "name": "orangerail-studio",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Local read-only web app mapping the objects, links and approval-gated write actions your MCP server exposes to an AI agent (React Flow + ELK).",
   "keywords": [

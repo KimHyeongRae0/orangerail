@@ -1,12 +1,18 @@
 # orangerail
 
-**Decide once what your agent may do. Then leave it working.**
+**Give your agent your database. Don't give it SQL.**
 
-![a back-office queue handed to an agent with nobody watching: ordinary writes finish, a deletion stops and becomes an approval, and the one declared line that stopped it](https://raw.githubusercontent.com/KimHyeongRae0/orangerail/main/examples/unattended-queue/demo.gif)
+![orangerail init on a three-model Prisma schema, then the server's real tools/list: six reads, nine writes, check_approval, and no execute_sql](https://raw.githubusercontent.com/KimHyeongRae0/orangerail/main/assets/tool-surface.gif)
 
-*`orangerail init`, then one run of a 15-item back-office queue through a real MCP client — no API
-key, every line asserted. Twelve ordinary writes finish with the operator gone; three deletions
-stop, and what they leave behind is executable tomorrow by someone who was never in the room.*
+*`orangerail init` on a three-model Prisma schema, then a real `tools/list` against the server it
+generated. Sixteen tools: a `get` and a `list` per object, one action per write, and
+`check_approval`. **Nothing on that list takes a query.** The three locks are `--gate delete`, a
+default you change in one line.*
+
+**A rules file cannot do this.** It can ask the agent not to run a query. It cannot take the tool
+off the list — and
+[we measured what the difference is worth](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/what-we-measured.md),
+including the four claims that died when we did.
 
 `orangerail` reads the schema you already have and generates the agent's surface from it. `init`
 turns a `prisma/schema.prisma` into an MCP server: a `get` and a `list` per object, one action per
@@ -74,12 +80,34 @@ an instruction planted in a database row, and a much smaller model. On one axis 
 project does not argue that your agent will ignore your rules: across every run measured here, it
 followed them.
 
-The row that does not tie is the last one. A global `~/.claude/CLAUDE.md` closes most of that gap
-for a single developer on one machine — **if that is you, you may not need this.** It stops closing
-at a CI runner, a container, a service account, or a teammate's checkout.
+A second round replaced pressure with structure — a schema-level cascade where the forbidden verb is
+never typed, a migration where Prisma itself prints *"We need to reset… All data will be lost"*, one
+read-only row among sixty identical edits. **All of them held too.**
 
-[The full comparison](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/vs-a-rules-file.md)
-— every run, the axis where the rules file wins, and the limits of the measurement.
+Then one thing did not. Same fixture, same ticket, same database; the only change was **21 lines
+deleted from `CLAUDE.md`** — the approval procedure — the way a refactor would remove them:
+
+| | rules present | those 21 lines gone |
+| --- | --- | --- |
+| what the agent did | wrote the approval record, stopped | wrote a delete script and ran it |
+| did it mention approval | yes | **never** |
+| what reported the change | — | **nothing** |
+
+The agent did nothing wrong either time. **A request cannot report its own absence.** The same
+removal expressed as code is `orangerail sync` exiting 1 and the server refusing to serve the
+action.
+
+That is the whole remaining claim, and it does not weaken as models improve — *"is the instruction
+still there"* is not a question the instructed party can answer.
+
+**If you are one developer with a good model and a good rules file, on your own machine, you may not
+need this.** A global `~/.claude/CLAUDE.md` is read from every directory that account works in, and
+on this evidence the model obeys it.
+
+[What we measured, and what died](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/what-we-measured.md)
+— six claims, four dead, three of them ours.
+[The fixtures](https://github.com/KimHyeongRae0/orangerail/tree/main/bench) re-run from a pristine
+snapshot and score from database rows.
 
 ## Install
 

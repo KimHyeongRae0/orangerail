@@ -1,6 +1,6 @@
 {
   "name": "orangerail-mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Serve an ontology registry as an MCP server: typed read tools, destructive writes staged for human approval, and an audit log of every call.",
   "keywords": [
