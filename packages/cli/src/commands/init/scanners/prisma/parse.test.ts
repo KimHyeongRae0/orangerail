@@ -356,4 +356,64 @@ describe('generator parsing (ONT-067)', () => {
 
     expect(parsed.generator).toBeUndefined();
   });
+
+  it('records a model carrying `@@ignore` by name and keeps it out of models (ONT-113)', () => {
+    const parsed = parsePrismaSchema({
+      source: `
+        model events {
+          id BigInt @default(autoincrement())
+
+          @@ignore
+        }
+        model users { id Int @id }
+      `,
+    });
+
+    expect(parsed.ignoredModels).toEqual(['events']);
+    expect(parsed.models.map((m) => m.name)).toEqual(['users']);
+  });
+
+  it('leaves every other block attribute skipped, exactly as before (ONT-113)', () => {
+    const parsed = parsePrismaSchema({
+      source: `
+        model Order {
+          id     Int @id
+          userId Int
+
+          @@map("orders")
+          @@unique([userId])
+          @@index([userId])
+          @@id([id, userId])
+        }
+      `,
+    });
+
+    expect(parsed.ignoredModels).toEqual([]);
+    expect(parsed.models.map((m) => m.name)).toEqual(['Order']);
+  });
+
+  it('does not read `@@ignoreCase` as `@@ignore` (ONT-113)', () => {
+    const parsed = parsePrismaSchema({
+      source: `model A {\n  id Int @id\n\n  @@ignoreCase\n}`,
+    });
+
+    expect(parsed.ignoredModels).toEqual([]);
+    expect(parsed.models.map((m) => m.name)).toEqual(['A']);
+  });
+
+  it('reads `@@ignore` through a trailing comment, which is stripped upstream (ONT-113)', () => {
+    const parsed = parsePrismaSchema({
+      source: `model A {\n  id Int @default(1)\n\n  @@ignore // added by db pull\n}`,
+    });
+
+    expect(parsed.ignoredModels).toEqual(['A']);
+    expect(parsed.models).toEqual([]);
+  });
+
+  it('accepts a model literally named `ignore` (ONT-113)', () => {
+    const parsed = parsePrismaSchema({ source: `model ignore { id Int @id }` });
+
+    expect(parsed.ignoredModels).toEqual([]);
+    expect(parsed.models.map((m) => m.name)).toEqual(['ignore']);
+  });
 });

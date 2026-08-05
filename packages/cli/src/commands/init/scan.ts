@@ -221,3 +221,16 @@ export const allocateNames = ({ source }: { source: ScannedSource }): ScannedSou
 /** Whether a scanned source contains anything to generate. */
 export const hasScannedContent = ({ source }: { source: ScannedSource }): boolean =>
   source.objects.length > 0 || source.actions.length > 0;
+
+/**
+ * Whether any registered scanner found a source file at all, regardless of what
+ * came out of it.
+ *
+ * "Nothing to generate" and "nothing to read" are different refusals and only
+ * one of them is the user's to fix by adding a file (ONT-113). A schema whose
+ * every model carries `@@ignore` produces zero objects, and telling that user
+ * "no Prisma schema found in this repo" points them at a file they are looking
+ * straight at.
+ */
+export const hasDetectedSource = ({ cwd }: { cwd: string }): boolean =>
+  SCANNERS.some((scanner) => scanner.detect({ cwd }).length > 0);

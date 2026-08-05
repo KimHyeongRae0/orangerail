@@ -53,11 +53,19 @@ const mapModel = ({
   model,
   modelNames,
   enumNames,
+  ignoredNames,
   warnings,
 }: {
   model: RawModel;
   modelNames: Set<string>;
   enumNames: Set<string>;
+  /**
+   * Models carrying `@@ignore`. A relation field pointing at one has to be
+   * dropped — the target is not in the IR — but it must not raise a per-field
+   * "unsupported type" warning, which would name the model as if the type were
+   * unrecognized. The aggregated `@@ignore` line already states the cause.
+   */
+  ignoredNames: Set<string>;
   warnings: string[];
 }): IrObject => {
   const fields: IrField[] = [];
@@ -103,6 +111,13 @@ const mapModel = ({
         hasDefault,
         updatedAt,
       });
+      return;
+    }
+
+    if (ignoredNames.has(field.type)) {
+      // A relation to a model that has no delegate. Dropped without its own
+      // warning: the aggregated `@@ignore` line names the cause once, and
+      // repeating it per relation field would bury it.
       return;
     }
 
@@ -216,11 +231,14 @@ export const mapPrismaToIr = ({
 
   const modelNames = new Set(parsed.models.map((m) => m.name));
   const enumNames = new Set(parsed.enums.map((e) => e.name));
+  const ignoredNames = new Set(parsed.ignoredModels);
   const enumsByName = new Map(parsed.enums.map((e) => [e.name, e.values]));
   const rawByModel = new Map(parsed.models.map((m) => [m.name, m]));
 
   for (const model of parsed.models) {
-    source.objects.push(mapModel({ model, modelNames, enumNames, warnings: source.warnings }));
+    source.objects.push(
+      mapModel({ model, modelNames, enumNames, ignoredNames, warnings: source.warnings }),
+    );
   }
 
   resolveEnumFields({ objects: source.objects, rawByModel, enumsByName });
@@ -257,6 +275,18 @@ export const mapPrismaToIr = ({
     // silence left the user with a model count that did not match their schema.
     source.warnings.push(
       `prisma: skipping ${parsed.invalidBlocks.length} block(s) whose name is not a valid Prisma identifier (${parsed.invalidBlocks.join(', ')}) — a block name must match [A-Za-z_][A-Za-z0-9_]*; rename it (\`@@map\` keeps the table name) and re-run`,
+    );
+  }
+
+  if (parsed.ignoredModels.length > 0) {
+    // Not a policy choice and not a limitation of this scanner: Prisma Client
+    // generates no delegate for an `@@ignore`d model, so an action over one
+    // would call `prisma.<model>.create(...)` on `undefined` — a tool in
+    // `tools/list` that throws when an agent calls it (ONT-113). The cause is
+    // named, because the consequence (no single `@id`) used to be reported in
+    // its place and sent readers looking for a primary key they cannot add.
+    source.warnings.push(
+      `prisma: skipping ${parsed.ignoredModels.length} model(s) carrying \`@@ignore\` (${parsed.ignoredModels.join(', ')}) — Prisma Client generates no delegate for them, so no tool can be generated; \`prisma db pull\` attaches \`@@ignore\` on its own to tables without a unique identifier. Those tables are NOT protected by their absence — anything else with the credentials still reaches them`,
     );
   }
 

@@ -191,4 +191,78 @@ describe('client generator facts reach the IR (ONT-067)', () => {
   it('is absent for a schema with no generator block', () => {
     expect(scan({ source: `model A { id Int @id }` }).generator).toBeUndefined();
   });
+
+  it('generates no object and no action for an `@@ignore`d model (ONT-113)', () => {
+    const source = scan({
+      source: `
+        model users { id Int @id\n email String }
+        model events {
+          id BigInt @default(autoincrement())
+
+          @@ignore
+        }
+      `,
+    });
+
+    expect(source.objects.map((o) => o.name)).toEqual(['users']);
+    expect(source.actions.some((a) => /events/i.test(a.name))).toBe(false);
+  });
+
+  it('names `@@ignore` as the cause, not the missing @id it produces (ONT-113)', () => {
+    const source = scan({
+      source: `
+        model users { id Int @id }
+        model events {
+          id BigInt @default(autoincrement())
+
+          @@ignore
+        }
+        model no_pk_table {
+          a Int?
+
+          @@ignore
+        }
+      `,
+    });
+
+    const ignoreWarnings = source.warnings.filter((w) => /@@ignore/.test(w));
+    expect(ignoreWarnings).toHaveLength(1);
+    expect(ignoreWarnings[0]).toContain('events');
+    expect(ignoreWarnings[0]).toContain('no_pk_table');
+    expect(ignoreWarnings[0]).toMatch(/no delegate/i);
+
+    // The consequence must not be reported in place of the cause: an ignored
+    // model may legitimately lack an @id, and saying so sends the reader looking
+    // for a primary key that would not help.
+    expect(source.warnings.some((w) => /no single @id/.test(w) && /events/.test(w))).toBe(false);
+  });
+
+  it('drops a relation pointing at an ignored model without a second warning (ONT-113)', () => {
+    const source = scan({
+      source: `
+        model users {
+          id     Int @id
+          events events[]
+        }
+        model events {
+          id      BigInt @default(autoincrement())
+          user    users  @relation(fields: [userId], references: [id])
+          userId  Int
+
+          @@ignore
+        }
+      `,
+    });
+
+    const users = source.objects.find((o) => o.name === 'users');
+    expect(users?.relations.map((r) => r.target)).not.toContain('events');
+    expect(source.warnings.filter((w) => /unsupported type/i.test(w))).toHaveLength(0);
+    expect(source.warnings.filter((w) => /@@ignore/.test(w))).toHaveLength(1);
+  });
+
+  it('emits zero @@ignore warnings when no model carries it (ONT-113)', () => {
+    const source = scan({ source: `model Post { id String @id\n title String }` });
+
+    expect(source.warnings.filter((w) => /@@ignore/.test(w))).toHaveLength(0);
+  });
 });
