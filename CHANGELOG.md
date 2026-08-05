@@ -8,13 +8,31 @@ This is a v0 project: the API is the design target and it will move before 1.0.
 Anything that changes what an existing project does on upgrade is called out
 under **Upgrading** rather than buried in a list.
 
-## 0.1.5 — 2026-08-04
+## 0.1.5 — 2026-08-06
 
-**Documentation only. No code changed.** `0.1.4` and `0.1.5` are byte-identical as software; this
-release exists because npm renders its page from the published tarball, so the rewritten page could
-not reach a reader without a version.
+One fix, and the rewritten front door that was waiting on a version to reach npm.
 
-What changed on that page, and on the repository it links to:
+**A model carrying `@@ignore` no longer becomes a tool that cannot run.** Prisma Client generates no
+delegate for such a model, so the generated action called `prisma.<model>.create(...)` against
+`undefined`: a tool advertised in `tools/list` that threw the moment an agent called it. `init` now
+skips those models and says why, naming `@@ignore` rather than the missing `@id` it produces.
+
+This is reachable through the on-ramp this project recommends — `prisma db pull` attaches `@@ignore`
+on its own to any table without a unique identifier — so a schema introspected from an existing
+database was the likely way to hit it. Two things worth knowing about the fix:
+
+- **A table with no tool is not thereby protected.** It is not read-only, not gated and not audited;
+  it is off the map, and every credential that reaches the database still reaches it. The warning
+  says so, and
+  [what orangerail does not govern](https://github.com/KimHyeongRae0/orangerail/blob/main/docs/limits.md)
+  now carries the case.
+- A schema whose every model is ignored used to refuse with *"no Prisma schema found in this repo"*
+  at a user looking straight at one. "Nothing to generate" and "nothing to read" are now different
+  refusals.
+
+The documentation below was written for a release of its own, before the fix above existed:
+
+What changed on the npm page, and on the repository it links to:
 
 - **The front door leads with the generated tool surface rather than the approval gate.** One real
   `init` on a three-model schema and one real `tools/list`: sixteen tools, no `execute_sql`, nothing
@@ -26,6 +44,9 @@ What changed on that page, and on the repository it links to:
 - **[`bench/`](https://github.com/KimHyeongRae0/orangerail/tree/main/bench)** — the five fixtures
   behind that page, scored from database rows rather than from what an agent reports, so the results
   can be reproduced instead of believed.
+
+- **The sample behind those results is stated.** Six runs for the comparison, ten across both
+  rounds. Enough to retire "the model will ignore your rules"; nowhere near enough to be a rate.
 
 The claim this project still makes is narrower than the one it started with: a policy expressed as
 code is visible in a diff and fails closed when removed, and a policy expressed as prose is neither.
