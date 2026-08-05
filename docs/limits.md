@@ -66,6 +66,28 @@ run by CI or by a person — not by the agent. If the agent needs to propose one
 the migration file and let the normal review path decide, because that path is a human
 checkpoint orangerail is not offering here.
 
+## A table Prisma cannot model gets no tool, and that is not protection
+
+Some tables never reach the generated surface at all. `prisma db pull` attaches `@@ignore` on
+its own to any table without a unique identifier — partitioned tables, join tables, event
+tables — and Prisma Client generates no delegate for those, so orangerail generates no action
+for them either. `orangerail init` names them:
+
+```console
+$ orangerail init
+orangerail init: prisma: skipping 2 model(s) carrying `@@ignore` (events, no_pk_table) —
+Prisma Client generates no delegate for them, so no tool can be generated
+```
+
+**Read that as absence, not as a boundary.** Those tables are not read-only, not gated, and not
+audited. They are simply not on the map, and every credential that reaches the database still
+reaches them — the same second-route problem as above, arriving through the on-ramp this project
+recommends rather than through a tool the agent was handed. If one of those tables matters, the
+answer is a unique identifier in the schema, not the silence.
+
+Before ONT-113 this was worse than silence: the ignored models became tools that called an
+undefined delegate, so `tools/list` advertised writes that threw when an agent called them.
+
 ## A bulk intent costs one approval per row
 
 "Delete the 40 stale drafts" is 40 calls to `deleteArticle`, 40 staged approvals, and 40

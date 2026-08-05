@@ -101,6 +101,13 @@ export interface ParsedSchema {
   /** Names of declared `view` blocks, in source order (bodies never parsed). */
   views: string[];
   /**
+   * Names of `model` blocks carrying `@@ignore`, in source order. They are NOT
+   * in `models`: Prisma Client generates no delegate for them, so generating an
+   * action would emit `prisma.<model>.create(...)` against `undefined` — a tool
+   * advertised in `tools/list` that throws the moment it is called (ONT-113).
+   */
+  ignoredModels: string[];
+  /**
    * `<keyword> <name>` headers whose block name this grammar cannot accept, in
    * source order. Prisma rejects those names too, so the SKIP is correct — the
    * defect was that it happened with zero diagnostics, leaving a user staring at
@@ -260,16 +267,37 @@ const parseTypeToken = ({
   return { type: base, optional, list, unsupported };
 };
 
-/** Parse the body of a `model` block into raw fields. */
-const parseModelBody = ({ body }: { body: string }): RawField[] => {
+/**
+ * Whether a block-attribute line is `@@ignore`. Matched on the whole trimmed
+ * line so `@@ignoreSomething` — not a Prisma attribute, but a plausible typo —
+ * never reads as the real one. Comments are already stripped upstream, so a
+ * trailing `// pulled by db pull` cannot reach here.
+ */
+const IGNORE_ATTR = /^@@ignore\s*$/;
+
+/**
+ * Parse the body of a `model` block into raw fields, and report whether the
+ * block carries `@@ignore`.
+ *
+ * `@@ignore` is the one block attribute that changes what Prisma Client
+ * exposes: an ignored model gets no delegate at all, so `prisma.<model>` is
+ * `undefined` (ONT-113). Every other `@@` attribute leaves the client's shape
+ * alone and stays skipped.
+ */
+const parseModelBody = ({ body }: { body: string }): { fields: RawField[]; ignored: boolean } => {
   const fields: RawField[] = [];
+  let ignored = false;
 
   for (const rawLine of body.split('\n')) {
     const line = rawLine.trim();
 
     if (line === '' || line.startsWith('@@')) {
-      // Empty line or block-level attribute (`@@map` / `@@id` / `@@unique`) —
-      // block attributes do not change Prisma Client naming (D3), so ignored.
+      // Empty line or block-level attribute. `@@map` / `@@id` / `@@unique` /
+      // `@@index` do not change Prisma Client naming (D3) and are skipped;
+      // `@@ignore` removes the model from the client entirely and is recorded.
+      if (IGNORE_ATTR.test(line)) {
+        ignored = true;
+      }
       continue;
     }
 
@@ -294,7 +322,7 @@ const parseModelBody = ({ body }: { body: string }): RawField[] => {
     });
   }
 
-  return fields;
+  return { fields, ignored };
 };
 
 /** Parse the body of an `enum` block into member names, in declared order. */
@@ -385,6 +413,7 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
   const models: RawModel[] = [];
   const enums: RawEnum[] = [];
   const views: string[] = [];
+  const ignoredModels: string[] = [];
   let datasource: RawDatasource | undefined;
   let generator: RawGenerator | undefined;
 
@@ -406,7 +435,16 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
         generator = candidate;
       }
     } else if (block.keyword === 'model') {
-      models.push({ name: block.name, fields: parseModelBody({ body: block.body }) });
+      const { fields, ignored } = parseModelBody({ body: block.body });
+
+      // An ignored model is recorded by name only and never becomes a model:
+      // there is no delegate to call, so the correct outcome is absence with a
+      // stated reason, not a tool that throws.
+      if (ignored) {
+        ignoredModels.push(block.name);
+      } else {
+        models.push({ name: block.name, fields });
+      }
     } else if (block.keyword === 'enum') {
       enums.push({ name: block.name, values: parseEnumBody({ body: block.body }) });
     } else if (block.keyword === 'view') {
@@ -421,6 +459,7 @@ export const parsePrismaSchema = ({ source }: { source: string }): ParsedSchema 
     models,
     enums,
     views,
+    ignoredModels,
     invalidBlocks,
     ...(datasource === undefined ? {} : { datasource }),
     ...(generator === undefined ? {} : { generator }),

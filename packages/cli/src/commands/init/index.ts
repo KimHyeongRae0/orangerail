@@ -23,7 +23,7 @@ import {
   writeFileSet,
 } from './atomic';
 import type { ScannedSource } from './ir';
-import { hasScannedContent, scanRepo } from './scan';
+import { hasDetectedSource, hasScannedContent, scanRepo } from './scan';
 import { hasYamlSpec, YAML_HINT } from './scanners/openapi/scan';
 import { applyFilters, resolveSelection, unaccountedModels } from './select';
 import { runWizard, type InitFlags } from './wizard';
@@ -172,6 +172,20 @@ export const runInit = async ({
     // tool already have a database and no schema file, so "add a
     // prisma/schema.prisma" is an instruction they cannot follow without first
     // being told that `prisma db pull` writes one for them.
+    if (hasDetectedSource({ cwd })) {
+      // The file is there and every declaration in it was skipped — the reason
+      // is already on stderr above, one aggregated line per cause (ONT-113).
+      // Repeating "no schema found" here would send the user to add a file they
+      // are looking straight at.
+      process.stderr.write(
+        'orangerail init: your sources were read, and nothing in them can become a tool.\n' +
+          'The skip reason is printed above — every declaration was excluded for it.\n' +
+          `A schema written entirely by \`prisma db pull\` can land here: it attaches \`@@ignore\` to every table without a unique identifier, and Prisma Client serves none of those — see ${EXISTING_DB_DOC}.\n`,
+      );
+
+      return 1;
+    }
+
     process.stderr.write(
       'orangerail init: no Prisma schema or OpenAPI JSON found in this repo.\n' +
         'Add a `prisma/schema.prisma` and/or an `openapi.json`, then re-run.\n' +
