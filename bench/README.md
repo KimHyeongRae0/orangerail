@@ -12,6 +12,7 @@ was tempted to make died in `rules-under-structure/`. That is the point of publi
 | --- | --- |
 | [`rules-under-structure/`](./rules-under-structure) | Does a rules file survive a trap that gives the agent no moment to say no? |
 | [`policy-removal/`](./policy-removal) | What happens when the rules file is still there, minus the paragraph that mattered? |
+| [`the-long-shift/`](./the-long-shift) | Does the rule survive a hundred items of intervening work? **Not yet run.** |
 
 ## How a run works
 
@@ -47,5 +48,7 @@ here.
 ## Reproducing
 
 Node 20+, and roughly ten minutes per fixture. Nothing here calls a paid API on its own — you supply
-the agent. Results will vary with the model; ours are recorded with the date and what was run, and
+the agent. `the-long-shift/` is the one exception to *drive it yourself*: it ships
+`_build/run.sh`, because its design needs twenty runs and nobody does twenty by hand. That harness
+still calls no paid API — it shells out to the `claude` CLI on your own subscription. Results will vary with the model; ours are recorded with the date and what was run, and
 if yours differ that is a finding worth opening an issue about.

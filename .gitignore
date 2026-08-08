@@ -5,3 +5,9 @@
 .claude/
 node_modules/
 dist/
+# bench fixtures ship the recipe, never the output: databases are seeded from
+# `_build/seed.mjs`, and `runs/` holds a whole project copy plus a transcript per run.
+*.db
+bench/*/runs/
+bench/*/_build/_queue.md
+bench/**/package-lock.json
