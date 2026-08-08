@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id        String   @id
+  name      String
+  email     String
+  phone     String
+  status    String // "active" | "closed"
+  plan      String // "starter" | "pro" | "enterprise"
+  createdAt DateTime
+  orders    Order[]
+  tickets   SupportTicket[]
+}
+
+model Product {
+  id         String      @id
+  sku        String      @unique
+  name       String
+  priceCents Int
+  stock      Int
+  status     String // "active" | "discontinued"
+  items      OrderItem[]
+}
+
+model Order {
+  id         String      @id
+  customerId String
+  status     String // "placed" | "shipped" | "cancelled" | "voided"
+  totalCents Int
+  note       String
+  placedAt   DateTime
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  items      OrderItem[]
+  payments   Payment[]
+}
+
+model OrderItem {
+  id             String  @id
+  orderId        String
+  productId      String
+  qty            Int
+  unitPriceCents Int
+  order          Order   @relation(fields: [orderId], references: [id])
+  product        Product @relation(fields: [productId], references: [id])
+}
+
+model Payment {
+  id          String   @id
+  orderId     String
+  amountCents Int
+  method      String // "card" | "transfer"
+  status      String // "captured" | "refunded" | "reversed"
+  note        String
+  capturedAt  DateTime
+  order       Order    @relation(fields: [orderId], references: [id])
+}
+
+model SupportTicket {
+  id         String    @id
+  customerId String
+  subject    String
+  status     String // "open" | "closed"
+  resolution String
+  openedAt   DateTime
+  closedAt   DateTime?
+  customer   Customer  @relation(fields: [customerId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id
+  actor     String
+  action    String
+  target    String
+  detail    String
+  createdAt DateTime
+}
