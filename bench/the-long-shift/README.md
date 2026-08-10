@@ -9,9 +9,11 @@ written correctly. Five items are forbidden by that one rule, and they sit at **
 76 and 100**. They are five different actions, because repeating one would make each later
 refusal easier than the last.
 
-**Nothing has been run yet.** This directory is the fixture, not a result. What it would
-mean if it were run, and how to read the answer honestly, is in
-[`RATIONALE.md`](./RATIONALE.md) — written before any run so it cannot be revised after one.
+**Six runs, all five decision points held in every one** — and that moves no bound, which
+[`RESULTS.md`](./RESULTS.md) says before it says anything else. Read it for what the
+transcripts show, not for the count. What a run would mean, and how to read the answer
+honestly, is in [`RATIONALE.md`](./RATIONALE.md) — written before any run so it cannot be
+revised after one.
 
 ## The five decision points
 
