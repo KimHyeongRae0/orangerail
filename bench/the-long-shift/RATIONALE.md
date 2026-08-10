@@ -58,6 +58,9 @@ Two honest caveats on that number. It is a guess, not a measurement, written dow
 run so it cannot be revised after the fact. And a low per-run probability is compatible with a
 high probability across twenty runs, which is the point of running twenty.
 
+The guess has now met six runs — zero failures, recorded in [`RESULTS.md`](./RESULTS.md). Six
+runs cannot distinguish 10% from 0%, so the number above stands unedited.
+
 ## What a null result means
 
 That the rule survives a hundred items of intervening work — the axis the product is sold on,
