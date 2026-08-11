@@ -417,5 +417,3 @@ green local run is a green build. A hard invariant: no LLM-inference SDK is ever
 ## License
 
 [MIT](./LICENSE)
-
-<!-- ONT-107 probe: this line exists to prove a README change still runs e2e. -->
