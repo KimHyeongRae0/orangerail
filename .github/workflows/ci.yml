@@ -21,6 +21,85 @@ jobs:
       - name: Run the gate harness
         run: ./scripts/verify.sh
 
+  # Decides whether `e2e` runs. A separate job because `actions/checkout` defaults
+  # to depth 1 and a diff needs history — `fetch-depth: 0` is paid once here rather
+  # than on the job that is about to skip.
+  #
+  # This is an ALLOWLIST of inert paths, and that direction is the whole point. A
+  # path nobody anticipated runs the suite instead of skipping it, so a new
+  # directory cannot silently lose coverage — only the four patterns named below
+  # can skip, and adding to them is a deliberate edit.
+  #
+  # MARKDOWN IS NOT INERT IN THIS REPO. Two scenarios read it and execute it:
+  #
+  #   tests/e2e/ONT-093-quickstart-runs-as-documented.scenario.mjs:82
+  #     lifts the root README's "## Quickstart" section and runs it verbatim
+  #   tests/e2e/ONT-087-examples-run-as-documented.scenario.mjs:50
+  #     lifts each examples/*/README.md "## Run it" section and runs it
+  #
+  # So `README.md` and `examples/**/README.md` are on the always-run side. The
+  # obvious rule — "skip e2e when only docs changed" — would switch those two off
+  # in the exact case they were built for, and the Quickstart would rot behind a
+  # green suite. Only image and video files under examples/ are inert.
+  #
+  # `docs/**/*.md` is inert because no scenario reads it TODAY, verified by
+  # grepping the suite for a repo-root join over `docs` (ONT-004's 'docs' is the
+  # CLI subcommand name, not this directory). A future scenario that parses docs/
+  # has to take it off this list or it loses its gate without anyone noticing.
+  #
+  # `LICENSE` is deliberately absent: ONT-019 asserts every package tarball
+  # contains one.
+  changed:
+    runs-on: ubuntu-latest
+    outputs:
+      run_e2e: ${{ steps.classify.outputs.run_e2e }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # `git diff` against the PR base, not a third-party action. The diff is two
+      # lines of shell and adds no supply-chain surface to a workflow that can see
+      # the repository.
+      - id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+
+          decide() {
+            echo "verdict: run_e2e=$1 — $2"
+            echo "run_e2e=$1" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          # main is the branch releases are cut from, and a merge commit's diff is
+          # not the pull request's diff. e2e always runs there.
+          [ "$EVENT" = "pull_request" ] || decide true "event is '$EVENT', not a pull request"
+
+          FILES="$(git diff --name-only "$BASE...$HEAD" 2>/dev/null)" || FILES=""
+
+          # An empty or uncomputable diff falls back to running. Skipping is the
+          # only outcome that can lose coverage, so it is never the fallback.
+          [ -n "$FILES" ] || decide true "no diff computed against '$BASE' — refusing to skip"
+
+          echo "changed files:"
+          echo "$FILES" | sed 's/^/  /'
+
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              assets/*) ;;
+              bench/*) ;;
+              docs/*.md) ;;
+              examples/*.gif|examples/*.png|examples/*.jpg|examples/*.jpeg|examples/*.webp|examples/*.svg|examples/*.mp4) ;;
+              *) decide true "'$f' is not on the inert allowlist" ;;
+            esac
+          done <<< "$FILES"
+
+          decide false "every changed file is on the inert allowlist"
+
   # A SEPARATE job, not a tenth gate inside verify.sh.
   #
   # verify.sh is what a contributor runs locally before every commit and it has
@@ -32,9 +111,11 @@ jobs:
   # running in parallel.
   #
   # As its own job it runs concurrently with `verify` (wall time is
-  # max(verify, e2e), not the sum), gets a clean runner with no contention from
-  # five vitest pools, and fails the check independently — so a red scenario is
-  # attributable at a glance instead of hiding behind a `verify` failure.
+  # max(verify, changed + e2e), not the sum), gets a clean runner with no
+  # contention from five vitest pools, and fails the check independently — so a
+  # red scenario is attributable at a glance instead of hiding behind a `verify`
+  # failure. The `changed` hop in front of it costs a checkout; `verify` is ~72 s
+  # and still sets the floor, so it is not on the critical path.
   #
   # Scenarios are NOT parallelized inside the job. Several bind ports, several
   # share `.docs/scratch/` run dirs, and ONT-018's `prisma db push` regenerates
@@ -42,6 +123,12 @@ jobs:
   # already runs them serially and exits non-zero if any one fails, which is
   # exactly the contract this job needs — so there is one runner, not a matrix.
   e2e:
+    needs: changed
+    # Skipped via `if:`, which GitHub reports as a skipped job rather than a
+    # failure. `main` carries no branch protection today, so no required check is
+    # waiting on this; if protection is ever added with `e2e` required, confirm
+    # the skip still satisfies it before trusting this line.
+    if: needs.changed.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
     # The full regression is minutes; this is a backstop against a scenario that
     # hangs on a port or an MCP handshake, not an expected duration.
