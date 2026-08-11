@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="orangerail">
+  <title>orangerail</title>
+  <style>
+    /* The same skeleton as logo.svg with the twin rails folded to one, for
+       sizes where two 3.6-wide strokes and the gap between them collapse into
+       a smear: favicon, npm, a browser tab. Measured, not assumed — the
+       four-detail-level comparison at 16px is what chose this. */
+    svg { --rail: #ee7a2b; }
+    @media (prefers-color-scheme: dark) { svg { --rail: #ff8a3d; } }
+    .rail { fill: none; stroke: var(--rail); stroke-linecap: round; stroke-width: 7; }
+  </style>
+  <g transform="translate(1.5 2.5)">
+    <path class="rail" d="M7 47 H57"/>
+    <path class="rail" d="M22 47 C35 47 34 21 46 21"/>
+    <path class="rail" d="M54 12 V30"/>
+  </g>
+</svg>
